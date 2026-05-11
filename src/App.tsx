@@ -1,0 +1,24 @@
+import { lazy, Suspense } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import HomePage from './pages/HomePage'
+
+const MapPage = lazy(() => import('./pages/MapPage'))
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route
+        path="/map"
+        element={
+          <Suspense fallback={<div style={{ color: '#fff', padding: '2rem' }}>Loading map…</div>}>
+            <MapPage />
+          </Suspense>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
+export default App

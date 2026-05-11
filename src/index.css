@@ -1,0 +1,28 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg: #0f1117;
+  --color-surface: #1a1d27;
+  --color-border: #2a2d3a;
+  --color-primary: #4f8ff7;
+  --color-primary-hover: #3a7de6;
+  --color-text: #e4e6ed;
+  --color-text-muted: #8b8fa3;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
