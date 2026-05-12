@@ -1,8 +1,104 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './MapPage.css'
+
+const NOISE_TILE_URL = '/tiles/airport-noise/{z}/{x}/{y}.png'
+
+const SUPERFUND_API =
+  'https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/FAC_Superfund_Site_Boundaries_EPA_Public/FeatureServer/0/query'
+
+const SUPERFUND_FIELDS = [
+  'SITE_NAME', 'EPA_ID', 'NPL_STATUS_CODE', 'CITY_NAME',
+  'STATE_CODE', 'SITE_FEATURE_TYPE', 'URL_ALIAS_TXT',
+].join(',')
+
+const LEGEND_STOPS = [
+  { db: 45, color: 'rgb(34, 139, 34)' },
+  { db: 50, color: 'rgb(124, 179, 66)' },
+  { db: 55, color: 'rgb(255, 235, 59)' },
+  { db: 60, color: 'rgb(255, 152, 0)' },
+  { db: 65, color: 'rgb(244, 67, 54)' },
+  { db: 70, color: 'rgb(136, 14, 79)' },
+]
+
+const SUPERFUND_STYLE: L.PathOptions = {
+  color: '#d500f9',
+  weight: 3,
+  opacity: 1,
+  fillColor: '#aa00ff',
+  fillOpacity: 0.25,
+  dashArray: '6, 4',
+}
+
+const SUPERFUND_HOVER_STYLE: L.PathOptions = {
+  weight: 5,
+  fillOpacity: 0.45,
+  color: '#ff6eff',
+}
+
+async function fetchSuperfundFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: SUPERFUND_FIELDS,
+    geometry: bbox,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'geojson',
+    resultRecordCount: '500',
+  })
+  const res = await fetch(`${SUPERFUND_API}?${params}`)
+  return res.json()
+}
+
+const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
+  F: { label: 'Final', desc: 'Officially listed on the NPL as a priority cleanup site' },
+  P: { label: 'Proposed', desc: 'Proposed for NPL listing; under public comment review' },
+  D: { label: 'Deleted', desc: 'Removed from NPL after cleanup goals were met' },
+}
+
+function superfundPopup(props: Record<string, string | null>): string {
+  const name = props.SITE_NAME || 'Unknown Site'
+  const city = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
+  const status = props.NPL_STATUS_CODE || ''
+  const npl = NPL_STATUS_INFO[status]
+  const epaId = props.EPA_ID || ''
+  const url = props.URL_ALIAS_TXT
+  const link = url
+    ? `<a href="${url}" target="_blank" rel="noopener">View EPA Site Profile →</a>`
+    : ''
+  const statusHtml = npl
+    ? `<div class="popup-row">
+         <span class="popup-label">NPL Status</span>
+         <span class="popup-badge">${npl.label}</span>
+       </div>
+       <div class="popup-npl-desc">${npl.desc}</div>`
+    : status
+      ? `<div class="popup-row"><span class="popup-label">NPL Status</span><span class="popup-badge">${status}</span></div>`
+      : ''
+  return `
+    <div class="superfund-popup">
+      <div class="popup-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7b1fa2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <strong>${name}</strong>
+      </div>
+      <div class="popup-body">
+        ${city ? `<div class="popup-row"><span class="popup-label">Location</span><span>${city}</span></div>` : ''}
+        ${epaId ? `<div class="popup-row"><span class="popup-label">EPA ID</span><span class="popup-mono">${epaId}</span></div>` : ''}
+        ${statusHtml}
+      </div>
+      ${link ? `<div class="popup-footer">${link}</div>` : ''}
+    </div>
+  `
+}
 
 function MapPage() {
   const [searchParams] = useSearchParams()
@@ -10,8 +106,36 @@ function MapPage() {
   const address = searchParams.get('address') || ''
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
+  const noiseLayerRef = useRef<L.TileLayer | null>(null)
+  const superfundLayerRef = useRef<L.GeoJSON | null>(null)
+  const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
+  const [noiseVisible, setNoiseVisible] = useState(false)
+  const [superfundVisible, setSuperfundVisible] = useState(false)
+  const [superfundLoading, setSuperfundLoading] = useState(false)
+
+  const loadSuperfundData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+    const bounds = map.getBounds()
+
+    // Skip if we already loaded data covering the current view
+    const loaded = superfundLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) return
+
+    setSuperfundLoading(true)
+    try {
+      // Fetch a padded area so small pans don't trigger new requests
+      const padded = bounds.pad(0.5)
+      const geojson = await fetchSuperfundFeatures(padded)
+      layer.clearLayers()
+      layer.addData(geojson)
+      superfundLoadedBoundsRef.current = padded
+    } catch (err) {
+      console.error('Failed to load Superfund data:', err)
+    } finally {
+      setSuperfundLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!address) {
@@ -54,10 +178,32 @@ function MapPage() {
 
         L.marker([lat, lng]).addTo(map)
 
+        // Create noise layer (not added to map until toggled on)
+        noiseLayerRef.current = L.tileLayer(NOISE_TILE_URL, {
+          opacity: 0.7,
+          maxZoom: 19,
+          attribution: 'Noise: FAA/BTS Aviation Noise 2020',
+          errorTileUrl: '',
+        })
+
+        // Create Superfund layer (not added to map until toggled on)
+        superfundLayerRef.current = L.geoJSON(undefined, {
+          style: () => SUPERFUND_STYLE,
+          onEachFeature: (_feature, layer) => {
+            const props = (_feature as GeoJSON.Feature).properties || {}
+            layer.bindPopup(superfundPopup(props), { maxWidth: 280 })
+            layer.on('mouseover', (e) => {
+              (e.target as L.Path).setStyle(SUPERFUND_HOVER_STYLE)
+            })
+            layer.on('mouseout', (e) => {
+              superfundLayerRef.current?.resetStyle(e.target as L.Path)
+            })
+          },
+        })
+
         mapRef.current = map
         setStatus('ready')
 
-        // Force Leaflet to recalculate container size
         setTimeout(() => map.invalidateSize(), 0)
       })
       .catch((err) => {
@@ -68,10 +214,51 @@ function MapPage() {
 
     return () => {
       abortController.abort()
+      noiseLayerRef.current = null
+      superfundLayerRef.current = null
+      superfundLoadedBoundsRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
   }, [address, navigate])
+
+  const toggleNoise = () => {
+    const map = mapRef.current
+    const layer = noiseLayerRef.current
+    if (!map || !layer) return
+
+    if (noiseVisible) {
+      map.removeLayer(layer)
+    } else {
+      layer.addTo(map)
+    }
+    setNoiseVisible(!noiseVisible)
+  }
+
+  const toggleSuperfund = () => {
+    const map = mapRef.current
+    const layer = superfundLayerRef.current
+    if (!map || !layer) return
+
+    if (superfundVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleSuperfundMove)
+    } else {
+      layer.addTo(map)
+      superfundLoadedBoundsRef.current = null
+      loadSuperfundData(map, layer)
+      map.on('moveend', handleSuperfundMove)
+    }
+    setSuperfundVisible(!superfundVisible)
+  }
+
+  const handleSuperfundMove = useCallback(() => {
+    const map = mapRef.current
+    const layer = superfundLayerRef.current
+    if (map && layer) {
+      loadSuperfundData(map, layer)
+    }
+  }, [loadSuperfundData])
 
   return (
     <div className="map-page">
@@ -112,7 +299,54 @@ function MapPage() {
 
       <aside className="layer-panel">
         <h2 className="panel-title">Layers</h2>
-        <p className="panel-placeholder">Layer controls coming soon.</p>
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
+            checked={noiseVisible}
+            onChange={toggleNoise}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">Airport Noise</span>
+        </label>
+        {noiseVisible && (
+          <div className="noise-legend">
+            <div className="legend-bar">
+              {LEGEND_STOPS.map((stop, i) => (
+                <div
+                  key={i}
+                  className="legend-segment"
+                  style={{ background: stop.color }}
+                />
+              ))}
+            </div>
+            <div className="legend-labels">
+              <span>{LEGEND_STOPS[0].db} dB</span>
+              <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].db} dB</span>
+            </div>
+          </div>
+        )}
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
+            checked={superfundVisible}
+            onChange={toggleSuperfund}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">
+            Superfund Sites
+            {superfundLoading && <span className="layer-loading"> ⏳</span>}
+          </span>
+        </label>
+        {superfundVisible && (
+          <div className="superfund-legend">
+            <div className="legend-swatch-row">
+              <span className="legend-swatch" />
+              <span>NPL Site Boundary</span>
+            </div>
+          </div>
+        )}
       </aside>
     </div>
   )
