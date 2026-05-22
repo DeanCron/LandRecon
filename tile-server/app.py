@@ -37,7 +37,7 @@ COLOR_STOPS = np.array([
     [70, 136, 14, 79],
 ], dtype=np.float32)
 
-STATE_RE = re.compile(r"^([A-Z]{2})_CNE_.*\.tif$", re.IGNORECASE)
+STATE_RE = re.compile(r"^([A-Z]{2})_(?:CNE_|aviation_noise_).*\.tif$", re.IGNORECASE)
 _readers: dict = {}
 _lock = Lock()
 
