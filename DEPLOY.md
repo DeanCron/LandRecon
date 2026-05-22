@@ -1,106 +1,135 @@
 # Azure Deployment Guide
 
-LandRecon deploys as a **single Azure App Service** (Python/Linux) that serves both
-the React frontend and the tile server API.
+LandRecon deploys as a **Docker container on Azure Container Apps** — a single
+container serves both the React frontend and the tile server API.
 
 ---
 
 ## Architecture
 
 ```
-Azure App Service (Python 3.11, B1+)
-├── gunicorn → Flask app (app.py)
-│   ├── /tiles/airport-noise/* → renders noise raster tiles
-│   ├── /health → health check
-│   └── /* → serves React SPA (static/index.html)
-└── static/ → Vite build output (copied during CI)
+Azure Container Apps
+└── Docker container (GDAL + Python 3.11)
+    └── gunicorn → Flask app (app.py)
+        ├── /tiles/airport-noise/* → renders noise raster tiles
+        ├── /health → health check
+        └── /* → serves React SPA (static/index.html)
 ```
 
 ---
 
-## Step 1: Create Azure App Service
+## Local Docker Testing
+
+```bash
+# Build
+docker build --build-arg VITE_TOMTOM_API_KEY=your-key -t landrecon .
+
+# Run (mount your local raster data)
+docker run -p 8000:8000 -v C:\Temp\CONUS_aviation_noise_2020\State_rasters:/data landrecon
+```
+
+Visit http://localhost:8000
+
+---
+
+## Step 1: Create Azure Resources
 
 ```bash
 # Create resource group
 az group create --name LandRecon-RG --location eastus
 
-# Create App Service Plan (B1 minimum for Python + rasterio)
-az appservice plan create \
-  --name landrecon-plan \
+# Create Container Apps environment
+az containerapp env create \
+  --name landrecon-env \
   --resource-group LandRecon-RG \
-  --sku B1 \
-  --is-linux
+  --location eastus
 
-# Create the web app
-az webapp create \
+# Create the container app
+az containerapp create \
   --name landrecon \
   --resource-group LandRecon-RG \
-  --plan landrecon-plan \
-  --runtime "PYTHON:3.11"
-
-# Set startup command
-az webapp config set \
-  --name landrecon \
-  --resource-group LandRecon-RG \
-  --startup-file "gunicorn --bind=0.0.0.0:8000 --timeout 120 --workers 2 app:app"
+  --environment landrecon-env \
+  --image ghcr.io/deancron/landrecon:latest \
+  --target-port 8000 \
+  --ingress external \
+  --cpu 1 --memory 2Gi \
+  --min-replicas 0 \
+  --max-replicas 3 \
+  --env-vars TILE_DATA_DIR=/data
 ```
 
 ---
 
-## Step 2: Upload Noise Data
+## Step 2: Noise Raster Data
 
-The tile server needs GeoTIFF raster files.
+Mount an Azure Files share with your GeoTIFF data:
 
-**Option A: Direct upload via Kudu**
-Upload state raster TIFFs to `/home/site/wwwroot/data/` via the Kudu console or FTP.
-
-**Option B: Mount Azure Blob Storage (recommended for large data)**
 ```bash
-az webapp config storage-account add \
-  --name landrecon \
-  --resource-group LandRecon-RG \
-  --custom-id noise-data \
-  --storage-type AzureBlob \
-  --account-name <storage-account> \
-  --share-name noise-rasters \
-  --access-key <key> \
-  --mount-path /data
+# Create storage account + file share
+az storage account create --name landreconstorage --resource-group LandRecon-RG --sku Standard_LRS
+az storage share create --name noise-rasters --account-name landreconstorage
 
-az webapp config appsettings set \
+# Upload raster files
+az storage file upload-batch --destination noise-rasters --source ./State_rasters --account-name landreconstorage
+
+# Add storage mount to Container Apps environment
+az containerapp env storage set \
+  --name landrecon-env \
+  --resource-group LandRecon-RG \
+  --storage-name noisestorage \
+  --azure-file-account-name landreconstorage \
+  --azure-file-account-key <key> \
+  --azure-file-share-name noise-rasters \
+  --access-mode ReadOnly
+
+# Mount in the container app
+az containerapp update \
   --name landrecon \
   --resource-group LandRecon-RG \
-  --settings TILE_DATA_DIR="/data"
+  --set-env-vars TILE_DATA_DIR=/data \
+  --container-name landrecon \
+  --revision-suffix v2
 ```
 
 ---
 
 ## Step 3: Configure GitHub Secrets & Variables
 
-In your GitHub repo → Settings → Secrets and variables → Actions:
+In GitHub repo → Settings → Secrets and variables → Actions:
 
 **Secrets:**
 | Name | Value |
 |------|-------|
-| `AZURE_PUBLISH_PROFILE` | Download from Azure Portal → App Service → Get publish profile |
+| `AZURE_CREDENTIALS` | Service principal JSON (`az ad sp create-for-rbac --sdk-auth`) |
 | `TOMTOM_API_KEY` | Your TomTom API key |
 
 **Variables:**
 | Name | Value |
 |------|-------|
-| `AZURE_APP_NAME` | `landrecon` (or whatever you named it) |
+| `AZURE_CONTAINER_APP_NAME` | `landrecon` |
+| `AZURE_RESOURCE_GROUP` | `LandRecon-RG` |
 
 ---
 
 ## Step 4: Deploy
 
-Push to `main` — GitHub Actions will automatically:
-1. Build the React app (`npm run build`)
-2. Copy `dist/` into `tile-server/static/`
-3. ZIP and deploy to Azure App Service
+Push to `main` — GitHub Actions will:
+1. Build the Docker image (multi-stage: Node frontend + Python/GDAL runtime)
+2. Push to GitHub Container Registry (ghcr.io)
+3. Deploy new revision to Azure Container Apps
 
 ---
 
-## Local Development
+## Scaling
 
-No changes needed — Vite proxies `/tiles` to `localhost:8001` via `vite.config.ts`.
-The production Flask app serves the same `/tiles` routes directly.
+Container Apps auto-scales based on HTTP traffic:
+- `min-replicas: 0` — scales to zero when idle (cost savings)
+- `max-replicas: 3` — handles traffic spikes
+- Adjust CPU/memory for heavier raster workloads
+
+---
+
+## Local Development (no Docker)
+
+Still works the same — Vite proxies `/tiles` to `localhost:8001` via `vite.config.ts`.
+Run `python tile_server.py` and `npm run dev` separately.
