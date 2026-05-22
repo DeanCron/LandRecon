@@ -6,6 +6,10 @@ import './MapPage.css'
 
 const NOISE_TILE_URL = '/tiles/airport-noise/{z}/{x}/{y}.png'
 
+// TomTom Traffic Flow tile layer (real-time)
+const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
+const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`
+
 type BaseMapId = 'street' | 'satellite' | 'light' | 'dark'
 
 const BASE_MAPS: Record<BaseMapId, { label: string; url: string; attribution: string; maxZoom: number }> = {
@@ -548,6 +552,7 @@ function MapPage() {
   const heliportLayerRef = useRef<L.LayerGroup | null>(null)
   const heliportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const heliportKnownIdsRef = useRef<Set<string>>(new Set())
+  const trafficLayerRef = useRef<L.TileLayer | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [noiseVisible, setNoiseVisible] = useState(false)
@@ -558,6 +563,7 @@ function MapPage() {
   const [schoolsVisible, setSchoolsVisible] = useState(false)
   const [schoolsLoading, setSchoolsLoading] = useState(false)
   const [heliportsVisible, setHeliportsVisible] = useState(false)
+  const [trafficVisible, setTrafficVisible] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
 
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
@@ -905,6 +911,14 @@ function MapPage() {
         // Create heliport label layer (not added to map until toggled on)
         heliportLayerRef.current = L.layerGroup()
 
+        // Create traffic flow layer (not added to map until toggled on)
+        trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
+          opacity: 0.7,
+          maxZoom: 22,
+          attribution: '&copy; <a href="https://developer.tomtom.com/">TomTom</a> Traffic',
+          errorTileUrl: '',
+        })
+
         mapRef.current = map
         setStatus('ready')
 
@@ -932,6 +946,7 @@ function MapPage() {
       heliportLayerRef.current = null
       heliportLoadedBoundsRef.current = null
       heliportKnownIdsRef.current.clear()
+      trafficLayerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
@@ -1086,6 +1101,19 @@ function MapPage() {
       loadSchoolData(map, layer)
     }
   }, [loadSchoolData])
+
+  const toggleTraffic = () => {
+    const map = mapRef.current
+    const layer = trafficLayerRef.current
+    if (!map || !layer) return
+
+    if (trafficVisible) {
+      map.removeLayer(layer)
+    } else {
+      layer.addTo(map)
+    }
+    setTrafficVisible(!trafficVisible)
+  }
 
   return (
     <div className="map-page">
@@ -1242,6 +1270,32 @@ function MapPage() {
                 <span>{SCHOOL_LABELS[cat]}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
+            checked={trafficVisible}
+            onChange={toggleTraffic}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">Traffic Flow</span>
+        </label>
+        {trafficVisible && (
+          <div className="traffic-legend">
+            <div className="legend-bar">
+              <div className="legend-segment" style={{ background: '#00b050' }} />
+              <div className="legend-segment" style={{ background: '#ffff00' }} />
+              <div className="legend-segment" style={{ background: '#ff8000' }} />
+              <div className="legend-segment" style={{ background: '#ff0000' }} />
+              <div className="legend-segment" style={{ background: '#800000' }} />
+            </div>
+            <div className="legend-labels">
+              <span>Free flow</span>
+              <span>Congested</span>
+            </div>
+            <div className="traffic-note">Real-time data only</div>
           </div>
         )}
       </aside>
