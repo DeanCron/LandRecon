@@ -1,0 +1,30 @@
+name: Deploy Tile Server to Azure App Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tile-server/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: tile-server
+        run: pip install -r requirements.txt
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_TILE_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_TILE_SERVER_PUBLISH_PROFILE }}
+          package: tile-server
+          startup-command: 'gunicorn --bind=0.0.0.0:8000 --timeout 120 --workers 2 app:app'

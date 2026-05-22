@@ -4,7 +4,8 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './MapPage.css'
 
-const NOISE_TILE_URL = '/tiles/airport-noise/{z}/{x}/{y}.png'
+const TILE_SERVER_BASE = import.meta.env.VITE_TILE_SERVER_URL || ''
+const NOISE_TILE_URL = `${TILE_SERVER_BASE}/tiles/airport-noise/{z}/{x}/{y}.png`
 
 // TomTom Traffic Flow tile layer (real-time)
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
@@ -863,7 +864,7 @@ function MapPage() {
         const latRad = (lat * Math.PI) / 180
         const x = Math.floor(((lng + 180) / 360) * Math.pow(2, zoom))
         const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom))
-        const tileUrl = `/tiles/airport-noise/${zoom}/${x}/${y}.png`
+        const tileUrl = `${TILE_SERVER_BASE}/tiles/airport-noise/${zoom}/${x}/${y}.png`
         const img = new window.Image()
         img.crossOrigin = 'anonymous'
         await new Promise<void>((resolve, reject) => {
