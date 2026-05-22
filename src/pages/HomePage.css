@@ -18,6 +18,14 @@
 .home-icon {
   color: var(--color-primary);
   margin-bottom: 0.25rem;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.home-icon img {
+  display: block;
+  margin: 0 auto;
 }
 
 .home-title {
@@ -43,6 +51,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 1rem;
 }
 

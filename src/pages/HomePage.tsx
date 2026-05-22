@@ -6,6 +6,27 @@ import './HomePage.css'
 interface Suggestion {
   place_id: number
   display_name: string
+  address?: {
+    house_number?: string
+    road?: string
+    city?: string
+    town?: string
+    village?: string
+    state?: string
+    postcode?: string
+    county?: string
+    country?: string
+  }
+}
+
+function formatAddress(s: Suggestion): string {
+  const a = s.address
+  if (!a) return s.display_name
+  const street = [a.house_number, a.road].filter(Boolean).join(' ')
+  const city = a.city || a.town || a.village || ''
+  const parts = [street, city, a.state].filter(Boolean)
+  if (a.postcode) parts.push(a.postcode)
+  return parts.join(', ') || s.display_name
 }
 
 function HomePage() {
@@ -58,7 +79,7 @@ function HomePage() {
   }
 
   const selectSuggestion = (suggestion: Suggestion) => {
-    setAddress(suggestion.display_name)
+    setAddress(formatAddress(suggestion))
     setShowSuggestions(false)
     setSuggestions([])
   }
@@ -126,7 +147,7 @@ function HomePage() {
                       <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                       <circle cx="12" cy="10" r="3" />
                     </svg>
-                    {s.display_name}
+                    {formatAddress(s)}
                   </li>
                 ))}
               </ul>

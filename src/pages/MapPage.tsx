@@ -810,14 +810,19 @@ function MapPage() {
   }, [])
 
   const loadSchoolData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    const bounds = map.getBounds()
+    const center = map.getCenter()
+    // 5 mile radius in degrees (approx)
+    const radiusDeg = 5 / 69
+    const bounds = L.latLngBounds(
+      [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
+      [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
+    )
     const loaded = schoolLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) return
 
     setSchoolsLoading(true)
     try {
-      const padded = bounds.pad(0.5)
-      const schools = await fetchSchools(padded)
+      const schools = await fetchSchools(bounds)
       // Build all markers before touching the layer to avoid flicker
       const newMarkers: L.CircleMarker[] = []
       for (const school of schools) {
@@ -829,13 +834,13 @@ function MapPage() {
           weight: 2,
           opacity: 1,
           fillOpacity: 0.85,
-        }).bindPopup(schoolPopup(school), { maxWidth: 280 })
+        }).bindTooltip(school.name, { direction: 'top', offset: [0, -6], className: 'location-tooltip' })
         newMarkers.push(marker)
       }
       // Swap: clear old, add new in one batch
       layer.clearLayers()
       for (const m of newMarkers) m.addTo(layer)
-      schoolLoadedBoundsRef.current = padded
+      schoolLoadedBoundsRef.current = bounds
     } catch (err) {
       console.error('Failed to load school data:', err)
     } finally {
@@ -1069,7 +1074,7 @@ function MapPage() {
           iconSize: [36, 36],
           iconAnchor: [18, 18],
         })
-        L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18] }).addTo(map)
+        L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' }).addTo(map)
 
         // Create noise layer (not added to map until toggled on)
         noiseLayerRef.current = L.tileLayer(NOISE_TILE_URL, {
@@ -1284,23 +1289,13 @@ function MapPage() {
 
     if (schoolsVisible) {
       map.removeLayer(layer)
-      map.off('moveend', handleSchoolsMove)
     } else {
       layer.addTo(map)
       schoolLoadedBoundsRef.current = null
       loadSchoolData(map, layer)
-      map.on('moveend', handleSchoolsMove)
     }
     setSchoolsVisible(!schoolsVisible)
   }
-
-  const handleSchoolsMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = schoolLayerRef.current
-    if (map && layer) {
-      loadSchoolData(map, layer)
-    }
-  }, [loadSchoolData])
 
   const toggleTraffic = () => {
     const map = mapRef.current
@@ -1641,7 +1636,7 @@ function MapPage() {
             disabled={status !== 'ready'}
           />
           <span className="layer-label">
-            Schools
+            Nearby Schools
             {schoolsLoading && <span className="layer-loading"> ⏳</span>}
           </span>
         </label>
@@ -1663,7 +1658,7 @@ function MapPage() {
             onChange={toggleTraffic}
             disabled={status !== 'ready'}
           />
-          <span className="layer-label">Traffic Flow</span>
+          <span className="layer-label">Live Traffic</span>
         </label>
         {trafficVisible && (
           <div className="traffic-legend">
