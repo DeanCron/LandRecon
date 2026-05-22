@@ -1700,6 +1700,7 @@ function MapPage() {
                     <strong>Airport Noise Corridor</strong>
                     <p>~{analysisResults.noiseLevel} dB DNL — click for details</p>
                   </div>
+                  <div className="analysis-chevron">›</div>
                 </div>
               )}
 
@@ -1710,6 +1711,7 @@ function MapPage() {
                     <strong>Heliports within 3 miles</strong>
                     <p>{analysisResults.heliports.length} found — click for details</p>
                   </div>
+                  <div className="analysis-chevron">›</div>
                 </div>
               )}
 
@@ -1720,6 +1722,7 @@ function MapPage() {
                     <strong>Superfund Sites within 5 miles</strong>
                     <p>{analysisResults.superfunds.length} found — click for details</p>
                   </div>
+                  <div className="analysis-chevron">›</div>
                 </div>
               )}
 

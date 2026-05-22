@@ -577,7 +577,7 @@
   position: absolute;
   top: 140px;
   right: 16px;
-  width: 320px;
+  width: 340px;
   max-height: calc(100vh - 100px);
   overflow-y: auto;
   overflow-x: hidden;
@@ -687,12 +687,25 @@
 
 .analysis-item.clickable {
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
 .analysis-item.clickable:hover {
-  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   filter: brightness(0.95);
+}
+
+.analysis-chevron {
+  font-size: 1.4rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  align-self: center;
+  font-weight: 300;
+  transition: transform 0.15s;
+}
+
+.analysis-item.clickable:hover .analysis-chevron {
+  color: var(--color-text);
 }
 
 /* Analysis Detail Popup */
