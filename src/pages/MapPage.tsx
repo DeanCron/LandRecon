@@ -247,29 +247,6 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
   return schools
 }
 
-function schoolPopup(school: SchoolPoint): string {
-  const color = SCHOOL_COLORS[school.category]
-  const label = SCHOOL_LABELS[school.category]
-  const location = [school.city, school.state].filter(Boolean).join(', ')
-  return `
-    <div class="school-popup">
-      <div class="popup-header">
-        <span class="school-icon" style="background:${color}"></span>
-        <strong>${school.name}</strong>
-      </div>
-      <div class="popup-body">
-        <div class="popup-row">
-          <span class="popup-label">Type</span>
-          <span class="school-badge" style="background:${color}15;color:${color}">${label}</span>
-        </div>
-        ${location ? `<div class="popup-row"><span class="popup-label">Location</span><span>${location}</span></div>` : ''}
-        ${school.grades ? `<div class="popup-row"><span class="popup-label">Grades</span><span>${school.grades}</span></div>` : ''}
-        ${school.enrollment ? `<div class="popup-row"><span class="popup-label">Enrollment</span><span>${school.enrollment.toLocaleString()}</span></div>` : ''}
-      </div>
-    </div>
-  `
-}
-
 const OVERPASS_API = 'https://overpass-api.de/api/interpreter'
 const OVERPASS_API_ALT = 'https://overpass.kumi.systems/api/interpreter'
 
@@ -341,6 +318,7 @@ function classifyRoute(tags: Record<string, string>): TransitStop['type'] {
   return 'bus'
 }
 
+// @ts-ignore: reserved for future use
 async function fetchTransitRoutes(bounds: L.LatLngBounds): Promise<TransitRoute[]> {
   const s = bounds.getSouth(), w = bounds.getWest()
   const n = bounds.getNorth(), e = bounds.getEast()
@@ -608,7 +586,6 @@ function MapPage() {
       if (!data.elements || data.elements.length === 0) return
 
       const known = airportKnownIdsRef.current
-      let added = 0
       for (const el of data.elements) {
         const id = `${el.type}-${el.id}`
         if (known.has(id)) continue
