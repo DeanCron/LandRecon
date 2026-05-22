@@ -1,10 +1,9 @@
 """
-WSGI wrapper for the tile server, suitable for Azure App Service deployment.
-Serves the same tile logic via gunicorn + Flask.
+Combined server for LandRecon: serves the React frontend (static files)
+and the tile server API from a single Flask app on Azure App Service.
 """
 
 import os
-import sys
 import io
 import re
 from threading import Lock
@@ -17,7 +16,10 @@ from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rio_tiler.io import Reader
 
-app = Flask(__name__)
+# Static files directory (Vite build output)
+STATIC_DIR = os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(__file__), "static"))
+
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="")
 
 # Configuration via environment variables
 DATA_DIR = os.environ.get("TILE_DATA_DIR", "/home/site/wwwroot/data")
@@ -108,7 +110,7 @@ def render_tile(z: int, x: int, y: int) -> bytes:
     return buf.getvalue()
 
 
-@app.route("/tiles/<int:z>/<int:x>/<int:y>.png")
+@app.route("/tiles/airport-noise/<int:z>/<int:x>/<int:y>.png")
 def tile(z: int, x: int, y: int):
     cache_path = os.path.join(CACHE_DIR, str(z), str(x), f"{y}.png")
     if os.path.exists(cache_path):
@@ -122,7 +124,6 @@ def tile(z: int, x: int, y: int):
 
     return Response(png_bytes, mimetype="image/png", headers={
         "Cache-Control": "public, max-age=86400",
-        "Access-Control-Allow-Origin": "*"
     })
 
 
@@ -131,5 +132,15 @@ def health():
     return {"status": "ok", "states": len(get_state_files())}
 
 
+# Serve React app — all non-API routes fall through to index.html (SPA)
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    file_path = os.path.join(STATIC_DIR, path)
+    if path and os.path.isfile(file_path):
+        return send_from_directory(STATIC_DIR, path)
+    return send_from_directory(STATIC_DIR, "index.html")
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8001)
+    app.run(host="0.0.0.0", port=8000)

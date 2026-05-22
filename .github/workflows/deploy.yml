@@ -1,0 +1,39 @@
+name: Deploy LandRecon to Azure App Service
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+
+      - name: Prepare deployment package
+        run: |
+          cp -r dist tile-server/static
+          cd tile-server
+          zip -r ../deploy.zip .
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE }}
+          package: deploy.zip
+          startup-command: 'gunicorn --bind=0.0.0.0:8000 --timeout 120 --workers 2 app:app'
