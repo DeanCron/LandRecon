@@ -132,6 +132,32 @@ def health():
     return {"status": "ok", "states": len(get_state_files())}
 
 
+@app.route("/debug/tile/<int:z>/<int:x>/<int:y>")
+def debug_tile(z: int, x: int, y: int):
+    """Debug endpoint that shows errors instead of swallowing them."""
+    import traceback
+    tile_bounds = mercantile.xy_bounds(x, y, z)
+    state_files = get_state_files()
+    results = []
+    for state, path in state_files.items():
+        try:
+            reader = get_reader(path)
+            src_bounds = transform_bounds(
+                reader.dataset.crs, CRS.from_epsg(3857),
+                *reader.dataset.bounds
+            )
+            if (src_bounds[2] < tile_bounds.left or src_bounds[0] > tile_bounds.right or
+                    src_bounds[3] < tile_bounds.bottom or src_bounds[1] > tile_bounds.top):
+                results.append({"state": state, "status": "skipped (out of bounds)"})
+                continue
+            img = reader.tile(x, y, z, tilesize=TILE_SIZE)
+            has_data = img.mask.sum() > 0
+            results.append({"state": state, "status": "ok", "has_data": has_data})
+        except Exception as e:
+            results.append({"state": state, "status": "error", "error": str(e), "trace": traceback.format_exc()[-200:]})
+    return {"tile_bounds": [tile_bounds.left, tile_bounds.bottom, tile_bounds.right, tile_bounds.top], "results": results}
+
+
 # Serve React app — all non-API routes fall through to index.html (SPA)
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
