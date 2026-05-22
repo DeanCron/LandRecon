@@ -565,6 +565,15 @@ function MapPage() {
   const [heliportsVisible, setHeliportsVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
+  const [analysisResults, setAnalysisResults] = useState<{
+    loading: boolean
+    noiseLevel: number | null
+    noiseAirport: string | null
+    noiseAirportCode: string | null
+    heliports: { name: string; distanceMi: number }[]
+    superfunds: { name: string; distanceMi: number; status: string; url: string }[]
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [] })
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | null>(null)
 
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
@@ -617,11 +626,11 @@ function MapPage() {
 
         const icon = L.divIcon({
           className: 'airport-label',
-          html: `<div class="airport-label-wrapper"><span class="airport-label-text">✈ ${label}</span><span class="airport-label-pin"></span></div>`,
-          iconSize: [1, 1],
-          iconAnchor: [0, 0],
+          html: `<div class="airport-pin">✈</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
         })
-        L.marker([lat, lon], { icon, interactive: false }).addTo(layer)
+        L.marker([lat, lon], { icon }).bindTooltip(label, { direction: 'top', offset: [0, -16] }).addTo(layer)
         known.add(id)
       }
 
@@ -672,16 +681,17 @@ function MapPage() {
         const lon = el.lon ?? el.center?.lon
         if (lat == null || lon == null) continue
         const tags = el.tags || {}
-        const name = tags.name || tags.official_name || 'Helipad'
+        const name = tags.name || tags.official_name || tags.description || ''
+        if (!name) continue
         const label = name
 
         const icon = L.divIcon({
           className: 'heliport-label',
-          html: `<div class="heliport-label-wrapper"><span class="heliport-label-text">🚁 ${label}</span><span class="heliport-label-pin"></span></div>`,
-          iconSize: [1, 1],
-          iconAnchor: [0, 0],
+          html: `<div class="heliport-pin">🚁</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
         })
-        L.marker([lat, lon], { icon, interactive: false }).addTo(layer)
+        L.marker([lat, lon], { icon }).bindTooltip(label, { direction: 'top', offset: [0, -16] }).addTo(layer)
         known.add(id)
       }
 
@@ -833,6 +843,185 @@ function MapPage() {
     }
   }, [])
 
+  const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [] })
+
+    const location = L.latLng(lat, lng)
+    const milesToMeters = 1609.34
+    const TIMEOUT = 10000
+
+    // Run all checks in parallel with timeouts
+    const [noiseResult, heliportResult, superfundResult] = await Promise.allSettled([
+      // Check noise and find nearest airport
+      (async () => {
+        const zoom = 14
+        const latRad = (lat * Math.PI) / 180
+        const x = Math.floor(((lng + 180) / 360) * Math.pow(2, zoom))
+        const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom))
+        const tileUrl = `/tiles/airport-noise/${zoom}/${x}/${y}.png`
+        const img = new window.Image()
+        img.crossOrigin = 'anonymous'
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('timeout')), TIMEOUT)
+          img.onload = () => { clearTimeout(timer); resolve() }
+          img.onerror = () => { clearTimeout(timer); reject(new Error('tile load failed')) }
+          img.src = tileUrl
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = 256
+        canvas.height = 256
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0)
+        const n2 = Math.pow(2, zoom)
+        const tileXFrac = ((lng + 180) / 360) * n2 - x
+        const tileYFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n2) - y
+        const px = Math.floor(tileXFrac * 256)
+        const py = Math.floor(tileYFrac * 256)
+        const pixel = ctx.getImageData(px, py, 1, 1).data
+        if (pixel[3] > 10) {
+          const r = pixel[0], g = pixel[1]
+          let level: number
+          if (r < 100) level = 45
+          else if (r < 200 && g > 200) level = 50
+          else if (r > 200 && g > 200) level = 55
+          else if (r > 200 && g > 100) level = 60
+          else if (r > 200 && g < 100) level = 65
+          else level = 70
+
+          // Find the nearest airport
+          let airportName: string | null = null
+          let airportCode: string | null = null
+          try {
+            const radiusDeg = (15 * milesToMeters) / 111320
+            const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.5},${lat + radiusDeg},${lng + radiusDeg * 1.5}`
+            const query = `[out:json][timeout:15];(
+              node["aeroway"="aerodrome"](${bbox});
+              way["aeroway"="aerodrome"](${bbox});
+              relation["aeroway"="aerodrome"](${bbox});
+            );out body center;`
+            const res = await fetch('https://overpass-api.de/api/interpreter', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
+              body: `data=${encodeURIComponent(query)}`,
+              signal: AbortSignal.timeout(15000),
+            })
+            if (res.ok) {
+              const data = await res.json()
+              let minDist = Infinity
+              for (const el of data.elements || []) {
+                const elLat = el.lat ?? el.center?.lat
+                const elLon = el.lon ?? el.center?.lon
+                if (elLat == null || elLon == null) continue
+                const dist = location.distanceTo(L.latLng(elLat, elLon))
+                if (dist < minDist) {
+                  minDist = dist
+                  airportName = el.tags?.name || el.tags?.official_name || 'Unknown Airport'
+                  airportCode = el.tags?.iata || el.tags?.['iata:code'] || el.tags?.ref || null
+                }
+              }
+            }
+          } catch {
+            // Airport name lookup failed
+          }
+
+          return { level, airport: airportName, code: airportCode }
+        }
+        return null
+      })(),
+
+      // Check heliports within 3 miles
+      (async () => {
+        const radiusDeg = (3 * milesToMeters) / 111320
+        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
+        const query = `[out:json][timeout:10];(
+          node["aeroway"="helipad"](${bbox});
+          way["aeroway"="helipad"](${bbox});
+          node["aeroway"="heliport"](${bbox});
+          way["aeroway"="heliport"](${bbox});
+        );out body center;`
+        const res = await fetch(OVERPASS_API_ALT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: AbortSignal.timeout(TIMEOUT),
+        })
+        if (!res.ok) return []
+        const data = await res.json()
+        const results: { name: string; distanceMi: number }[] = []
+        for (const el of data.elements || []) {
+          const elLat = el.lat ?? el.center?.lat
+          const elLon = el.lon ?? el.center?.lon
+          if (elLat == null || elLon == null) continue
+          const dist = location.distanceTo(L.latLng(elLat, elLon))
+          const distMi = dist / milesToMeters
+          if (distMi <= 3) {
+            const name = el.tags?.name || el.tags?.official_name || el.tags?.operator || el.tags?.description || ''
+            if (!name) continue
+            results.push({ name, distanceMi: Math.round(distMi * 10) / 10 })
+          }
+        }
+        results.sort((a, b) => a.distanceMi - b.distanceMi)
+        return results
+      })(),
+
+      // Check Superfund sites within 5 miles
+      (async () => {
+        const radiusDeg = (5 * milesToMeters) / 111320
+        const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
+        const params = new URLSearchParams({
+          where: '1=1',
+          outFields: 'SITE_NAME,NPL_STATUS_CODE,URL_ALIAS_TXT',
+          geometry: env,
+          geometryType: 'esriGeometryEnvelope',
+          spatialRel: 'esriSpatialRelIntersects',
+          inSR: '4326',
+          outSR: '4326',
+          returnCentroid: 'true',
+          f: 'json',
+          resultRecordCount: '50',
+        })
+        const res = await fetch(`${SUPERFUND_API}?${params}`, {
+          signal: AbortSignal.timeout(TIMEOUT),
+        })
+        if (!res.ok) return []
+        const data = await res.json()
+        const results: { name: string; distanceMi: number; status: string; url: string }[] = []
+        for (const feat of data.features || []) {
+          const centroid = feat.centroid || feat.geometry
+          if (!centroid) continue
+          const cLat = centroid.y ?? centroid.coordinates?.[1]
+          const cLon = centroid.x ?? centroid.coordinates?.[0]
+          if (cLat == null || cLon == null) continue
+          const dist = location.distanceTo(L.latLng(cLat, cLon))
+          const distMi = dist / milesToMeters
+          if (distMi <= 5) {
+            const statusCode = feat.attributes?.NPL_STATUS_CODE || ''
+            const statusLabel = statusCode === 'F' ? 'Final' : statusCode === 'P' ? 'Proposed' : statusCode === 'D' ? 'Deleted' : statusCode
+            const urlAlias = feat.attributes?.URL_ALIAS_TXT || ''
+            const profileUrl = urlAlias ? `https://cumulis.epa.gov/supercpad/SiteProfiles/index.cfm?fuession=second.cleanup&id=${urlAlias}` : ''
+            results.push({
+              name: feat.attributes?.SITE_NAME || 'Unknown',
+              distanceMi: Math.round(distMi * 10) / 10,
+              status: statusLabel,
+              url: profileUrl,
+            })
+          }
+        }
+        results.sort((a, b) => a.distanceMi - b.distanceMi)
+        return results
+      })(),
+    ])
+
+    const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
+    const noiseLevel = noiseData?.level ?? null
+    const noiseAirport = noiseData?.airport ?? null
+    const noiseAirportCode = noiseData?.code ?? null
+    const heliports = heliportResult.status === 'fulfilled' ? heliportResult.value : []
+    const superfunds = superfundResult.status === 'fulfilled' ? superfundResult.value : []
+
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds })
+  }, [])
+
   useEffect(() => {
     if (!address) {
       navigate('/')
@@ -874,7 +1063,13 @@ function MapPage() {
 
         L.control.zoom({ position: 'topright' }).addTo(map)
 
-        L.marker([lat, lng]).addTo(map)
+        const houseIcon = L.divIcon({
+          className: 'location-pin',
+          html: `<div class="location-pin-icon">🏠</div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        })
+        L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18] }).addTo(map)
 
         // Create noise layer (not added to map until toggled on)
         noiseLayerRef.current = L.tileLayer(NOISE_TILE_URL, {
@@ -921,6 +1116,9 @@ function MapPage() {
 
         mapRef.current = map
         setStatus('ready')
+
+        // Run location analysis
+        runLocationAnalysis(lat, lng)
 
         setTimeout(() => map.invalidateSize(), 0)
       })
@@ -979,6 +1177,8 @@ function MapPage() {
       if (airportLayer) map.removeLayer(airportLayer)
       map.off('moveend', handleAirportMove)
     } else {
+      // Clear any analysis-constrained bounds
+      delete layer.options.bounds
       layer.addTo(map)
       if (airportLayer) {
         airportLayer.addTo(map)
@@ -1114,6 +1314,189 @@ function MapPage() {
     }
     setTrafficVisible(!trafficVisible)
   }
+
+  // Auto-enable layers when analysis finds warnings and zoom to show issues
+  useEffect(() => {
+    if (analysisResults.loading) return
+    const map = mapRef.current
+    if (!map) return
+
+    const center = map.getCenter()
+    const milesToMeters = 1609.34
+    let maxRadiusMeters = 0
+
+    if (analysisResults.noiseLevel && !noiseVisible) {
+      const layer = noiseLayerRef.current
+      const airportLayer = airportLayerRef.current
+      if (layer) {
+        // Constrain noise tiles to the area around the location
+        const noiseDeg = (5 * milesToMeters) / 111320
+        const noiseBounds = L.latLngBounds(
+          [center.lat - noiseDeg, center.lng - noiseDeg * 1.5],
+          [center.lat + noiseDeg, center.lng + noiseDeg * 1.5]
+        )
+        layer.options.bounds = noiseBounds
+        layer.addTo(map)
+        if (airportLayer) {
+          airportLayer.addTo(map)
+          airportLoadedBoundsRef.current = null
+          airportKnownIdsRef.current.clear()
+          airportLayer.clearLayers()
+          // Only load airports within the noise area
+          const origGetBounds = map.getBounds.bind(map)
+          map.getBounds = () => noiseBounds
+          loadAirportLabels(map, airportLayer)
+          map.getBounds = origGetBounds
+          map.on('moveend', handleAirportMove)
+        }
+        setNoiseVisible(true)
+      }
+      // Noise corridors typically extend ~3-5 miles from airport
+      maxRadiusMeters = Math.max(maxRadiusMeters, 5 * milesToMeters)
+    }
+
+    if (analysisResults.heliports.length > 0 && !heliportsVisible) {
+      const layer = heliportLayerRef.current
+      if (layer) {
+        layer.addTo(map)
+        heliportLoadedBoundsRef.current = null
+        heliportKnownIdsRef.current.clear()
+        layer.clearLayers()
+        // Only show the specific heliports found by analysis (within 3mi)
+        // Re-query with tight bounds matching the 3mi radius
+        const radiusDeg = (3 * milesToMeters) / 111320
+        const constrainedBounds = L.latLngBounds(
+          [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
+          [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
+        )
+        // Load only within 3mi and filter by distance
+        const s = constrainedBounds.getSouth(), w = constrainedBounds.getWest()
+        const n = constrainedBounds.getNorth(), e = constrainedBounds.getEast()
+        const bbox = `${s},${w},${n},${e}`
+        const query = `[out:json][timeout:15];(
+          node["aeroway"="helipad"](${bbox});
+          way["aeroway"="helipad"](${bbox});
+          relation["aeroway"="helipad"](${bbox});
+          node["aeroway"="heliport"](${bbox});
+          way["aeroway"="heliport"](${bbox});
+          relation["aeroway"="heliport"](${bbox});
+        );out body center;`
+        fetch(OVERPASS_API_ALT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
+          body: `data=${encodeURIComponent(query)}`,
+        }).then(res => res.ok ? res.json() : null).then(data => {
+          if (!data?.elements) return
+          const known = heliportKnownIdsRef.current
+          for (const el of data.elements) {
+            const id = `${el.type}-${el.id}`
+            if (known.has(id)) continue
+            const elLat = el.lat ?? el.center?.lat
+            const elLon = el.lon ?? el.center?.lon
+            if (elLat == null || elLon == null) continue
+            // Filter to 3mi radius
+            const dist = center.distanceTo(L.latLng(elLat, elLon))
+            if (dist > 3 * milesToMeters) continue
+            const tags = el.tags || {}
+            const name = tags.name || tags.official_name || tags.operator || tags.description || ''
+            if (!name) continue
+            const icon = L.divIcon({
+              className: 'heliport-label',
+              html: `<div class="heliport-pin">🚁</div>`,
+              iconSize: [32, 32],
+              iconAnchor: [16, 16],
+            })
+            L.marker([elLat, elLon], { icon }).bindTooltip(name, { direction: 'top', offset: [0, -16] }).addTo(layer)
+            known.add(id)
+          }
+          heliportLoadedBoundsRef.current = constrainedBounds
+        }).catch(() => {})
+        // Don't attach moveend — keep constrained to 3mi
+        setHeliportsVisible(true)
+      }
+      const farthest = analysisResults.heliports[analysisResults.heliports.length - 1]
+      if (farthest) {
+        maxRadiusMeters = Math.max(maxRadiusMeters, farthest.distanceMi * milesToMeters * 1.2)
+      }
+    }
+
+    if (analysisResults.superfunds.length > 0 && !superfundVisible) {
+      const layer = superfundLayerRef.current
+      if (layer) {
+        layer.addTo(map)
+        superfundLoadedBoundsRef.current = null
+        // Only load superfund sites within 5mi radius with distance filter
+        const radiusDeg = (5 * milesToMeters) / 111320
+        const constrainedBounds = L.latLngBounds(
+          [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
+          [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
+        )
+        const env = `${constrainedBounds.getWest()},${constrainedBounds.getSouth()},${constrainedBounds.getEast()},${constrainedBounds.getNorth()}`
+        const params = new URLSearchParams({
+          where: '1=1',
+          outFields: SUPERFUND_FIELDS,
+          geometry: env,
+          geometryType: 'esriGeometryEnvelope',
+          spatialRel: 'esriSpatialRelIntersects',
+          inSR: '4326',
+          outSR: '4326',
+          f: 'geojson',
+          resultRecordCount: '100',
+        })
+        fetch(`${SUPERFUND_API}?${params}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(geojson => {
+            if (!geojson?.features) return
+            // Filter features to 5mi radius
+            const filtered = {
+              ...geojson,
+              features: geojson.features.filter((feat: any) => {
+                const coords = feat.geometry?.coordinates
+                if (!coords) return false
+                // For polygons, use centroid approximation (first ring avg)
+                let fLat: number, fLon: number
+                if (feat.geometry.type === 'Point') {
+                  fLon = coords[0]; fLat = coords[1]
+                } else if (feat.geometry.type === 'Polygon') {
+                  const ring = coords[0]
+                  fLon = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length
+                  fLat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length
+                } else if (feat.geometry.type === 'MultiPolygon') {
+                  const ring = coords[0][0]
+                  fLon = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length
+                  fLat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length
+                } else {
+                  return true
+                }
+                const dist = center.distanceTo(L.latLng(fLat, fLon))
+                return dist <= 5 * milesToMeters
+              }),
+            }
+            layer.clearLayers()
+            layer.addData(filtered)
+            superfundLoadedBoundsRef.current = constrainedBounds
+          })
+          .catch(() => {})
+        // Don't attach moveend — keep constrained to 5mi
+        setSuperfundVisible(true)
+      }
+      const farthest = analysisResults.superfunds[analysisResults.superfunds.length - 1]
+      if (farthest) {
+        maxRadiusMeters = Math.max(maxRadiusMeters, farthest.distanceMi * milesToMeters * 1.2)
+      }
+    }
+
+    // Zoom out to show the farthest issue
+    if (maxRadiusMeters > 0) {
+      const degOffset = maxRadiusMeters / 111320
+      const bounds = L.latLngBounds(
+        [center.lat - degOffset, center.lng - degOffset * 1.3],
+        [center.lat + degOffset, center.lng + degOffset * 1.3]
+      )
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisResults.loading])
 
   return (
     <div className="map-page">
@@ -1299,6 +1682,140 @@ function MapPage() {
           </div>
         )}
       </aside>
+
+      {/* Location Analysis Panel */}
+      <aside className="analysis-panel">
+        <div className="analysis-header">
+          <h2>Location Analysis</h2>
+        </div>
+        <div className="analysis-content">
+          {analysisResults.loading ? (
+            <div className="analysis-loading"><div className="spinner" /><p>Analyzing location…</p></div>
+          ) : (
+            <>
+              {analysisResults.noiseLevel && (
+                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('noise')}>
+                  <div className="analysis-icon">⚠️</div>
+                  <div className="analysis-detail">
+                    <strong>Airport Noise Corridor</strong>
+                    <p>~{analysisResults.noiseLevel} dB DNL — click for details</p>
+                  </div>
+                </div>
+              )}
+
+              {analysisResults.heliports.length > 0 && (
+                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('heliports')}>
+                  <div className="analysis-icon">⚠️</div>
+                  <div className="analysis-detail">
+                    <strong>Heliports within 3 miles</strong>
+                    <p>{analysisResults.heliports.length} found — click for details</p>
+                  </div>
+                </div>
+              )}
+
+              {analysisResults.superfunds.length > 0 && (
+                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('superfunds')}>
+                  <div className="analysis-icon">⚠️</div>
+                  <div className="analysis-detail">
+                    <strong>Superfund Sites within 5 miles</strong>
+                    <p>{analysisResults.superfunds.length} found — click for details</p>
+                  </div>
+                </div>
+              )}
+
+              {!analysisResults.noiseLevel && analysisResults.heliports.length === 0 && analysisResults.superfunds.length === 0 && (
+                <div className="analysis-item clear">
+                  <div className="analysis-icon">✅</div>
+                  <div className="analysis-detail">
+                    <strong>No issues found</strong>
+                    <p>Location is clear of airport noise corridors, heliports, and Superfund sites</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </aside>
+
+      {/* Analysis Detail Popup */}
+      {analysisDetail && (
+        <div className="analysis-detail-overlay" onClick={() => setAnalysisDetail(null)}>
+          <div className="analysis-detail-popup" onClick={(e) => e.stopPropagation()}>
+            <button className="analysis-detail-close" onClick={() => setAnalysisDetail(null)}>×</button>
+
+            {analysisDetail === 'noise' && (
+              <>
+                <h3>Airport Noise Corridor</h3>
+                {analysisResults.noiseAirport && (
+                  <p className="analysis-detail-airport">
+                    {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
+                  </p>
+                )}
+                <p className="analysis-detail-level">Estimated noise level: ~{analysisResults.noiseLevel} dB DNL</p>
+                <div className="analysis-detail-rec">
+                  <strong>Recommendation</strong>
+                  <p>
+                    Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
+                    We recommend repeat visits to this location at different times of day — including early morning,
+                    evening, and weekends — to assess whether the noise level is acceptable for your needs.
+                    Flight patterns and frequency can vary significantly by time of day.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {analysisDetail === 'heliports' && (
+              <>
+                <h3>Nearby Heliports</h3>
+                <ul className="analysis-detail-list">
+                  {analysisResults.heliports.map((h, i) => (
+                    <li key={i}><strong>{h.name}</strong> — {h.distanceMi} mi away</li>
+                  ))}
+                </ul>
+                <div className="analysis-detail-rec">
+                  <strong>Recommendation</strong>
+                  <p>
+                    Check helicopter flight paths in the area. Some heliports serve medical centers that use
+                    helicopters for patient transport — these can operate at all hours and generate significant
+                    low-altitude noise. People living near active heliports often report that helicopters are
+                    louder and slower-moving than fixed-wing aircraft, making the noise more noticeable.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {analysisDetail === 'superfunds' && (
+              <>
+                <h3>Superfund Sites</h3>
+                <ul className="analysis-detail-list">
+                  {analysisResults.superfunds.map((s, i) => (
+                    <li key={i}>
+                      <strong>{s.name}</strong> — {s.distanceMi} mi away
+                      <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
+                        {s.status}
+                      </span>
+                      {s.url && (
+                        <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
+                          EPA Site Profile →
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="analysis-detail-rec">
+                  <strong>Recommendation</strong>
+                  <p>
+                    Sites marked as "Deleted" have been cleaned up and removed from the National Priorities List —
+                    these are generally no longer a concern. For all other sites (Final, Proposed), we recommend
+                    researching the site further using the EPA profile links above to understand the nature of
+                    contamination, cleanup progress, and any potential impact on nearby properties.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
