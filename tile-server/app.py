@@ -22,8 +22,8 @@ STATIC_DIR = os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(__file__)
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="")
 
 # Configuration via environment variables
-DATA_DIR = os.environ.get("TILE_DATA_DIR", "/home/site/wwwroot/data")
-CACHE_DIR = os.environ.get("TILE_CACHE_DIR", "/home/site/wwwroot/.tile_cache")
+DATA_DIR = os.environ.get("TILE_DATA_DIR") or "/data"
+CACHE_DIR = os.environ.get("TILE_CACHE_DIR") or "/app/.tile_cache"
 TILE_SIZE = 256
 DB_MIN = 45.0
 DB_MAX = 70.0
