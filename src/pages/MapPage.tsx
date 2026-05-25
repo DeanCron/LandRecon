@@ -551,6 +551,30 @@ async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
   return text
 }
 
+interface NominatimSuggestion {
+  place_id: number
+  display_name: string
+  address?: {
+    house_number?: string
+    road?: string
+    city?: string
+    town?: string
+    village?: string
+    state?: string
+    postcode?: string
+  }
+}
+
+function formatNominatimAddress(s: NominatimSuggestion): string {
+  const a = s.address
+  if (!a) return s.display_name
+  const street = [a.house_number, a.road].filter(Boolean).join(' ')
+  const city = a.city || a.town || a.village || ''
+  const parts = [street, city, a.state].filter(Boolean)
+  if (a.postcode) parts.push(a.postcode)
+  return parts.join(', ') || s.display_name
+}
+
 function MapPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -603,6 +627,15 @@ function MapPage() {
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
 
+  const [editingAddress, setEditingAddress] = useState(false)
+  const [addressInputValue, setAddressInputValue] = useState('')
+  const [addressSuggestions, setAddressSuggestions] = useState<NominatimSuggestion[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
+  const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addressWrapperRef = useRef<HTMLDivElement>(null)
+  const addressInputRef = useRef<HTMLInputElement>(null)
+
   const buildShareUrl = useCallback((): string => {
     const params = new URLSearchParams()
     if (address) params.set('address', address)
@@ -653,6 +686,118 @@ function MapPage() {
     setShareModalOpen(false)
     setShareCopied(false)
     setShareError(null)
+  }, [])
+
+  const cancelEditingAddress = useCallback(() => {
+    setEditingAddress(false)
+    setAddressSuggestions([])
+    setShowAddressSuggestions(false)
+    setActiveSuggestionIndex(-1)
+    if (addressDebounceRef.current) {
+      clearTimeout(addressDebounceRef.current)
+      addressDebounceRef.current = null
+    }
+  }, [])
+
+  const startEditingAddress = useCallback(() => {
+    setAddressInputValue(address)
+    setAddressSuggestions([])
+    setShowAddressSuggestions(false)
+    setActiveSuggestionIndex(-1)
+    setEditingAddress(true)
+  }, [address])
+
+  const fetchAddressSuggestions = useCallback((query: string) => {
+    if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
+    if (query.length < 3) {
+      setAddressSuggestions([])
+      setShowAddressSuggestions(false)
+      return
+    }
+    addressDebounceRef.current = setTimeout(async () => {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=us`
+        const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'LandRecon/1.0' } })
+        const data: NominatimSuggestion[] = await res.json()
+        setAddressSuggestions(data)
+        setShowAddressSuggestions(data.length > 0)
+        setActiveSuggestionIndex(-1)
+      } catch {
+        setAddressSuggestions([])
+        setShowAddressSuggestions(false)
+      }
+    }, 300)
+  }, [])
+
+  const submitAddressChange = useCallback((newAddress: string) => {
+    const trimmed = newAddress.trim()
+    if (!trimmed) {
+      cancelEditingAddress()
+      return
+    }
+    if (trimmed === address) {
+      cancelEditingAddress()
+      return
+    }
+    const params = new URLSearchParams(searchParams)
+    params.set('address', trimmed)
+    cancelEditingAddress()
+    navigate(`/map?${params.toString()}`)
+  }, [address, searchParams, navigate, cancelEditingAddress])
+
+  const selectAddressSuggestion = useCallback((suggestion: NominatimSuggestion) => {
+    submitAddressChange(formatNominatimAddress(suggestion))
+  }, [submitAddressChange])
+
+  const handleAddressKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showAddressSuggestions && addressSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveSuggestionIndex((prev) => (prev < addressSuggestions.length - 1 ? prev + 1 : 0))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveSuggestionIndex((prev) => (prev > 0 ? prev - 1 : addressSuggestions.length - 1))
+        return
+      }
+      if (e.key === 'Enter' && activeSuggestionIndex >= 0) {
+        e.preventDefault()
+        selectAddressSuggestion(addressSuggestions[activeSuggestionIndex])
+        return
+      }
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      submitAddressChange(addressInputValue)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEditingAddress()
+    }
+  }, [showAddressSuggestions, addressSuggestions, activeSuggestionIndex, addressInputValue, selectAddressSuggestion, submitAddressChange, cancelEditingAddress])
+
+  useEffect(() => {
+    if (!editingAddress) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addressWrapperRef.current && !addressWrapperRef.current.contains(e.target as Node)) {
+        cancelEditingAddress()
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [editingAddress, cancelEditingAddress])
+
+  useEffect(() => {
+    if (editingAddress && addressInputRef.current) {
+      addressInputRef.current.focus()
+      addressInputRef.current.select()
+    }
+  }, [editingAddress])
+
+  useEffect(() => {
+    return () => {
+      if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
+    }
   }, [])
 
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
@@ -1058,6 +1203,8 @@ function MapPage() {
 
     if (!mapContainer.current) return
 
+    setStatus('loading')
+    setErrorMsg('')
     const abortController = new AbortController()
     const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`
 
@@ -1535,20 +1682,78 @@ function MapPage() {
   return (
     <div className="map-page">
       <header className="map-header">
-        <button className="back-button" onClick={() => navigate('/')}>
+        <button
+          className="map-home-button"
+          onClick={() => navigate('/')}
+          title="Home"
+          aria-label="Home"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
+            <path d="M3 12l9-9 9 9" />
+            <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" />
           </svg>
-          Back
+          Home
         </button>
-        <div className="header-address" title={address}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-          {address}
+        <div className="header-address-wrapper" ref={addressWrapperRef}>
+          {!editingAddress ? (
+            <button
+              type="button"
+              className="header-address"
+              onClick={startEditingAddress}
+              title={`${address} — click to change`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+              <span className="header-address-text">{address}</span>
+              <svg className="header-address-edit-hint" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+          ) : (
+            <div className="header-address-edit">
+              <svg className="header-address-edit-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+              <input
+                ref={addressInputRef}
+                type="text"
+                className="header-address-input"
+                value={addressInputValue}
+                onChange={(e) => {
+                  setAddressInputValue(e.target.value)
+                  fetchAddressSuggestions(e.target.value)
+                }}
+                onKeyDown={handleAddressKeyDown}
+                onFocus={() => addressSuggestions.length > 0 && setShowAddressSuggestions(true)}
+                placeholder="Enter a U.S. address..."
+                autoComplete="off"
+              />
+              {showAddressSuggestions && (
+                <ul className="header-address-suggestions">
+                  {addressSuggestions.map((s, i) => (
+                    <li
+                      key={s.place_id}
+                      className={`header-address-suggestion ${i === activeSuggestionIndex ? 'active' : ''}`}
+                      onMouseDown={() => selectAddressSuggestion(s)}
+                      onMouseEnter={() => setActiveSuggestionIndex(i)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                        <circle cx="12" cy="10" r="3" />
+                      </svg>
+                      {formatNominatimAddress(s)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
+        <div className="map-header-right-spacer" aria-hidden="true" />
       </header>
 
       <div className="map-area">
