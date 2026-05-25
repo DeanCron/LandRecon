@@ -2265,7 +2265,7 @@ function MapPage() {
                         <p className="analysis-detail-airport">
                           {analysisResults.costco.city || 'Costco Wholesale'}
                         </p>
-                        <p className="analysis-detail-level">
+                        <p className={`analysis-detail-level ${sev}`}>
                           {dist} miles from this address
                         </p>
                         <div className="analysis-detail-rec">
@@ -2323,7 +2323,7 @@ function MapPage() {
                   })()
                 ) : (
                   <>
-                    <p className="analysis-detail-level">
+                    <p className="analysis-detail-level danger">
                       No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles of this address.
                     </p>
                     <div className="analysis-detail-rec">

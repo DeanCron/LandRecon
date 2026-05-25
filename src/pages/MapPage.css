@@ -967,6 +967,21 @@
   border-left: 3px solid #ffcc02;
 }
 
+.analysis-detail-level.good {
+  background: rgba(102, 187, 106, 0.12);
+  border-left-color: #66bb6a;
+}
+
+.analysis-detail-level.warning {
+  background: rgba(255, 204, 2, 0.12);
+  border-left-color: #ffcc02;
+}
+
+.analysis-detail-level.danger {
+  background: rgba(239, 83, 80, 0.12);
+  border-left-color: #ef5350;
+}
+
 .analysis-detail-rec {
   margin-top: 16px;
   padding: 12px;
