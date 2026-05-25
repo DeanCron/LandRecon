@@ -539,8 +539,16 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco'] as const
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
+
+const COSTCO_ANALYSIS_RADIUS_MI = 150
+
+function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
+  if (distMi <= 30) return 'good'
+  if (distMi <= 75) return 'warning'
+  return 'danger'
+}
 
 async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
   const api = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`
@@ -596,6 +604,9 @@ function MapPage() {
   const heliportLayerRef = useRef<L.LayerGroup | null>(null)
   const heliportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const heliportKnownIdsRef = useRef<Set<string>>(new Set())
+  const costcoLayerRef = useRef<L.LayerGroup | null>(null)
+  const costcoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const costcoKnownIdsRef = useRef<Set<string>>(new Set())
   const trafficLayerRef = useRef<L.TileLayer | null>(null)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -608,6 +619,7 @@ function MapPage() {
   const [schoolsVisible, setSchoolsVisible] = useState(false)
   const [schoolsLoading, setSchoolsLoading] = useState(false)
   const [heliportsVisible, setHeliportsVisible] = useState(false)
+  const [costcoVisible, setCostcoVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
@@ -617,8 +629,9 @@ function MapPage() {
     noiseAirportCode: string | null
     heliports: { name: string; distanceMi: number }[]
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [] })
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | null>(null)
+    costco: { name: string; city: string; distanceMi: number; lat: number; lng: number } | null
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null })
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -646,10 +659,11 @@ function MapPage() {
     if (schoolsVisible) active.push('schools')
     if (heliportsVisible) active.push('heliports')
     if (trafficVisible) active.push('traffic')
+    if (costcoVisible) active.push('costco')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, activeBaseMap])
 
   const handleShare = useCallback(async () => {
     const longUrl = buildShareUrl()
@@ -905,6 +919,62 @@ function MapPage() {
     }
   }, [])
 
+  const loadCostcoLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    const bounds = map.getBounds()
+    const loaded = costcoLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) return
+
+    try {
+      const padded = bounds.pad(1.0)
+      const s = padded.getSouth(), w = padded.getWest()
+      const n = padded.getNorth(), e = padded.getEast()
+      const bbox = `${s},${w},${n},${e}`
+      const query = `[out:json][timeout:15];(
+        node["brand"="Costco"]["shop"](${bbox});
+        way["brand"="Costco"]["shop"](${bbox});
+        relation["brand"="Costco"]["shop"](${bbox});
+        node["brand:wikidata"="Q715583"]["shop"](${bbox});
+        way["brand:wikidata"="Q715583"]["shop"](${bbox});
+        relation["brand:wikidata"="Q715583"]["shop"](${bbox});
+      );out body center;`
+
+      const data = await fetchOverpass(query)
+      if (!data?.elements || data.elements.length === 0) {
+        costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
+        return
+      }
+
+      const known = costcoKnownIdsRef.current
+      for (const el of data.elements) {
+        const id = `${el.type}-${el.id}`
+        if (known.has(id)) continue
+
+        const elLat = el.lat ?? el.center?.lat
+        const elLon = el.lon ?? el.center?.lon
+        if (elLat == null || elLon == null) continue
+        const tags = el.tags || {}
+        const city = tags['addr:city'] || ''
+        const state = tags['addr:state'] || ''
+        const branch = tags.branch || ''
+        const locality = branch || [city, state].filter(Boolean).join(', ')
+        const tooltip = locality ? `Costco — ${locality}` : 'Costco'
+
+        const icon = L.divIcon({
+          className: 'costco-label',
+          html: `<div class="costco-pin">C</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        })
+        L.marker([elLat, elLon], { icon }).bindTooltip(tooltip, { direction: 'top', offset: [0, -16] }).addTo(layer)
+        known.add(id)
+      }
+
+      costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
+    } catch (err) {
+      console.warn('Costco label fetch failed:', err)
+    }
+  }, [])
+
   const loadSuperfundData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
     const bounds = map.getBounds()
 
@@ -1053,14 +1123,14 @@ function MapPage() {
   }, [])
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [] })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null })
 
     const location = L.latLng(lat, lng)
     const milesToMeters = 1609.34
     const TIMEOUT = 10000
 
     // Run all checks in parallel with timeouts
-    const [noiseResult, heliportResult, superfundResult] = await Promise.allSettled([
+    const [noiseResult, heliportResult, superfundResult, costcoResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
@@ -1183,6 +1253,48 @@ function MapPage() {
         results.sort((a, b) => a.distanceMi - b.distanceMi)
         return results
       })(),
+
+      // Find nearest Costco within COSTCO_ANALYSIS_RADIUS_MI
+      (async () => {
+        const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
+        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
+        const query = `[out:json][timeout:20];(
+          node["brand"="Costco"]["shop"](${bbox});
+          way["brand"="Costco"]["shop"](${bbox});
+          relation["brand"="Costco"]["shop"](${bbox});
+          node["brand:wikidata"="Q715583"]["shop"](${bbox});
+          way["brand:wikidata"="Q715583"]["shop"](${bbox});
+          relation["brand:wikidata"="Q715583"]["shop"](${bbox});
+        );out body center;`
+        const data = await fetchOverpass(query, { timeoutMs: 20000, signal: AbortSignal.timeout(20000) })
+        if (!data?.elements) return null
+        let nearest: { name: string; city: string; distanceMi: number; lat: number; lng: number } | null = null
+        const seen = new Set<string>()
+        for (const el of data.elements) {
+          const id = `${el.type}-${el.id}`
+          if (seen.has(id)) continue
+          seen.add(id)
+          const elLat = el.lat ?? el.center?.lat
+          const elLon = el.lon ?? el.center?.lon
+          if (elLat == null || elLon == null) continue
+          const dist = location.distanceTo(L.latLng(elLat, elLon))
+          const distMi = dist / milesToMeters
+          if (nearest && distMi >= nearest.distanceMi) continue
+          const tags = el.tags || {}
+          const city = tags['addr:city'] || ''
+          const state = tags['addr:state'] || ''
+          const branch = tags.branch || ''
+          const locality = branch || [city, state].filter(Boolean).join(', ')
+          nearest = {
+            name: tags.name || 'Costco',
+            city: locality,
+            distanceMi: Math.round(distMi * 10) / 10,
+            lat: elLat,
+            lng: elLon,
+          }
+        }
+        return nearest
+      })(),
     ])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
@@ -1191,8 +1303,9 @@ function MapPage() {
     const noiseAirportCode = noiseData?.code ?? null
     const heliports = heliportResult.status === 'fulfilled' ? heliportResult.value : []
     const superfunds = superfundResult.status === 'fulfilled' ? superfundResult.value : []
+    const costco = costcoResult.status === 'fulfilled' ? costcoResult.value : null
 
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds })
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco })
   }, [])
 
   useEffect(() => {
@@ -1276,6 +1389,9 @@ function MapPage() {
         // Create heliport label layer (not added to map until toggled on)
         heliportLayerRef.current = L.layerGroup()
 
+        // Create Costco label layer (not added to map until toggled on)
+        costcoLayerRef.current = L.layerGroup()
+
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
           opacity: 0.7,
@@ -1314,6 +1430,9 @@ function MapPage() {
       heliportLayerRef.current = null
       heliportLoadedBoundsRef.current = null
       heliportKnownIdsRef.current.clear()
+      costcoLayerRef.current = null
+      costcoLoadedBoundsRef.current = null
+      costcoKnownIdsRef.current.clear()
       trafficLayerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
@@ -1396,6 +1515,33 @@ function MapPage() {
       loadHeliportLabels(map, layer)
     }
   }, [loadHeliportLabels])
+
+  const handleCostcoMove = useCallback(() => {
+    const map = mapRef.current
+    const layer = costcoLayerRef.current
+    if (map && layer) {
+      loadCostcoLabels(map, layer)
+    }
+  }, [loadCostcoLabels])
+
+  const toggleCostco = () => {
+    const map = mapRef.current
+    const layer = costcoLayerRef.current
+    if (!map || !layer) return
+
+    if (costcoVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleCostcoMove)
+    } else {
+      layer.addTo(map)
+      costcoLoadedBoundsRef.current = null
+      costcoKnownIdsRef.current.clear()
+      layer.clearLayers()
+      loadCostcoLabels(map, layer)
+      map.on('moveend', handleCostcoMove)
+    }
+    setCostcoVisible(!costcoVisible)
+  }
 
   const toggleSuperfund = () => {
     const map = mapRef.current
@@ -1495,6 +1641,7 @@ function MapPage() {
     if (requested.has('schools')) toggleSchools()
     if (requested.has('heliports')) toggleHeliports()
     if (requested.has('traffic')) toggleTraffic()
+    if (requested.has('costco')) toggleCostco()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -1831,6 +1978,16 @@ function MapPage() {
         <label className="layer-toggle">
           <input
             type="checkbox"
+            checked={costcoVisible}
+            onChange={toggleCostco}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">Costco Warehouses</span>
+        </label>
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
             checked={superfundVisible}
             onChange={toggleSuperfund}
             disabled={status !== 'ready'}
@@ -1980,6 +2137,31 @@ function MapPage() {
                 </div>
               )}
 
+              {analysisResults.costco ? (
+                <div
+                  className={`analysis-item ${costcoSeverity(analysisResults.costco.distanceMi)} clickable`}
+                  onClick={() => setAnalysisDetail('costco')}
+                >
+                  <div className="analysis-icon">🛒</div>
+                  <div className="analysis-detail">
+                    <strong>Nearest Costco</strong>
+                    <p>
+                      {analysisResults.costco.distanceMi} mi
+                      {analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''} — click for details
+                    </p>
+                  </div>
+                  <div className="analysis-chevron">›</div>
+                </div>
+              ) : (
+                <div className="analysis-item danger">
+                  <div className="analysis-icon">🛒</div>
+                  <div className="analysis-detail">
+                    <strong>Nearest Costco</strong>
+                    <p>No Costco within {COSTCO_ANALYSIS_RADIUS_MI} miles</p>
+                  </div>
+                </div>
+              )}
+
               {!analysisResults.noiseLevel && analysisResults.heliports.length === 0 && analysisResults.superfunds.length === 0 && (
                 <div className="analysis-item clear">
                   <div className="analysis-icon">✅</div>
@@ -2068,6 +2250,44 @@ function MapPage() {
                     contamination, cleanup progress, and any potential impact on nearby properties.
                   </p>
                 </div>
+              </>
+            )}
+
+            {analysisDetail === 'costco' && (
+              <>
+                <h3>Nearest Costco</h3>
+                {analysisResults.costco ? (
+                  <>
+                    <p className="analysis-detail-airport">
+                      {analysisResults.costco.city || 'Costco Wholesale'}
+                    </p>
+                    <p className="analysis-detail-level">
+                      {analysisResults.costco.distanceMi} miles from this address
+                    </p>
+                    <div className="analysis-detail-rec">
+                      <strong>Distance bands</strong>
+                      <p>
+                        <span className="analysis-band good">≤ 30 mi</span> easy weekly trip · {' '}
+                        <span className="analysis-band warning">31–75 mi</span> occasional trip · {' '}
+                        <span className="analysis-band danger">76+ mi</span> rare trip
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="analysis-detail-level">
+                      No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles of this address.
+                    </p>
+                    <div className="analysis-detail-rec">
+                      <strong>Distance bands</strong>
+                      <p>
+                        <span className="analysis-band good">≤ 30 mi</span> easy weekly trip · {' '}
+                        <span className="analysis-band warning">31–75 mi</span> occasional trip · {' '}
+                        <span className="analysis-band danger">76+ mi</span> rare trip
+                      </p>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
