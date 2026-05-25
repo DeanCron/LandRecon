@@ -1,20 +1,29 @@
 # Azure Deployment Guide
 
-LandRecon deploys as a **Docker container on Azure Container Apps** — a single
-container serves both the React frontend and the tile server API.
+LandRecon deploys as a **single nginx container on Azure Container Apps**
+serving the prebuilt React SPA. The airport noise PMTiles archive lives in
+Azure Blob Storage and is fetched directly by the browser.
 
 ---
 
 ## Architecture
 
 ```
+Azure Blob Storage
+└── tiles/
+    └── airport-noise.pmtiles      (static, ~7 MB, byte-range reads)
+
 Azure Container Apps
-└── Docker container (GDAL + Python 3.11)
-    └── gunicorn → Flask app (app.py)
-        ├── /tiles/airport-noise/* → renders noise raster tiles
-        ├── /health → health check
-        └── /* → serves React SPA (static/index.html)
+└── Docker container (nginx:alpine)
+    └── /usr/share/nginx/html/     (dist/ from `vite build`)
+        ├── index.html
+        ├── assets/...
+        └── data/airport-noise.pmtiles   (bundled fallback copy)
 ```
+
+The container has no Python, no GDAL, no tile-rendering code — it just
+serves static files. All "live" map data is fetched from third-party APIs
+(Overpass, EPA, etc.) directly from the browser.
 
 ---
 
@@ -24,8 +33,8 @@ Azure Container Apps
 # Build
 docker build --build-arg VITE_TOMTOM_API_KEY=your-key -t landrecon .
 
-# Run (mount your local raster data)
-docker run -p 8000:8000 -v C:\Temp\CONUS_aviation_noise_2020\State_rasters:/data landrecon
+# Run
+docker run --rm -p 8000:8000 landrecon
 ```
 
 Visit http://localhost:8000
@@ -35,16 +44,16 @@ Visit http://localhost:8000
 ## Step 1: Create Azure Resources
 
 ```bash
-# Create resource group
+# Resource group
 az group create --name LandRecon-RG --location eastus
 
-# Create Container Apps environment
+# Container Apps environment
 az containerapp env create \
   --name landrecon-env \
   --resource-group LandRecon-RG \
   --location eastus
 
-# Create the container app
+# Container app — pure static server, no volume mounts needed
 az containerapp create \
   --name landrecon \
   --resource-group LandRecon-RG \
@@ -52,44 +61,34 @@ az containerapp create \
   --image ghcr.io/deancron/landrecon:latest \
   --target-port 8000 \
   --ingress external \
-  --cpu 1 --memory 2Gi \
+  --cpu 0.5 --memory 1Gi \
   --min-replicas 0 \
-  --max-replicas 3 \
-  --env-vars TILE_DATA_DIR=/data
+  --max-replicas 3
 ```
+
+> The legacy raster tile server required GDAL + a mounted Azure Files share
+> with `State_rasters/`. Those resources can be deleted — the PMTiles
+> pipeline is offline and the output ships to blob storage instead.
 
 ---
 
-## Step 2: Noise Raster Data
+## Step 2: Publish the Noise PMTiles Archive
 
-Mount an Azure Files share with your GeoTIFF data:
+Build the archive once (see `scripts/README.md`) and upload it:
 
-```bash
-# Create storage account + file share
-az storage account create --name landreconstorage --resource-group LandRecon-RG --sku Standard_LRS
-az storage share create --name noise-rasters --account-name landreconstorage
-
-# Upload raster files
-az storage file upload-batch --destination noise-rasters --source ./State_rasters --account-name landreconstorage
-
-# Add storage mount to Container Apps environment
-az containerapp env storage set \
-  --name landrecon-env \
-  --resource-group LandRecon-RG \
-  --storage-name noisestorage \
-  --azure-file-account-name landreconstorage \
-  --azure-file-account-key <key> \
-  --azure-file-share-name noise-rasters \
-  --access-mode ReadOnly
-
-# Mount in the container app
-az containerapp update \
-  --name landrecon \
-  --resource-group LandRecon-RG \
-  --set-env-vars TILE_DATA_DIR=/data \
-  --container-name landrecon \
-  --revision-suffix v2
+```powershell
+az login
+./scripts/deploy-noise-pmtiles.ps1 `
+    -StorageAccount landreconstorage `
+    -Container tiles
 ```
+
+The script creates the container (anonymous blob read), sets CORS for
+GET / HEAD / OPTIONS with `Range` request and `Content-Range` /
+`Accept-Ranges` exposed, and uploads with `Content-Type:
+application/vnd.pmtiles` plus a 1-day Cache-Control. It prints the URL.
+
+Rerun whenever the source dataset is refreshed (annual).
 
 ---
 
@@ -108,13 +107,14 @@ In GitHub repo → Settings → Secrets and variables → Actions:
 |------|-------|
 | `AZURE_CONTAINER_APP_NAME` | `landrecon` |
 | `AZURE_RESOURCE_GROUP` | `LandRecon-RG` |
+| `NOISE_PMTILES_URL` | Public URL of the uploaded PMTiles archive, e.g. `https://landreconstorage.blob.core.windows.net/tiles/airport-noise.pmtiles`. Leave blank to fall back to the bundled `/data/airport-noise.pmtiles` copy. |
 
 ---
 
 ## Step 4: Deploy
 
 Push to `main` — GitHub Actions will:
-1. Build the Docker image (multi-stage: Node frontend + Python/GDAL runtime)
+1. Build the Docker image (Node build stage → nginx runtime stage)
 2. Push to GitHub Container Registry (ghcr.io)
 3. Deploy new revision to Azure Container Apps
 
@@ -123,13 +123,18 @@ Push to `main` — GitHub Actions will:
 ## Scaling
 
 Container Apps auto-scales based on HTTP traffic:
-- `min-replicas: 0` — scales to zero when idle (cost savings)
+- `min-replicas: 0` — scales to zero when idle (static-only workload, fast cold start)
 - `max-replicas: 3` — handles traffic spikes
-- Adjust CPU/memory for heavier raster workloads
+- 0.5 CPU / 1 GiB RAM is plenty for an nginx static server
 
 ---
 
 ## Local Development (no Docker)
 
-Still works the same — Vite proxies `/tiles` to `localhost:8001` via `vite.config.ts`.
-Run `python tile_server.py` and `npm run dev` separately.
+```bash
+npm install
+npm run dev
+```
+
+Vite serves `public/data/airport-noise.pmtiles` directly with native HTTP
+range support — no proxy or backend required.

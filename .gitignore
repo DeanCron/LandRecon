@@ -24,3 +24,11 @@ dist-ssr
 *.sw?
 .tile_cache/
 .env
+
+# PMTiles build output
+build/
+*.pmtiles
+
+# Python build artifacts
+__pycache__/
+*.pyc

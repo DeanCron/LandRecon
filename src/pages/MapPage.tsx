@@ -3,8 +3,14 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './MapPage.css'
+import {
+  createNoiseLayer,
+  queryNoiseLevelAtPoint,
+  LEGEND_BANDS,
+} from '../noise/airportNoise'
 
-const NOISE_TILE_URL = '/tiles/airport-noise/{z}/{x}/{y}.png'
+const NOISE_PMTILES_URL =
+  import.meta.env.VITE_NOISE_PMTILES_URL || '/data/airport-noise.pmtiles'
 
 // TomTom Traffic Flow tile layer (real-time)
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
@@ -47,14 +53,7 @@ const SUPERFUND_FIELDS = [
   'STATE_CODE', 'SITE_FEATURE_TYPE', 'URL_ALIAS_TXT',
 ].join(',')
 
-const LEGEND_STOPS = [
-  { db: 45, color: 'rgb(34, 139, 34)' },
-  { db: 50, color: 'rgb(124, 179, 66)' },
-  { db: 55, color: 'rgb(255, 235, 59)' },
-  { db: 60, color: 'rgb(255, 152, 0)' },
-  { db: 65, color: 'rgb(244, 67, 54)' },
-  { db: 70, color: 'rgb(136, 14, 79)' },
-]
+const LEGEND_STOPS = LEGEND_BANDS
 
 const SUPERFUND_STYLE: L.PathOptions = {
   color: '#d500f9',
@@ -516,7 +515,7 @@ function MapPage() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const baseLayerRef = useRef<L.TileLayer | null>(null)
-  const noiseLayerRef = useRef<L.TileLayer | null>(null)
+  const noiseLayerRef = useRef<L.Layer | null>(null)
   const airportLayerRef = useRef<L.LayerGroup | null>(null)
   const airportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const airportKnownIdsRef = useRef<Set<string>>(new Set())
@@ -834,81 +833,51 @@ function MapPage() {
 
     // Run all checks in parallel with timeouts
     const [noiseResult, heliportResult, superfundResult] = await Promise.allSettled([
-      // Check noise and find nearest airport
+      // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
-        const zoom = 14
-        const latRad = (lat * Math.PI) / 180
-        const x = Math.floor(((lng + 180) / 360) * Math.pow(2, zoom))
-        const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom))
-        const tileUrl = `/tiles/airport-noise/${zoom}/${x}/${y}.png`
-        const img = new window.Image()
-        img.crossOrigin = 'anonymous'
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('timeout')), TIMEOUT)
-          img.onload = () => { clearTimeout(timer); resolve() }
-          img.onerror = () => { clearTimeout(timer); reject(new Error('tile load failed')) }
-          img.src = tileUrl
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = 256
-        canvas.height = 256
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0)
-        const n2 = Math.pow(2, zoom)
-        const tileXFrac = ((lng + 180) / 360) * n2 - x
-        const tileYFrac = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n2) - y
-        const px = Math.floor(tileXFrac * 256)
-        const py = Math.floor(tileYFrac * 256)
-        const pixel = ctx.getImageData(px, py, 1, 1).data
-        if (pixel[3] > 10) {
-          const r = pixel[0], g = pixel[1]
-          let level: number
-          if (r < 100) level = 45
-          else if (r < 200 && g > 200) level = 50
-          else if (r > 200 && g > 200) level = 55
-          else if (r > 200 && g > 100) level = 60
-          else if (r > 200 && g < 100) level = 65
-          else level = 70
+        const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
+        if (!band) return null
+        // `level` retains the legacy contract used by the analysis UI:
+        // the lower edge of the dB band containing the point.
+        const level = band.dbMin
 
-          // Find the nearest airport
-          let airportName: string | null = null
-          let airportCode: string | null = null
-          try {
-            const radiusDeg = (15 * milesToMeters) / 111320
-            const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.5},${lat + radiusDeg},${lng + radiusDeg * 1.5}`
-            const query = `[out:json][timeout:15];(
-              node["aeroway"="aerodrome"](${bbox});
-              way["aeroway"="aerodrome"](${bbox});
-              relation["aeroway"="aerodrome"](${bbox});
-            );out body center;`
-            const res = await fetch('https://overpass-api.de/api/interpreter', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
-              body: `data=${encodeURIComponent(query)}`,
-              signal: AbortSignal.timeout(15000),
-            })
-            if (res.ok) {
-              const data = await res.json()
-              let minDist = Infinity
-              for (const el of data.elements || []) {
-                const elLat = el.lat ?? el.center?.lat
-                const elLon = el.lon ?? el.center?.lon
-                if (elLat == null || elLon == null) continue
-                const dist = location.distanceTo(L.latLng(elLat, elLon))
-                if (dist < minDist) {
-                  minDist = dist
-                  airportName = el.tags?.name || el.tags?.official_name || 'Unknown Airport'
-                  airportCode = el.tags?.iata || el.tags?.['iata:code'] || el.tags?.ref || null
-                }
+        // Find the nearest airport
+        let airportName: string | null = null
+        let airportCode: string | null = null
+        try {
+          const radiusDeg = (15 * milesToMeters) / 111320
+          const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.5},${lat + radiusDeg},${lng + radiusDeg * 1.5}`
+          const query = `[out:json][timeout:15];(
+            node["aeroway"="aerodrome"](${bbox});
+            way["aeroway"="aerodrome"](${bbox});
+            relation["aeroway"="aerodrome"](${bbox});
+          );out body center;`
+          const res = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
+            body: `data=${encodeURIComponent(query)}`,
+            signal: AbortSignal.timeout(15000),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            let minDist = Infinity
+            for (const el of data.elements || []) {
+              const elLat = el.lat ?? el.center?.lat
+              const elLon = el.lon ?? el.center?.lon
+              if (elLat == null || elLon == null) continue
+              const dist = location.distanceTo(L.latLng(elLat, elLon))
+              if (dist < minDist) {
+                minDist = dist
+                airportName = el.tags?.name || el.tags?.official_name || 'Unknown Airport'
+                airportCode = el.tags?.iata || el.tags?.['iata:code'] || el.tags?.ref || null
               }
             }
-          } catch {
-            // Airport name lookup failed
           }
-
-          return { level, airport: airportName, code: airportCode }
+        } catch {
+          // Airport name lookup failed
         }
-        return null
+
+        return { level, airport: airportName, code: airportCode }
       })(),
 
       // Check heliports within 3 miles
@@ -1054,12 +1023,7 @@ function MapPage() {
         L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' }).addTo(map)
 
         // Create noise layer (not added to map until toggled on)
-        noiseLayerRef.current = L.tileLayer(NOISE_TILE_URL, {
-          opacity: 0.7,
-          maxZoom: 19,
-          attribution: 'Noise: FAA/BTS Aviation Noise 2020',
-          errorTileUrl: '',
-        })
+        noiseLayerRef.current = createNoiseLayer(NOISE_PMTILES_URL, { opacity: 0.7 })
 
         // Create airport label layer (shown with noise layer)
         airportLayerRef.current = L.layerGroup()
@@ -1150,7 +1114,7 @@ function MapPage() {
 
   const toggleNoise = () => {
     const map = mapRef.current
-    const layer = noiseLayerRef.current
+    const layer = noiseLayerRef.current as L.GridLayer | null
     const airportLayer = airportLayerRef.current
     if (!map || !layer) return
 
@@ -1160,7 +1124,7 @@ function MapPage() {
       map.off('moveend', handleAirportMove)
     } else {
       // Clear any analysis-constrained bounds
-      delete layer.options.bounds
+      delete (layer.options as L.GridLayerOptions).bounds
       layer.addTo(map)
       if (airportLayer) {
         airportLayer.addTo(map)
@@ -1298,16 +1262,18 @@ function MapPage() {
     let maxRadiusMeters = 0
 
     if (analysisResults.noiseLevel && !noiseVisible) {
-      const layer = noiseLayerRef.current
+      const layer = noiseLayerRef.current as L.GridLayer | null
       const airportLayer = airportLayerRef.current
       if (layer) {
-        // Constrain noise tiles to the area around the location
+        // Constrain noise tiles to the area around the location.
+        // protomaps-leaflet's `leafletLayer` extends L.GridLayer, so the
+        // GridLayer `bounds` option still filters which tiles get fetched.
         const noiseDeg = (5 * milesToMeters) / 111320
         const noiseBounds = L.latLngBounds(
           [center.lat - noiseDeg, center.lng - noiseDeg * 1.5],
           [center.lat + noiseDeg, center.lng + noiseDeg * 1.5]
         )
-        layer.options.bounds = noiseBounds
+        ;(layer.options as L.GridLayerOptions).bounds = noiseBounds
         layer.addTo(map)
         if (airportLayer) {
           airportLayer.addTo(map)
@@ -1545,8 +1511,8 @@ function MapPage() {
               ))}
             </div>
             <div className="legend-labels">
-              <span>{LEGEND_STOPS[0].db} dB</span>
-              <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].db} dB</span>
+              <span>{LEGEND_STOPS[0].dbMin} dB</span>
+              <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
             </div>
           </div>
         )}

@@ -1,7 +1,0 @@
-mercantile
-numpy
-Pillow
-rasterio
-rio-tiler
-flask
-gunicorn

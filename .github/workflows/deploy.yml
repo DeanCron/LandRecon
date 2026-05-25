@@ -36,6 +36,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           build-args: |
             VITE_TOMTOM_API_KEY=${{ secrets.TOMTOM_API_KEY }}
+            VITE_NOISE_PMTILES_URL=${{ vars.NOISE_PMTILES_URL }}
 
       - name: Azure Login
         uses: azure/login@v2

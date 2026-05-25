@@ -8,26 +8,20 @@ COPY src/ src/
 COPY public/ public/
 ARG VITE_TOMTOM_API_KEY
 ENV VITE_TOMTOM_API_KEY=$VITE_TOMTOM_API_KEY
+ARG VITE_NOISE_PMTILES_URL
+ENV VITE_NOISE_PMTILES_URL=$VITE_NOISE_PMTILES_URL
 RUN npm run build
 
-# Runtime stage - Python with GDAL/rasterio + Flask serving everything
-FROM ghcr.io/osgeo/gdal:ubuntu-small-3.8.4 AS runtime
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY tile-server/requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-COPY tile-server/app.py .
-COPY --from=frontend-build /app/dist ./static
-
-ENV STATIC_DIR=/app/static
-ENV TILE_DATA_DIR=/data
-ENV TILE_CACHE_DIR=/app/.tile_cache
+# Runtime stage - pure static SPA on nginx. The Flask + GDAL tile server
+# was retired once airport noise moved to PMTiles served from blob storage.
+FROM nginx:1.27-alpine AS runtime
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=frontend-build /app/dist /usr/share/nginx/html
 
 EXPOSE 8000
 
-CMD ["gunicorn", "--bind=0.0.0.0:8000", "--timeout=120", "--workers=2", "app:app"]
+# `nginx -g 'daemon off;'` is the default CMD of the base image; no override
+# needed. Health check hits the SPA root to confirm the server is up.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:8000/ > /dev/null || exit 1
+
