@@ -167,18 +167,7 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
       console.warn('Private school fetch failed:', err)
       return { features: [] }
     }),
-    fetch(OVERPASS_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'LandRecon/1.0',
-        'Accept': 'application/json',
-      },
-      body: `data=${encodeURIComponent(osmQuery)}`,
-    }).then((r) => r.json()).catch((err) => {
-      console.warn('OSM school fetch failed:', err)
-      return { elements: [] }
-    }),
+    fetchOverpass(osmQuery).then((d) => d ?? { elements: [] }),
   ])
 
   const schools: SchoolPoint[] = []
@@ -246,8 +235,66 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
   return schools
 }
 
-const OVERPASS_API = 'https://overpass-api.de/api/interpreter'
-const OVERPASS_API_ALT = 'https://overpass.kumi.systems/api/interpreter'
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://z.overpass-api.de/api/interpreter',
+]
+
+interface OverpassElement {
+  type?: string
+  id?: number
+  lat?: number
+  lon?: number
+  center?: { lat: number; lon: number }
+  tags?: Record<string, string>
+  geometry?: { lat: number; lon: number }[]
+  members?: { type: string; ref: number }[]
+}
+
+interface OverpassResponse {
+  elements?: OverpassElement[]
+  [key: string]: unknown
+}
+
+async function fetchOverpass<T = OverpassResponse>(
+  query: string,
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T | null> {
+  const { timeoutMs = 20000, signal: externalSignal } = opts
+  const body = `data=${encodeURIComponent(query)}`
+  let lastErr: unknown = null
+  for (const url of OVERPASS_ENDPOINTS) {
+    if (externalSignal?.aborted) break
+    const ctrl = new AbortController()
+    const onExternalAbort = () => ctrl.abort()
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+        },
+        body,
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
+        continue
+      }
+      return (await res.json()) as T
+    } catch (err) {
+      lastErr = err
+    } finally {
+      clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onExternalAbort)
+    }
+  }
+  console.warn('Overpass: all endpoints failed', lastErr)
+  return null
+}
 
 interface TransitStop {
   lat: number
@@ -328,22 +375,12 @@ async function fetchTransitRoutes(bounds: L.LatLngBounds): Promise<TransitRoute[
     relation["route"="light_rail"](${bbox});
   );out body;way(r);out geom;`
 
-  const res = await fetch(OVERPASS_API_ALT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'LandRecon/1.0',
-      'Accept': 'application/json',
-    },
-    body: `data=${encodeURIComponent(query)}`,
-  })
-  if (!res.ok) return []
-  const data = await res.json()
-  if (!data.elements) return []
+  const data = await fetchOverpass(query)
+  if (!data?.elements) return []
 
   const ways = new Map<number, [number, number][]>()
   for (const el of data.elements) {
-    if (el.type === 'way' && el.geometry) {
+    if (el.type === 'way' && el.geometry && el.id != null) {
       ways.set(el.id, el.geometry.map((g: { lat: number; lon: number }) => [g.lat, g.lon] as [number, number]))
     }
   }
@@ -399,21 +436,14 @@ async function fetchTransitStops(bounds: L.LatLngBounds, zoom: number): Promise<
     node["public_transport"="station"](${bbox});
   );out body;`
 
-  const res = await fetch(OVERPASS_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'LandRecon/1.0',
-      'Accept': 'application/json',
-    },
-    body: `data=${encodeURIComponent(query)}`,
-  })
-  const data = await res.json()
+  const data = await fetchOverpass(query)
+  if (!data?.elements) return []
 
   // Deduplicate by proximity (some stops have overlapping nodes)
   const seen = new Set<string>()
   const stops: TransitStop[] = []
   for (const el of data.elements) {
+    if (el.lat == null || el.lon == null) continue
     const key = `${el.lat.toFixed(4)},${el.lon.toFixed(4)}`
     if (seen.has(key)) continue
     seen.add(key)
@@ -571,18 +601,8 @@ function MapPage() {
         relation["aeroway"="aerodrome"]["name"~"[Ee]xecutive"](${bbox});
       );out body center;`
 
-      const res = await fetch(OVERPASS_API_ALT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'LandRecon/1.0',
-          'Accept': 'application/json',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      if (!data.elements || data.elements.length === 0) return
+      const data = await fetchOverpass(query)
+      if (!data?.elements || data.elements.length === 0) return
 
       const known = airportKnownIdsRef.current
       for (const el of data.elements) {
@@ -635,18 +655,8 @@ function MapPage() {
         relation["aeroway"="heliport"](${bbox});
       );out body center;`
 
-      const res = await fetch(OVERPASS_API_ALT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'LandRecon/1.0',
-          'Accept': 'application/json',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      if (!data.elements || data.elements.length === 0) return
+      const data = await fetchOverpass(query)
+      if (!data?.elements || data.elements.length === 0) return
 
       const known = heliportKnownIdsRef.current
       for (const el of data.elements) {
@@ -890,16 +900,10 @@ function MapPage() {
           node["aeroway"="heliport"](${bbox});
           way["aeroway"="heliport"](${bbox});
         );out body center;`
-        const res = await fetch(OVERPASS_API_ALT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
-          body: `data=${encodeURIComponent(query)}`,
-          signal: AbortSignal.timeout(TIMEOUT),
-        })
-        if (!res.ok) return []
-        const data = await res.json()
+        const data = await fetchOverpass(query, { timeoutMs: TIMEOUT, signal: AbortSignal.timeout(TIMEOUT) })
+        if (!data?.elements) return []
         const results: { name: string; distanceMi: number }[] = []
-        for (const el of data.elements || []) {
+        for (const el of data.elements) {
           const elLat = el.lat ?? el.center?.lat
           const elLon = el.lon ?? el.center?.lon
           if (elLat == null || elLon == null) continue
@@ -1319,11 +1323,7 @@ function MapPage() {
           way["aeroway"="heliport"](${bbox});
           relation["aeroway"="heliport"](${bbox});
         );out body center;`
-        fetch(OVERPASS_API_ALT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
-          body: `data=${encodeURIComponent(query)}`,
-        }).then(res => res.ok ? res.json() : null).then(data => {
+        fetchOverpass(query).then(data => {
           if (!data?.elements) return
           const known = heliportKnownIdsRef.current
           for (const el of data.elements) {
