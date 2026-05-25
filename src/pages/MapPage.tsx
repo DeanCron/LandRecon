@@ -235,11 +235,12 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
   return schools
 }
 
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-]
+// Overpass requests are routed through a same-origin nginx proxy (see
+// nginx.conf and vite.config.ts) that injects a non-Mozilla User-Agent.
+// overpass-api.de returns 406 to generic browser UAs, and the browser's
+// CORS preflight UA cannot be overridden from JavaScript, so the proxy
+// is required.
+const OVERPASS_ENDPOINTS = ['/overpass']
 
 interface OverpassElement {
   type?: string
