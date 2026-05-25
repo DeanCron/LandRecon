@@ -629,7 +629,7 @@ function MapPage() {
     noiseAirportCode: string | null
     heliports: { name: string; distanceMi: number }[]
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
-    costco: { name: string; city: string; distanceMi: number; lat: number; lng: number } | null
+    costco: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number } | null
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null })
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | null>(null)
 
@@ -1268,7 +1268,7 @@ function MapPage() {
         );out body center;`
         const data = await fetchOverpass(query, { timeoutMs: 20000, signal: AbortSignal.timeout(20000) })
         if (!data?.elements) return null
-        let nearest: { name: string; city: string; distanceMi: number; lat: number; lng: number } | null = null
+        let nearest: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number } | null = null
         const seen = new Set<string>()
         for (const el of data.elements) {
           const id = `${el.type}-${el.id}`
@@ -1286,6 +1286,7 @@ function MapPage() {
           const branch = tags.branch || ''
           const locality = branch || [city, state].filter(Boolean).join(', ')
           nearest = {
+            osmId: id,
             name: tags.name || 'Costco',
             city: locality,
             distanceMi: Math.round(distMi * 10) / 10,
@@ -1811,6 +1812,40 @@ function MapPage() {
       const farthest = analysisResults.superfunds[analysisResults.superfunds.length - 1]
       if (farthest) {
         maxRadiusMeters = Math.max(maxRadiusMeters, farthest.distanceMi * milesToMeters * 1.2)
+      }
+    }
+
+    // Auto-enable the Costco layer when a Costco is in the "good" (<=30 mi) band.
+    // Drop the known Costco marker immediately so it's visible without the user
+    // having to zoom out to whatever the moveend bbox query covers.
+    if (
+      analysisResults.costco &&
+      costcoSeverity(analysisResults.costco.distanceMi) === 'good' &&
+      !costcoVisible
+    ) {
+      const layer = costcoLayerRef.current
+      if (layer) {
+        const costco = analysisResults.costco
+        layer.addTo(map)
+        costcoLoadedBoundsRef.current = null
+        costcoKnownIdsRef.current.clear()
+        layer.clearLayers()
+        const icon = L.divIcon({
+          className: 'costco-label',
+          html: `<div class="costco-pin">C</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        })
+        const tooltip = costco.city ? `Costco — ${costco.city}` : 'Costco'
+        L.marker([costco.lat, costco.lng], { icon })
+          .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
+          .addTo(layer)
+        costcoKnownIdsRef.current.add(costco.osmId)
+        loadCostcoLabels(map, layer)
+        map.on('moveend', handleCostcoMove)
+        setCostcoVisible(true)
+        // Make sure the auto-zoom encompasses the known Costco
+        maxRadiusMeters = Math.max(maxRadiusMeters, costco.distanceMi * milesToMeters * 1.2)
       }
     }
 
