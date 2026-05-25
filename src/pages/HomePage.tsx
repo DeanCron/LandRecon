@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import logo from '../assets/landrecon.png'
+import logo from '../assets/landrecon.webp'
 import './HomePage.css'
 
 interface Suggestion {
