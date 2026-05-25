@@ -34,6 +34,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}
           build-args: |
             VITE_TOMTOM_API_KEY=${{ secrets.TOMTOM_API_KEY }}
             VITE_NOISE_PMTILES_URL=${{ vars.NOISE_PMTILES_URL }}
@@ -48,4 +49,8 @@ jobs:
         with:
           containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
           resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
-          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # Use the run-id tag so workflow_dispatch re-runs on the same
+          # commit still produce a unique image reference. Otherwise
+          # Container Apps reuses the existing revision and never pulls
+          # the freshly-built image.
+          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}
