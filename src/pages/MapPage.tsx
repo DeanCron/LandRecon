@@ -539,6 +539,18 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic'] as const
+type ShareLayerId = typeof SHARE_LAYER_IDS[number]
+
+async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
+  const api = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`
+  const res = await fetch(api, { signal: AbortSignal.timeout(timeoutMs) })
+  if (!res.ok) throw new Error(`shortener returned HTTP ${res.status}`)
+  const text = (await res.text()).trim()
+  if (!/^https?:\/\//i.test(text)) throw new Error('shortener returned non-URL response')
+  return text
+}
+
 function MapPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -561,6 +573,7 @@ function MapPage() {
   const heliportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const heliportKnownIdsRef = useRef<Set<string>>(new Set())
   const trafficLayerRef = useRef<L.TileLayer | null>(null)
+  const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [noiseVisible, setNoiseVisible] = useState(false)
@@ -582,6 +595,65 @@ function MapPage() {
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [] })
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | null>(null)
+
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [shareLongUrl, setShareLongUrl] = useState<string | null>(null)
+  const [shareError, setShareError] = useState<string | null>(null)
+  const [shareCopied, setShareCopied] = useState(false)
+
+  const buildShareUrl = useCallback((): string => {
+    const params = new URLSearchParams()
+    if (address) params.set('address', address)
+    const active: ShareLayerId[] = []
+    if (noiseVisible) active.push('noise')
+    if (superfundVisible) active.push('superfund')
+    if (transitVisible) active.push('transit')
+    if (schoolsVisible) active.push('schools')
+    if (heliportsVisible) active.push('heliports')
+    if (trafficVisible) active.push('traffic')
+    if (active.length > 0) params.set('layers', active.join(','))
+    if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
+    return `${window.location.origin}/map?${params.toString()}`
+  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, activeBaseMap])
+
+  const handleShare = useCallback(async () => {
+    const longUrl = buildShareUrl()
+    setShareModalOpen(true)
+    setShareLoading(true)
+    setShareError(null)
+    setShareCopied(false)
+    setShareLongUrl(longUrl)
+    setShareUrl(null)
+    try {
+      const short = await shortenUrl(longUrl)
+      setShareUrl(short)
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Could not shorten URL')
+      setShareUrl(longUrl)
+    } finally {
+      setShareLoading(false)
+    }
+  }, [buildShareUrl])
+
+  const handleCopyShare = useCallback(async () => {
+    const value = shareUrl || shareLongUrl
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setShareCopied(true)
+      setTimeout(() => setShareCopied(false), 2000)
+    } catch {
+      setShareError('Clipboard access denied — please copy manually.')
+    }
+  }, [shareUrl, shareLongUrl])
+
+  const closeShareModal = useCallback(() => {
+    setShareModalOpen(false)
+    setShareCopied(false)
+    setShareError(null)
+  }, [])
 
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
@@ -1256,6 +1328,29 @@ function MapPage() {
     setTrafficVisible(!trafficVisible)
   }
 
+  // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
+  useEffect(() => {
+    if (status !== 'ready') return
+    if (initialUrlStateAppliedRef.current) return
+    initialUrlStateAppliedRef.current = true
+
+    const baseParam = searchParams.get('base') as BaseMapId | null
+    if (baseParam && baseParam !== activeBaseMap && BASE_MAPS[baseParam]) {
+      switchBaseMap(baseParam)
+    }
+
+    const layersParam = searchParams.get('layers')
+    if (!layersParam) return
+    const requested = new Set(layersParam.split(',').map((s) => s.trim()))
+    if (requested.has('noise')) toggleNoise()
+    if (requested.has('superfund')) toggleSuperfund()
+    if (requested.has('transit')) toggleTransit()
+    if (requested.has('schools')) toggleSchools()
+    if (requested.has('heliports')) toggleHeliports()
+    if (requested.has('traffic')) toggleTraffic()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
+
   // Auto-enable layers when analysis finds warnings and zoom to show issues
   useEffect(() => {
     if (analysisResults.loading) return
@@ -1626,6 +1721,21 @@ function MapPage() {
       <aside className="analysis-panel">
         <div className="analysis-header">
           <h2>Location Analysis</h2>
+          <button
+            className="share-button"
+            onClick={handleShare}
+            disabled={status !== 'ready'}
+            title="Share this view as a short link"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            Share
+          </button>
         </div>
         <div className="analysis-content">
           {analysisResults.loading ? (
@@ -1752,6 +1862,45 @@ function MapPage() {
                     researching the site further using the EPA profile links above to understand the nature of
                     contamination, cleanup progress, and any potential impact on nearby properties.
                   </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Share Results Modal */}
+      {shareModalOpen && (
+        <div className="analysis-detail-overlay" onClick={closeShareModal}>
+          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()}>
+            <button className="analysis-detail-close" onClick={closeShareModal} aria-label="Close">×</button>
+            <h3>Share Results</h3>
+            {shareLoading ? (
+              <div className="share-loading"><div className="spinner" /><p>Creating short link…</p></div>
+            ) : (
+              <>
+                <p className="share-description">
+                  Anyone with this link will see the same address and the layers you have active.
+                </p>
+                <input
+                  className="share-modal-input"
+                  type="text"
+                  readOnly
+                  value={shareUrl || shareLongUrl || ''}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                {shareError && (
+                  <p className="share-error">Could not shorten URL ({shareError}); using the full link instead.</p>
+                )}
+                <div className="share-modal-actions">
+                  <button className="share-copy-button" onClick={handleCopyShare}>
+                    {shareCopied ? '✓ Copied!' : 'Copy link'}
+                  </button>
+                  {shareUrl && (
+                    <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-open-link">
+                      Open in new tab →
+                    </a>
+                  )}
                 </div>
               </>
             )}

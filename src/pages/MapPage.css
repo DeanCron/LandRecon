@@ -858,3 +858,108 @@
 .analysis-epa-link:hover {
   text-decoration: underline;
 }
+
+/* Share Results button + modal */
+.share-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.share-button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.share-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.share-popup {
+  max-width: 440px;
+}
+
+.share-description {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.share-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--color-text-muted);
+}
+
+.share-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.share-modal-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.share-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.share-copy-button {
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: white;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.share-copy-button:hover {
+  opacity: 0.9;
+}
+
+.share-open-link {
+  font-size: 0.85rem;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.share-open-link:hover {
+  text-decoration: underline;
+}
+
+.share-error {
+  font-size: 0.78rem;
+  color: #c62828;
+  margin: -4px 0 12px;
+}
