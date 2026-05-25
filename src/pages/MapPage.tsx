@@ -2257,33 +2257,98 @@ function MapPage() {
               <>
                 <h3>Nearest Costco</h3>
                 {analysisResults.costco ? (
-                  <>
-                    <p className="analysis-detail-airport">
-                      {analysisResults.costco.city || 'Costco Wholesale'}
-                    </p>
-                    <p className="analysis-detail-level">
-                      {analysisResults.costco.distanceMi} miles from this address
-                    </p>
-                    <div className="analysis-detail-rec">
-                      <strong>Distance bands</strong>
-                      <p>
-                        <span className="analysis-band good">≤ 30 mi</span> easy weekly trip · {' '}
-                        <span className="analysis-band warning">31–75 mi</span> occasional trip · {' '}
-                        <span className="analysis-band danger">76+ mi</span> rare trip
-                      </p>
-                    </div>
-                  </>
+                  (() => {
+                    const dist = analysisResults.costco.distanceMi
+                    const sev = costcoSeverity(dist)
+                    return (
+                      <>
+                        <p className="analysis-detail-airport">
+                          {analysisResults.costco.city || 'Costco Wholesale'}
+                        </p>
+                        <p className="analysis-detail-level">
+                          {dist} miles from this address
+                        </p>
+                        <div className="analysis-detail-rec">
+                          {sev === 'good' && (
+                            <>
+                              <strong>Congratulations.</strong>
+                              <p>
+                                You are about to be one of those insufferably happy people who
+                                casually mention they "just popped over to Costco" on a Tuesday.
+                                Studies (that I made up) show that residents within 30 miles of a
+                                warehouse experience 73% more joy, own 4x more rotisserie
+                                chickens, and have a deeply spiritual relationship with bulk
+                                paper towels. You did this. You did this right.
+                              </p>
+                            </>
+                          )}
+                          {sev === 'warning' && (
+                            <>
+                              <strong>Acceptable. Barely.</strong>
+                              <p>
+                                {dist} miles. That is a <em>commitment</em>. Not a quick errand —
+                                a planned expedition with a packing list, a playlist, and a snack
+                                for the road. You'll do it, sure, but every trip will end with
+                                you whispering "was the gas worth it?" while you eat a
+                                $1.50 hot dog in the parking lot. People who live within
+                                30 miles are objectively happier. Just so you know.
+                              </p>
+                            </>
+                          )}
+                          {sev === 'danger' && (
+                            <>
+                              <strong>Real talk for a second.</strong>
+                              <p>
+                                {dist} miles. To a Costco. Do you actually want to live that
+                                far away from a building full of free samples and reasonably
+                                priced tires? Is this house — this <em>specific</em> house —
+                                really worth a {Math.round(dist * 2)}-mile round trip every time
+                                you need a flat of paper towels and an inexplicable kayak? Take
+                                a moment. Look at the listing. Look at the distance. Be honest
+                                with yourself.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        <div className="analysis-detail-rec">
+                          <strong>Distance bands</strong>
+                          <p>
+                            <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                            <span className="analysis-band warning">31–75 mi</span> tolerable · {' '}
+                            <span className="analysis-band danger">76+ mi</span> reconsider your life
+                          </p>
+                        </div>
+                      </>
+                    )
+                  })()
                 ) : (
                   <>
                     <p className="analysis-detail-level">
                       No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles of this address.
                     </p>
                     <div className="analysis-detail-rec">
+                      <strong>⚠️ Are you sure about this?</strong>
+                      <p>
+                        Listen. I'm not your realtor. I'm not your therapist. I'm just a website.
+                        But before you sign anything, you should know that there is{' '}
+                        <em>no Costco</em> within {COSTCO_ANALYSIS_RADIUS_MI} miles of this
+                        address. None. Not one. You will have to leave your home, drive past
+                        multiple regular grocery stores like a peasant, and somehow survive on
+                        normal-sized packages of toilet paper. Sourcing a 48-pack of muffins
+                        will require <em>logistics</em>. Children will grow up not knowing the
+                        warm embrace of a food court churro. Pets will be denied the bulk
+                        kibble lifestyle they deserve. Buying a house outside the normal
+                        driving radius of a Costco is the kind of decision people quietly
+                        regret for decades. Please take a moment. Are you sure? Are you
+                        really, <em>really</em> sure?
+                      </p>
+                    </div>
+                    <div className="analysis-detail-rec">
                       <strong>Distance bands</strong>
                       <p>
-                        <span className="analysis-band good">≤ 30 mi</span> easy weekly trip · {' '}
-                        <span className="analysis-band warning">31–75 mi</span> occasional trip · {' '}
-                        <span className="analysis-band danger">76+ mi</span> rare trip
+                        <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                        <span className="analysis-band warning">31–75 mi</span> tolerable · {' '}
+                        <span className="analysis-band danger">76+ mi</span> reconsider your life
                       </p>
                     </div>
                   </>
