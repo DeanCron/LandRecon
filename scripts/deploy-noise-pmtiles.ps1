@@ -67,6 +67,18 @@ Write-Host "  -> blob name      : $BlobName"
 Write-Host "  -> allowed origins: $AllowedOrigins"
 Write-Host ""
 
+# Resolve the storage connection string once and reuse it for every data-
+# plane call. This bypasses the `--auth-mode login` data-RBAC requirement
+# (we only need management-plane access to fetch the connection string,
+# which any subscription Owner/Contributor has) and works uniformly across
+# `cors`, `container`, and `blob` subcommands.
+$cs = az storage account show-connection-string `
+    --name $StorageAccount `
+    --query connectionString -o tsv 2>$null
+if (-not $cs) {
+    throw "Could not fetch connection string for storage account '$StorageAccount'. Check the name and your subscription context (`az account show`)."
+}
+
 # 1. Ensure the container exists with anonymous read access on blobs only.
 #    Block-level public access lets the PMTiles client read directly without
 #    SAS tokens. The container is not listable (anon access = `blob`, not
@@ -74,9 +86,8 @@ Write-Host ""
 Write-Host "[1/4] Ensuring container '$Container' exists..." -ForegroundColor Yellow
 az storage container create `
     --name $Container `
-    --account-name $StorageAccount `
+    --connection-string $cs `
     --public-access blob `
-    --auth-mode login `
     --only-show-errors | Out-Null
 
 # 2. Configure CORS at the storage-account (blob service) level. PMTiles is
@@ -84,7 +95,7 @@ az storage container create `
 #    `Range` and to read `Content-Range` / `Content-Length` back.
 Write-Host "[2/4] Applying CORS rule for blob service..." -ForegroundColor Yellow
 $origins = ($AllowedOrigins -split ',') | ForEach-Object { $_.Trim() }
-az storage cors clear --services b --account-name $StorageAccount --auth-mode login --only-show-errors | Out-Null
+az storage cors clear --services b --connection-string $cs --only-show-errors | Out-Null
 az storage cors add `
     --services b `
     --methods GET HEAD OPTIONS `
@@ -92,8 +103,7 @@ az storage cors add `
     --allowed-headers 'Range' 'If-None-Match' 'If-Range' 'If-Modified-Since' 'Content-Type' `
     --exposed-headers 'Content-Length' 'Content-Range' 'Content-Type' 'ETag' 'Last-Modified' 'Accept-Ranges' `
     --max-age 3600 `
-    --account-name $StorageAccount `
-    --auth-mode login `
+    --connection-string $cs `
     --only-show-errors | Out-Null
 
 # 3. Upload (overwrite). The PMTiles client treats the archive as opaque
@@ -102,8 +112,7 @@ az storage cors add `
 #    `must-revalidate` keeps stale caches honest if the upstream file moves.
 Write-Host "[3/4] Uploading blob..." -ForegroundColor Yellow
 az storage blob upload `
-    --account-name $StorageAccount `
-    --auth-mode login `
+    --connection-string $cs `
     --container-name $Container `
     --file $File `
     --name $BlobName `
