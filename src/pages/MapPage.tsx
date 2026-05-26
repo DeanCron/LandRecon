@@ -2486,8 +2486,8 @@ function MapPage() {
                           <strong>Distance bands</strong>
                           <p>
                             <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                            <span className="analysis-band warning">31–75 mi</span> tolerable · {' '}
-                            <span className="analysis-band danger">76+ mi</span> reconsider your life
+                            <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                            <span className="analysis-band danger">51–100 mi</span> reconsider your life
                           </p>
                         </div>
                       </>
@@ -2519,8 +2519,8 @@ function MapPage() {
                       <strong>Distance bands</strong>
                       <p>
                         <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                        <span className="analysis-band warning">31–75 mi</span> tolerable · {' '}
-                        <span className="analysis-band danger">76+ mi</span> reconsider your life
+                        <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                        <span className="analysis-band danger">51–100 mi</span> reconsider your life
                       </p>
                     </div>
                   </>
