@@ -112,7 +112,7 @@ function HomePage() {
     <div className="home">
       <div className="home-content">
         <div className="home-icon">
-          <img src={logo} alt="Land Recon" width="480" height="320" />
+          <img src={logo} alt="Land Recon" width="480" height="102" />
         </div>
         <p className="home-subtitle">
           Enter a U.S. street address to explore land data and map layers.
