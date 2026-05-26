@@ -1738,6 +1738,8 @@ function MapPage() {
     if (dataCenterVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleDataCenterMove)
+      layer.clearLayers()
+      dataCenterSubLayersRef.current = null
     } else {
       layer.addTo(map)
       loadDataCenters(map, layer)
@@ -1747,10 +1749,9 @@ function MapPage() {
   }
 
   const toggleDcSub = (statusKey: string) => {
-    const map = mapRef.current
     const parentLayer = dataCenterLayerRef.current
     const subLayers = dataCenterSubLayersRef.current
-    if (!map || !parentLayer || !subLayers) return
+    if (!parentLayer || !subLayers) return
 
     const nowVisible = !dcSubVisible[statusKey]
     const next = { ...dcSubVisible, [statusKey]: nowVisible }
@@ -1759,7 +1760,6 @@ function MapPage() {
 
     if (nowVisible) {
       subLayers[statusKey].addTo(parentLayer)
-      loadDataCenters(map, parentLayer)
     } else {
       parentLayer.removeLayer(subLayers[statusKey])
     }
