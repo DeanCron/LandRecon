@@ -2096,6 +2096,16 @@ function MapPage() {
       }
     }
 
+    if (analysisResults.dataCenters.length > 0 && !dataCenterVisible) {
+      const layer = dataCenterLayerRef.current
+      if (layer) {
+        layer.addTo(map)
+        loadDataCenters(map, layer)
+        map.on('moveend', handleDataCenterMove)
+        setDataCenterVisible(true)
+      }
+    }
+
     // Zoom out to show the farthest issue
     if (maxRadiusMeters > 0) {
       const degOffset = maxRadiusMeters / 111320
