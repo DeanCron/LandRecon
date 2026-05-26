@@ -2259,7 +2259,6 @@ function MapPage() {
             <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#f97316' }} /><span>Under Construction</span></div>
             <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#a855f7' }} /><span>Expanding</span></div>
             <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#6b7280' }} /><span>Suspended</span></div>
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#ef4444' }} /><span>Cancelled</span></div>
           </div>
         )}
 
