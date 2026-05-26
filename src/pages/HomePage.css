@@ -1,10 +1,10 @@
 .home {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   flex-direction: column;
   min-height: 100vh;
-  padding: 2rem 2rem 20vh;
+  padding: 2rem;
 }
 
 .home-content {
