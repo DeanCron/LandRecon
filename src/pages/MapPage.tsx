@@ -553,14 +553,14 @@ function superfundPopup(props: Record<string, string | null>): string {
 const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco'] as const
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
-const COSTCO_ANALYSIS_RADIUS_MI = 150
+const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
 const HELIPORTS_ENABLED = false
 const SCHOOLS_ENABLED = false
 
 function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   if (distMi <= COSTCO_GREEN_RADIUS_MI) return 'good'
-  if (distMi <= 75) return 'warning'
+  if (distMi <= 50) return 'warning'
   return 'danger'
 }
 
