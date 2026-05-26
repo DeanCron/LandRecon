@@ -412,6 +412,24 @@
   gap: 4px;
 }
 
+.transit-sub-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.transit-sub-toggle input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
 .transit-popup {
   min-width: 180px;
   font-family: inherit;

@@ -610,6 +610,7 @@ function MapPage() {
   const superfundLayerRef = useRef<L.GeoJSON | null>(null)
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
+  const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLastZoomRef = useRef<number>(0)
   const schoolLayerRef = useRef<L.LayerGroup | null>(null)
@@ -629,6 +630,10 @@ function MapPage() {
   const [superfundLoading, setSuperfundLoading] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
+  const [transitSubVisible, setTransitSubVisible] = useState<Record<TransitStop['type'], boolean>>({
+    rail: true, subway: true, tram: true, bus: true,
+  })
+  const transitSubVisibleRef = useRef(transitSubVisible)
   const [schoolsVisible, setSchoolsVisible] = useState(false)
   const [schoolsLoading, setSchoolsLoading] = useState(false)
   const [heliportsVisible, setHeliportsVisible] = useState(false)
@@ -1031,7 +1036,26 @@ function MapPage() {
         fetchTransitStops(padded, zoom).catch(() => [] as TransitStop[]),
       ])
 
-      layer.clearLayers()
+      // Clear all sublayers
+      let subLayers = transitSubLayersRef.current
+      if (!subLayers) {
+        subLayers = {
+          rail: L.layerGroup(),
+          subway: L.layerGroup(),
+          tram: L.layerGroup(),
+          bus: L.layerGroup(),
+        }
+        transitSubLayersRef.current = subLayers
+        // Add only currently-visible sublayers to the parent group
+        for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
+          if (transitSubVisibleRef.current[t]) {
+            subLayers[t].addTo(layer)
+          }
+        }
+      }
+      for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
+        subLayers[t].clearLayers()
+      }
 
       // Draw CATS route lines first (under stops)
       for (const route of catsRoutes) {
@@ -1048,7 +1072,7 @@ function MapPage() {
           smoothFactor: 1,
         })
           .bindPopup(`<strong>${route.short ? route.short + ' — ' : ''}${route.name}</strong>`)
-          .addTo(layer)
+          .addTo(subLayers[route.type])
       }
 
       // Add CATS stops in view
@@ -1067,7 +1091,7 @@ function MapPage() {
           fillOpacity: 0.85,
         })
           .bindPopup(transitPopup({ lat: stop.lat, lon: stop.lon, name: stop.name, type: 'bus' }), { maxWidth: 260 })
-          .addTo(layer)
+          .addTo(subLayers.bus)
       }
 
       // Add OSM stops not already covered by CATS (rail, subway, tram, plus any extra)
@@ -1086,7 +1110,7 @@ function MapPage() {
           fillOpacity: 0.85,
         })
           .bindPopup(transitPopup(stop), { maxWidth: 260 })
-          .addTo(layer)
+          .addTo(subLayers[stop.type])
       }
 
       transitLoadedBoundsRef.current = padded
@@ -1447,6 +1471,7 @@ function MapPage() {
       superfundLayerRef.current = null
       superfundLoadedBoundsRef.current = null
       transitLayerRef.current = null
+      transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
       schoolLayerRef.current = null
       schoolLoadedBoundsRef.current = null
@@ -1602,10 +1627,38 @@ function MapPage() {
     } else {
       layer.addTo(map)
       transitLoadedBoundsRef.current = null
+      // Sync sublayer visibility with current sub-toggle state
+      const subLayers = transitSubLayersRef.current
+      if (subLayers) {
+        for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
+          subLayers[t].clearLayers()
+        }
+      }
       loadTransitData(map, layer)
       map.on('moveend', handleTransitMove)
     }
     setTransitVisible(!transitVisible)
+  }
+
+  const toggleTransitSub = (type: TransitStop['type']) => {
+    const map = mapRef.current
+    const parentLayer = transitLayerRef.current
+    const subLayers = transitSubLayersRef.current
+    if (!map || !parentLayer || !subLayers) return
+
+    const nowVisible = !transitSubVisible[type]
+    const next = { ...transitSubVisible, [type]: nowVisible }
+    setTransitSubVisible(next)
+    transitSubVisibleRef.current = next
+
+    if (nowVisible) {
+      subLayers[type].addTo(parentLayer)
+      // Reload to populate the sublayer if it was emptied
+      transitLoadedBoundsRef.current = null
+      loadTransitData(map, parentLayer)
+    } else {
+      parentLayer.removeLayer(subLayers[type])
+    }
   }
 
   const handleTransitMove = useCallback(() => {
@@ -2077,11 +2130,16 @@ function MapPage() {
         </label>
         {transitVisible && (
           <div className="transit-legend">
-            {Object.entries(TRANSIT_COLORS).map(([type, color]) => (
-              <div key={type} className="legend-swatch-row">
-                <span className="legend-dot" style={{ background: color }} />
-                <span>{TRANSIT_LABELS[type as TransitStop['type']]}</span>
-              </div>
+            {(Object.keys(TRANSIT_COLORS) as TransitStop['type'][]).map((type) => (
+              <label key={type} className="transit-sub-toggle">
+                <input
+                  type="checkbox"
+                  checked={transitSubVisible[type]}
+                  onChange={() => toggleTransitSub(type)}
+                />
+                <span className="legend-dot" style={{ background: TRANSIT_COLORS[type], opacity: transitSubVisible[type] ? 1 : 0.35 }} />
+                <span style={{ opacity: transitSubVisible[type] ? 1 : 0.5 }}>{TRANSIT_LABELS[type]}</span>
+              </label>
             ))}
           </div>
         )}
