@@ -5,6 +5,12 @@
   flex-direction: column;
   min-height: 100vh;
   padding: 2rem;
+  background-image:
+    linear-gradient(rgba(243, 244, 246, 0.86), rgba(243, 244, 246, 0.86)),
+    url('../assets/neighborhood-bg.webp');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .home-content {
