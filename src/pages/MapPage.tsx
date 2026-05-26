@@ -1295,12 +1295,11 @@ function MapPage() {
             const statusCode = feat.attributes?.NPL_STATUS_CODE || ''
             const statusLabel = statusCode === 'F' ? 'Final' : statusCode === 'P' ? 'Proposed' : statusCode === 'D' ? 'Deleted' : statusCode
             const urlAlias = feat.attributes?.URL_ALIAS_TXT || ''
-            const profileUrl = urlAlias ? `https://cumulis.epa.gov/supercpad/SiteProfiles/index.cfm?fuession=second.cleanup&id=${urlAlias}` : ''
             results.push({
               name: feat.attributes?.SITE_NAME || 'Unknown',
               distanceMi: Math.round(distMi * 10) / 10,
               status: statusLabel,
-              url: profileUrl,
+              url: urlAlias,
             })
           }
         }
