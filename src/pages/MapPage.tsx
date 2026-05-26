@@ -550,7 +550,31 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco', 'datacenters'] as const
+
+interface DataCenter {
+  name: string
+  address: string
+  city: string
+  state: string
+  lat: number
+  lng: number
+  status: string
+  operator: string
+  mw: string
+  sizerank: string
+}
+
+const DC_STATUS_COLORS: Record<string, string> = {
+  'Operating': '#22c55e',
+  'Proposed': '#3b82f6',
+  'Approved/Permitted/Under construction': '#f97316',
+  'Expanding': '#a855f7',
+  'Suspended': '#6b7280',
+  'Cancelled': '#ef4444',
+}
+
+const DATA_CENTER_ANALYSIS_RADIUS_MI = 25
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
@@ -613,6 +637,8 @@ function MapPage() {
   const costcoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoKnownIdsRef = useRef<Set<string>>(new Set())
   const trafficLayerRef = useRef<L.TileLayer | null>(null)
+  const dataCenterLayerRef = useRef<L.LayerGroup | null>(null)
+  const dataCenterDataRef = useRef<DataCenter[] | null>(null)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
@@ -630,6 +656,7 @@ function MapPage() {
   const [heliportsVisible, setHeliportsVisible] = useState(false)
   const [costcoVisible, setCostcoVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
+  const [dataCenterVisible, setDataCenterVisible] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
     loading: boolean
@@ -641,8 +668,9 @@ function MapPage() {
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false })
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | null>(null)
+    dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[]
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -684,10 +712,11 @@ function MapPage() {
     if (heliportsVisible) active.push('heliports')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
+    if (dataCenterVisible) active.push('datacenters')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, dataCenterVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1162,14 +1191,14 @@ function MapPage() {
   }, [])
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
 
     const location = L.latLng(lat, lng)
     const milesToMeters = 1609.34
     const TIMEOUT = 10000
 
     // Run all checks in parallel with timeouts
-    const [noiseResult, heliportResult, superfundResult, costcoResult] = await Promise.allSettled([
+    const [noiseResult, heliportResult, superfundResult, costcoResult, dataCenterResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
@@ -1341,6 +1370,35 @@ function MapPage() {
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
         return { nearest: hits[0] ?? null, nearby: hits }
       })(),
+
+      // Data centers within radius (static JSON)
+      (async () => {
+        let data = dataCenterDataRef.current
+        if (!data) {
+          const res = await fetch('/data/data-centers.json')
+          data = (await res.json()) as DataCenter[]
+          dataCenterDataRef.current = data
+        }
+        const radiusM = DATA_CENTER_ANALYSIS_RADIUS_MI * milesToMeters
+        const nearby: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[] = []
+        for (const dc of data) {
+          const dist = location.distanceTo(L.latLng(dc.lat, dc.lng))
+          if (dist <= radiusM) {
+            nearby.push({
+              name: dc.name,
+              city: dc.city,
+              state: dc.state,
+              distanceMi: Math.round(dist / milesToMeters * 10) / 10,
+              status: dc.status,
+              operator: dc.operator,
+              mw: dc.mw,
+              sizerank: dc.sizerank,
+            })
+          }
+        }
+        nearby.sort((a, b) => a.distanceMi - b.distanceMi)
+        return nearby
+      })(),
     ])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
@@ -1353,8 +1411,9 @@ function MapPage() {
     const costco = costcoData.nearest
     const costcoNearby = costcoData.nearby
     const costcoError = costcoResult.status === 'rejected'
+    const dataCenters = dataCenterResult.status === 'fulfilled' ? dataCenterResult.value : []
 
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby, costcoError })
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby, costcoError, dataCenters })
   }, [])
 
   useEffect(() => {
@@ -1441,6 +1500,8 @@ function MapPage() {
         // Create Costco label layer (not added to map until toggled on)
         costcoLayerRef.current = L.layerGroup()
 
+        dataCenterLayerRef.current = L.layerGroup()
+
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
           opacity: 0.7,
@@ -1484,6 +1545,8 @@ function MapPage() {
       costcoLoadedBoundsRef.current = null
       costcoKnownIdsRef.current.clear()
       trafficLayerRef.current = null
+      dataCenterLayerRef.current = null
+      dataCenterDataRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
@@ -1591,6 +1654,63 @@ function MapPage() {
       map.on('moveend', handleCostcoMove)
     }
     setCostcoVisible(!costcoVisible)
+  }
+
+  const loadDataCenters = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    let data = dataCenterDataRef.current
+    if (!data) {
+      try {
+        const res = await fetch('/data/data-centers.json')
+        data = (await res.json()) as DataCenter[]
+        dataCenterDataRef.current = data
+      } catch (err) {
+        console.warn('Data center fetch failed:', err)
+        return
+      }
+    }
+    layer.clearLayers()
+    const bounds = map.getBounds().pad(0.3)
+    for (const dc of data) {
+      if (!bounds.contains([dc.lat, dc.lng])) continue
+      const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
+      const icon = L.divIcon({
+        className: 'dc-label',
+        html: `<div class="dc-pin" style="background:${color}">DC</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      })
+      const lines = [dc.name || 'Data Center']
+      if (dc.operator) lines[0] += ` (${dc.operator})`
+      if (dc.city || dc.state) lines.push([dc.city, dc.state].filter(Boolean).join(', '))
+      if (dc.address) lines.push(dc.address)
+      lines.push(`Status: ${dc.status}`)
+      if (dc.mw) lines.push(`Capacity: ${dc.mw} MW`)
+      if (dc.sizerank && dc.sizerank !== 'Unknown') lines.push(dc.sizerank)
+      L.marker([dc.lat, dc.lng], { icon })
+        .bindTooltip(lines.join('<br/>'), { direction: 'top', offset: [0, -14] })
+        .addTo(layer)
+    }
+  }, [])
+
+  const handleDataCenterMove = useCallback(() => {
+    const map = mapRef.current
+    const layer = dataCenterLayerRef.current
+    if (map && layer) loadDataCenters(map, layer)
+  }, [loadDataCenters])
+
+  const toggleDataCenters = () => {
+    const map = mapRef.current
+    const layer = dataCenterLayerRef.current
+    if (!map || !layer) return
+    if (dataCenterVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleDataCenterMove)
+    } else {
+      layer.addTo(map)
+      loadDataCenters(map, layer)
+      map.on('moveend', handleDataCenterMove)
+    }
+    setDataCenterVisible(!dataCenterVisible)
   }
 
   const toggleSuperfund = () => {
@@ -1720,6 +1840,7 @@ function MapPage() {
     if (requested.has('heliports') && HELIPORTS_ENABLED) toggleHeliports()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
+    if (requested.has('datacenters')) toggleDataCenters()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -2125,6 +2246,26 @@ function MapPage() {
         <label className="layer-toggle">
           <input
             type="checkbox"
+            checked={dataCenterVisible}
+            onChange={toggleDataCenters}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">Data Centers</span>
+        </label>
+        {dataCenterVisible && (
+          <div className="dc-legend">
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#22c55e' }} /><span>Operating</span></div>
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#3b82f6' }} /><span>Proposed</span></div>
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#f97316' }} /><span>Under Construction</span></div>
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#a855f7' }} /><span>Expanding</span></div>
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#6b7280' }} /><span>Suspended</span></div>
+            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#ef4444' }} /><span>Cancelled</span></div>
+          </div>
+        )}
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
             checked={superfundVisible}
             onChange={toggleSuperfund}
             disabled={status !== 'ready'}
@@ -2309,6 +2450,28 @@ function MapPage() {
                   <div className="analysis-detail">
                     <strong>Nearest Costco</strong>
                     <p>{analysisResults.costcoError ? 'Search timed out — try again later' : `No Costco within ${COSTCO_ANALYSIS_RADIUS_MI} miles`}</p>
+                  </div>
+                </div>
+              )}
+
+              {analysisResults.dataCenters.length > 0 ? (
+                <div
+                  className="analysis-item warning clickable"
+                  onClick={() => setAnalysisDetail('datacenters')}
+                >
+                  <div className="analysis-icon">🏢</div>
+                  <div className="analysis-detail">
+                    <strong>Data Centers Nearby</strong>
+                    <p>{analysisResults.dataCenters.length} within {DATA_CENTER_ANALYSIS_RADIUS_MI} mi — click for details</p>
+                  </div>
+                  <div className="analysis-chevron">›</div>
+                </div>
+              ) : (
+                <div className="analysis-item good">
+                  <div className="analysis-icon">🏢</div>
+                  <div className="analysis-detail">
+                    <strong>Data Centers</strong>
+                    <p>None within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles</p>
                   </div>
                 </div>
               )}
@@ -2523,11 +2686,45 @@ function MapPage() {
                 )}
               </>
             )}
+            {analysisDetail === 'datacenters' && (
+              <>
+                <h3>Data Centers Within {DATA_CENTER_ANALYSIS_RADIUS_MI} Miles</h3>
+                <p className="analysis-detail-level">
+                  {analysisResults.dataCenters.length} data center{analysisResults.dataCenters.length !== 1 ? 's' : ''} found nearby
+                </p>
+                <div className="analysis-detail-rec">
+                  <strong>Why this matters</strong>
+                  <p>
+                    Data centers can impact surrounding areas through increased traffic,
+                    noise from cooling systems, strain on local power and water resources,
+                    and potential effects on property values. Proximity is worth noting
+                    when evaluating a location.
+                  </p>
+                </div>
+                <ul className="analysis-detail-list">
+                  {analysisResults.dataCenters.map((dc, i) => (
+                    <li key={i} className="dc-analysis-item">
+                      <div className="dc-analysis-header">
+                        <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
+                        <strong>{dc.name || 'Unknown Facility'}</strong>
+                        <span className="dc-distance">{dc.distanceMi} mi</span>
+                      </div>
+                      <div className="dc-analysis-meta">
+                        {dc.operator && <span>{dc.operator}</span>}
+                        {(dc.city || dc.state) && <span>{[dc.city, dc.state].filter(Boolean).join(', ')}</span>}
+                        <span>{dc.status}</span>
+                        {dc.mw && <span>{dc.mw} MW</span>}
+                        {dc.sizerank && dc.sizerank !== 'Unknown' && <span>{dc.sizerank}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
           </div>
         </div>
       )}
-
-      {/* Share Results Modal */}
       {shareModalOpen && (
         <div className="analysis-detail-overlay" onClick={closeShareModal}>
           <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()}>

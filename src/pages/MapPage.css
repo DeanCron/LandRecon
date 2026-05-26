@@ -714,6 +714,84 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Data Center pins */
+.dc-label {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.dc-pin {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 28px;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 2px #fff;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.dc-legend {
+  margin: 4px 0 8px 24px;
+}
+
+.dc-legend .legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.dc-legend .legend-swatch-row {
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.dc-analysis-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.dc-analysis-item:last-child {
+  border-bottom: none;
+}
+
+.dc-analysis-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dc-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dc-distance {
+  margin-left: auto;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.dc-analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.75rem;
+  opacity: 0.65;
+  margin-top: 2px;
+  padding-left: 18px;
+}
+
 .analysis-band {
   display: inline-block;
   padding: 1px 6px;
