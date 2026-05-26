@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './MapPage.css'
+import logo from '../assets/landrecon-logo.png'
 import {
   createNoiseLayer,
   queryNoiseLevelAtPoint,
@@ -1942,7 +1943,9 @@ function MapPage() {
             </div>
           )}
         </div>
-        <div className="map-header-right-spacer" aria-hidden="true" />
+        <div className="map-header-logo-wrapper" aria-hidden="true">
+          <img src={logo} alt="" className="map-header-logo" />
+        </div>
       </header>
 
       <div className="map-area">

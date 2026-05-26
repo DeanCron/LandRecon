@@ -45,8 +45,17 @@
   min-width: 0;
 }
 
-.map-header-right-spacer {
-  flex: 0 0 84px;
+.map-header-logo-wrapper {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.map-header-logo {
+  height: 28px;
+  width: auto;
+  display: block;
 }
 
 .header-address {
@@ -164,7 +173,7 @@
 }
 
 @media (max-width: 600px) {
-  .map-header-right-spacer {
+  .map-header-logo-wrapper {
     display: none;
   }
   .map-home-button {
