@@ -670,6 +670,20 @@ function MapPage() {
 
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
+  const [showFabHints, setShowFabHints] = useState(false)
+
+  // Show FAB tooltip hints once on mobile, auto-dismiss after 4s
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    if (!mq.matches) return
+    if (localStorage.getItem('lr_fab_hints_seen')) return
+    const showTimer = setTimeout(() => setShowFabHints(true), 800)
+    const hideTimer = setTimeout(() => {
+      setShowFabHints(false)
+      localStorage.setItem('lr_fab_hints_seen', '1')
+    }, 5000)
+    return () => { clearTimeout(showTimer); clearTimeout(hideTimer) }
+  }, [])
 
   const buildShareUrl = useCallback((): string => {
     const params = new URLSearchParams()
@@ -2035,16 +2049,18 @@ function MapPage() {
       {/* Mobile floating action buttons */}
       <button
         className="layer-toggle-btn"
-        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) }}
+        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false); setShowFabHints(false) }}
         aria-label="Open layers"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
+        {showFabHints && <span className="fab-hint fab-hint-right">Map Layers</span>}
       </button>
       <button
         className="analysis-toggle-btn"
-        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) }}
+        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setShowFabHints(false) }}
         aria-label="Open analysis"
       >
+        {showFabHints && <span className="fab-hint fab-hint-left">Location Analysis</span>}
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
       </button>
 
