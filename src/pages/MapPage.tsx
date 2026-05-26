@@ -2307,6 +2307,17 @@ function MapPage() {
                         <p className={`analysis-detail-level ${sev}`}>
                           {dist} miles from this address
                         </p>
+                        <a
+                          className="costco-directions-link"
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 11l19-9-9 19-2-8-8-2z" />
+                          </svg>
+                          Driving directions →
+                        </a>
                         <div className="analysis-detail-rec">
                           {sev === 'good' && (
                             <>

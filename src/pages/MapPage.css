@@ -982,6 +982,30 @@
   border-left-color: #ef5350;
 }
 
+.costco-directions-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 8px 14px;
+  background: #e32b30;
+  color: #fff !important;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+
+.costco-directions-link:hover,
+.costco-directions-link:focus {
+  background: #b91f24;
+}
+
+.costco-directions-link svg {
+  flex-shrink: 0;
+}
+
 .analysis-detail-rec {
   margin-top: 16px;
   padding: 12px;
