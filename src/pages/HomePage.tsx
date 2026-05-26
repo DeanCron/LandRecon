@@ -3,30 +3,34 @@ import { useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.png'
 import './HomePage.css'
 
-interface Suggestion {
-  place_id: number
-  display_name: string
-  address?: {
-    house_number?: string
-    road?: string
-    city?: string
-    town?: string
-    village?: string
-    state?: string
-    postcode?: string
-    county?: string
-    country?: string
+const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
+
+interface TomTomResult {
+  id: string
+  type: string
+  address: {
+    streetNumber?: string
+    streetName?: string
+    municipality?: string
+    countrySubdivision?: string
+    postalCode?: string
+    freeformAddress?: string
   }
 }
 
-function formatAddress(s: Suggestion): string {
-  const a = s.address
-  if (!a) return s.display_name
-  const street = [a.house_number, a.road].filter(Boolean).join(' ')
-  const city = a.city || a.town || a.village || ''
-  const parts = [street, city, a.state].filter(Boolean)
-  if (a.postcode) parts.push(a.postcode)
-  return parts.join(', ') || s.display_name
+interface Suggestion {
+  id: string
+  display: string
+  raw: TomTomResult
+}
+
+function formatTomTomResult(r: TomTomResult): string {
+  const a = r.address
+  if (!a) return ''
+  const street = [a.streetNumber, a.streetName].filter(Boolean).join(' ')
+  const parts = [street, a.municipality, a.countrySubdivision].filter(Boolean)
+  if (a.postalCode) parts.push(a.postalCode)
+  return parts.join(', ') || a.freeformAddress || ''
 }
 
 function HomePage() {
@@ -53,18 +57,24 @@ function HomePage() {
 
   const fetchSuggestions = (query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (query.length < 3) {
+    if (query.length < 3 || !TOMTOM_API_KEY) {
       setSuggestions([])
       setShowSuggestions(false)
       return
     }
     debounceRef.current = setTimeout(async () => {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=us`
-        const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'LandRecon/1.0' } })
-        const data: Suggestion[] = await res.json()
-        setSuggestions(data)
-        setShowSuggestions(data.length > 0)
+        const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
+        const res = await fetch(url)
+        const data = await res.json()
+        const results: TomTomResult[] = data.results || []
+        const mapped: Suggestion[] = results.map((r) => ({
+          id: r.id,
+          display: formatTomTomResult(r),
+          raw: r,
+        }))
+        setSuggestions(mapped)
+        setShowSuggestions(mapped.length > 0)
         setActiveIndex(-1)
       } catch {
         setSuggestions([])
@@ -79,7 +89,7 @@ function HomePage() {
   }
 
   const selectSuggestion = (suggestion: Suggestion) => {
-    setAddress(formatAddress(suggestion))
+    setAddress(suggestion.display)
     setShowSuggestions(false)
     setSuggestions([])
   }
@@ -138,7 +148,7 @@ function HomePage() {
               <ul className="suggestions-list">
                 {suggestions.map((s, i) => (
                   <li
-                    key={s.place_id}
+                    key={s.id}
                     className={`suggestion-item ${i === activeIndex ? 'active' : ''}`}
                     onMouseDown={() => selectSuggestion(s)}
                     onMouseEnter={() => setActiveIndex(i)}
@@ -147,7 +157,7 @@ function HomePage() {
                       <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                       <circle cx="12" cy="10" r="3" />
                     </svg>
-                    {formatAddress(s)}
+                    {s.display}
                   </li>
                 ))}
               </ul>

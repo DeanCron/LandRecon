@@ -563,28 +563,27 @@ async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
   return text
 }
 
-interface NominatimSuggestion {
-  place_id: number
-  display_name: string
-  address?: {
-    house_number?: string
-    road?: string
-    city?: string
-    town?: string
-    village?: string
-    state?: string
-    postcode?: string
+interface TomTomSuggestion {
+  id: string
+  type: string
+  address: {
+    streetNumber?: string
+    streetName?: string
+    municipality?: string
+    countrySubdivision?: string
+    postalCode?: string
+    freeformAddress?: string
   }
+  position?: { lat: number; lon: number }
 }
 
-function formatNominatimAddress(s: NominatimSuggestion): string {
+function formatTomTomAddress(s: TomTomSuggestion): string {
   const a = s.address
-  if (!a) return s.display_name
-  const street = [a.house_number, a.road].filter(Boolean).join(' ')
-  const city = a.city || a.town || a.village || ''
-  const parts = [street, city, a.state].filter(Boolean)
-  if (a.postcode) parts.push(a.postcode)
-  return parts.join(', ') || s.display_name
+  if (!a) return ''
+  const street = [a.streetNumber, a.streetName].filter(Boolean).join(' ')
+  const parts = [street, a.municipality, a.countrySubdivision].filter(Boolean)
+  if (a.postalCode) parts.push(a.postalCode)
+  return parts.join(', ') || a.freeformAddress || ''
 }
 
 function MapPage() {
@@ -647,7 +646,7 @@ function MapPage() {
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
-  const [addressSuggestions, setAddressSuggestions] = useState<NominatimSuggestion[]>([])
+  const [addressSuggestions, setAddressSuggestions] = useState<TomTomSuggestion[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -735,11 +734,12 @@ function MapPage() {
     }
     addressDebounceRef.current = setTimeout(async () => {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5&countrycodes=us`
-        const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'LandRecon/1.0' } })
-        const data: NominatimSuggestion[] = await res.json()
-        setAddressSuggestions(data)
-        setShowAddressSuggestions(data.length > 0)
+        const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
+        const res = await fetch(url)
+        const data = await res.json()
+        const results: TomTomSuggestion[] = data.results || []
+        setAddressSuggestions(results)
+        setShowAddressSuggestions(results.length > 0)
         setActiveSuggestionIndex(-1)
       } catch {
         setAddressSuggestions([])
@@ -764,8 +764,8 @@ function MapPage() {
     navigate(`/map?${params.toString()}`)
   }, [address, searchParams, navigate, cancelEditingAddress])
 
-  const selectAddressSuggestion = useCallback((suggestion: NominatimSuggestion) => {
-    submitAddressChange(formatNominatimAddress(suggestion))
+  const selectAddressSuggestion = useCallback((suggestion: TomTomSuggestion) => {
+    submitAddressChange(formatTomTomAddress(suggestion))
   }, [submitAddressChange])
 
   const handleAddressKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1332,22 +1332,22 @@ function MapPage() {
     setStatus('loading')
     setErrorMsg('')
     const abortController = new AbortController()
-    const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`
+    const geocodeUrl = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(address)}.json?key=${TOMTOM_API_KEY}&countrySet=US&limit=1`
 
     fetch(geocodeUrl, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'LandRecon/1.0' },
       signal: abortController.signal,
     })
       .then((res) => res.json())
       .then((data) => {
-        if (!data || data.length === 0) {
+        const results = data.results
+        if (!results || results.length === 0) {
           setStatus('error')
           setErrorMsg('Address not found. Please try a different address.')
           return
         }
 
-        const lat = parseFloat(data[0].lat)
-        const lng = parseFloat(data[0].lon)
+        const lat = results[0].position.lat
+        const lng = results[0].position.lon
 
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
@@ -1926,7 +1926,7 @@ function MapPage() {
                 <ul className="header-address-suggestions">
                   {addressSuggestions.map((s, i) => (
                     <li
-                      key={s.place_id}
+                      key={s.id}
                       className={`header-address-suggestion ${i === activeSuggestionIndex ? 'active' : ''}`}
                       onMouseDown={() => selectAddressSuggestion(s)}
                       onMouseEnter={() => setActiveSuggestionIndex(i)}
@@ -1935,7 +1935,7 @@ function MapPage() {
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                         <circle cx="12" cy="10" r="3" />
                       </svg>
-                      {formatNominatimAddress(s)}
+                      {formatTomTomAddress(s)}
                     </li>
                   ))}
                 </ul>
