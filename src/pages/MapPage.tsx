@@ -647,8 +647,8 @@ function MapPage() {
     noiseAirportCode: string | null
     heliports: { name: string; distanceMi: number }[]
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
-    costco: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number } | null
-    costcoNearby: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number }[]
+    costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
+    costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false })
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | null>(null)
@@ -991,7 +991,11 @@ function MapPage() {
         const state = tags['addr:state'] || ''
         const branch = tags.branch || ''
         const locality = branch || [city, state].filter(Boolean).join(', ')
-        const tooltip = locality ? `Costco — ${locality}` : 'Costco'
+        const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
+        const tooltipParts = ['Costco']
+        if (locality) tooltipParts[0] = `Costco — ${locality}`
+        if (street) tooltipParts.push(street)
+        const tooltip = tooltipParts.join('<br/>')
 
         const icon = L.divIcon({
           className: 'costco-label',
@@ -1311,7 +1315,7 @@ function MapPage() {
       // them all on the auto-enabled layer) and pick the nearest one for the
       // analysis card.
       (async () => {
-        type CostcoHit = { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number }
+        type CostcoHit = { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }
         const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
         const query = `[out:json][timeout:30];(
@@ -1341,10 +1345,12 @@ function MapPage() {
           const state = tags['addr:state'] || ''
           const branch = tags.branch || ''
           const locality = branch || [city, state].filter(Boolean).join(', ')
+          const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
           hits.push({
             osmId: id,
             name: tags.name || 'Costco',
             city: locality,
+            address: street,
             distanceMi: Math.round(distMi * 10) / 10,
             lat: elLat,
             lng: elLon,
@@ -1922,7 +1928,8 @@ function MapPage() {
             iconSize: [32, 32],
             iconAnchor: [16, 16],
           })
-          const tooltip = c.city ? `Costco — ${c.city}` : 'Costco'
+          const tooltipText = c.city ? `Costco — ${c.city}` : 'Costco'
+          const tooltip = c.address ? `${tooltipText}<br/>${c.address}` : tooltipText
           L.marker([c.lat, c.lng], { icon })
             .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
             .addTo(layer)
