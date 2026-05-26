@@ -565,7 +565,7 @@ function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
 }
 
 async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
-  const api = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`
+  const api = `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`
   const res = await fetch(api, { signal: AbortSignal.timeout(timeoutMs) })
   if (!res.ok) throw new Error(`shortener returned HTTP ${res.status}`)
   const text = (await res.text()).trim()
