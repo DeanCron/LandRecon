@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import logo from '../assets/landrecon.webp'
+import logo from '../assets/landrecon-logo.png'
 import './HomePage.css'
 
 interface Suggestion {
@@ -112,7 +112,7 @@ function HomePage() {
     <div className="home">
       <div className="home-content">
         <div className="home-icon">
-          <img src={logo} alt="Land Recon" width="320" height="320" />
+          <img src={logo} alt="Land Recon" width="480" height="320" />
         </div>
         <p className="home-subtitle">
           Enter a U.S. street address to explore land data and map layers.
