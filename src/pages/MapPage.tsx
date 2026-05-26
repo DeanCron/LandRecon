@@ -564,15 +564,6 @@ function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   return 'danger'
 }
 
-async function shortenUrl(longUrl: string, timeoutMs = 6000): Promise<string> {
-  const api = `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`
-  const res = await fetch(api, { signal: AbortSignal.timeout(timeoutMs) })
-  if (!res.ok) throw new Error(`shortener returned HTTP ${res.status}`)
-  const text = (await res.text()).trim()
-  if (!/^https?:\/\//i.test(text)) throw new Error('shortener returned non-URL response')
-  return text
-}
-
 interface TomTomSuggestion {
   id: string
   type: string
@@ -698,23 +689,14 @@ function MapPage() {
     return `${window.location.origin}/map?${params.toString()}`
   }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, activeBaseMap])
 
-  const handleShare = useCallback(async () => {
-    const longUrl = buildShareUrl()
+  const handleShare = useCallback(() => {
+    const url = buildShareUrl()
     setShareModalOpen(true)
-    setShareLoading(true)
+    setShareLoading(false)
     setShareError(null)
     setShareCopied(false)
-    setShareLongUrl(longUrl)
-    setShareUrl(null)
-    try {
-      const short = await shortenUrl(longUrl)
-      setShareUrl(short)
-    } catch (err) {
-      setShareError(err instanceof Error ? err.message : 'Could not shorten URL')
-      setShareUrl(longUrl)
-    } finally {
-      setShareLoading(false)
-    }
+    setShareLongUrl(url)
+    setShareUrl(url)
   }, [buildShareUrl])
 
   const handleCopyShare = useCallback(async () => {
