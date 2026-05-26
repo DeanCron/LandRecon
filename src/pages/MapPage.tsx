@@ -571,7 +571,16 @@ const DC_STATUS_COLORS: Record<string, string> = {
   'Approved/Permitted/Under construction': '#f97316',
   'Expanding': '#a855f7',
   'Suspended': '#6b7280',
-  'Cancelled': '#ef4444',
+}
+
+const DC_STATUSES = Object.keys(DC_STATUS_COLORS) as string[]
+
+const DC_STATUS_LABELS: Record<string, string> = {
+  'Operating': 'Operating',
+  'Proposed': 'Proposed',
+  'Approved/Permitted/Under construction': 'Under Construction',
+  'Expanding': 'Expanding',
+  'Suspended': 'Suspended',
 }
 
 const DATA_CENTER_ANALYSIS_RADIUS_MI = 25
@@ -638,7 +647,12 @@ function MapPage() {
   const costcoKnownIdsRef = useRef<Set<string>>(new Set())
   const trafficLayerRef = useRef<L.TileLayer | null>(null)
   const dataCenterLayerRef = useRef<L.LayerGroup | null>(null)
+  const dataCenterSubLayersRef = useRef<Record<string, L.LayerGroup> | null>(null)
   const dataCenterDataRef = useRef<DataCenter[] | null>(null)
+  const [dcSubVisible, setDcSubVisible] = useState<Record<string, boolean>>(
+    Object.fromEntries(DC_STATUSES.map((s) => [s, true]))
+  )
+  const dcSubVisibleRef = useRef(dcSubVisible)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
@@ -1546,6 +1560,7 @@ function MapPage() {
       costcoKnownIdsRef.current.clear()
       trafficLayerRef.current = null
       dataCenterLayerRef.current = null
+      dataCenterSubLayersRef.current = null
       dataCenterDataRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
@@ -1668,10 +1683,28 @@ function MapPage() {
         return
       }
     }
-    layer.clearLayers()
+
+    let subLayers = dataCenterSubLayersRef.current
+    if (!subLayers) {
+      subLayers = {} as Record<string, L.LayerGroup>
+      for (const s of DC_STATUSES) {
+        subLayers[s] = L.layerGroup()
+      }
+      dataCenterSubLayersRef.current = subLayers
+      for (const s of DC_STATUSES) {
+        if (dcSubVisibleRef.current[s]) {
+          subLayers[s].addTo(layer)
+        }
+      }
+    }
+
+    for (const s of DC_STATUSES) subLayers[s].clearLayers()
+
     const bounds = map.getBounds().pad(0.3)
     for (const dc of data) {
       if (!bounds.contains([dc.lat, dc.lng])) continue
+      const sub = subLayers[dc.status]
+      if (!sub) continue
       const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
       const icon = L.divIcon({
         className: 'dc-label',
@@ -1688,7 +1721,7 @@ function MapPage() {
       if (dc.sizerank && dc.sizerank !== 'Unknown') lines.push(dc.sizerank)
       L.marker([dc.lat, dc.lng], { icon })
         .bindTooltip(lines.join('<br/>'), { direction: 'top', offset: [0, -14] })
-        .addTo(layer)
+        .addTo(sub)
     }
   }, [])
 
@@ -1711,6 +1744,25 @@ function MapPage() {
       map.on('moveend', handleDataCenterMove)
     }
     setDataCenterVisible(!dataCenterVisible)
+  }
+
+  const toggleDcSub = (statusKey: string) => {
+    const map = mapRef.current
+    const parentLayer = dataCenterLayerRef.current
+    const subLayers = dataCenterSubLayersRef.current
+    if (!map || !parentLayer || !subLayers) return
+
+    const nowVisible = !dcSubVisible[statusKey]
+    const next = { ...dcSubVisible, [statusKey]: nowVisible }
+    setDcSubVisible(next)
+    dcSubVisibleRef.current = next
+
+    if (nowVisible) {
+      subLayers[statusKey].addTo(parentLayer)
+      loadDataCenters(map, parentLayer)
+    } else {
+      parentLayer.removeLayer(subLayers[statusKey])
+    }
   }
 
   const toggleSuperfund = () => {
@@ -2254,11 +2306,17 @@ function MapPage() {
         </label>
         {dataCenterVisible && (
           <div className="dc-legend">
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#22c55e' }} /><span>Operating</span></div>
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#3b82f6' }} /><span>Proposed</span></div>
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#f97316' }} /><span>Under Construction</span></div>
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#a855f7' }} /><span>Expanding</span></div>
-            <div className="legend-swatch-row"><span className="legend-swatch" style={{ background: '#6b7280' }} /><span>Suspended</span></div>
+            {DC_STATUSES.map((s) => (
+              <label key={s} className="transit-sub-toggle">
+                <input
+                  type="checkbox"
+                  checked={dcSubVisible[s]}
+                  onChange={() => toggleDcSub(s)}
+                />
+                <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s], opacity: dcSubVisible[s] ? 1 : 0.35 }} />
+                <span style={{ opacity: dcSubVisible[s] ? 1 : 0.5 }}>{DC_STATUS_LABELS[s]}</span>
+              </label>
+            ))}
           </div>
         )}
 
