@@ -545,6 +545,7 @@ type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 const COSTCO_ANALYSIS_RADIUS_MI = 150
 const COSTCO_GREEN_RADIUS_MI = 30
 const HELIPORTS_ENABLED = false
+const SCHOOLS_ENABLED = false
 
 function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   if (distMi <= COSTCO_GREEN_RADIUS_MI) return 'good'
@@ -1649,7 +1650,7 @@ function MapPage() {
     if (requested.has('noise')) toggleNoise()
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('transit')) toggleTransit()
-    if (requested.has('schools')) toggleSchools()
+    if (requested.has('schools') && SCHOOLS_ENABLED) toggleSchools()
     if (requested.has('heliports') && HELIPORTS_ENABLED) toggleHeliports()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
@@ -2072,27 +2073,31 @@ function MapPage() {
           </div>
         )}
 
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={schoolsVisible}
-            onChange={toggleSchools}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">
-            Nearby Schools
-            {schoolsLoading && <span className="layer-loading"> ⏳</span>}
-          </span>
-        </label>
-        {schoolsVisible && (
-          <div className="school-legend">
-            {(Object.entries(SCHOOL_COLORS) as [SchoolCategory, string][]).map(([cat, color]) => (
-              <div key={cat} className="legend-swatch-row">
-                <span className="legend-dot" style={{ background: color }} />
-                <span>{SCHOOL_LABELS[cat]}</span>
+        {SCHOOLS_ENABLED && (
+          <>
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={schoolsVisible}
+                onChange={toggleSchools}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Nearby Schools
+                {schoolsLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {schoolsVisible && (
+              <div className="school-legend">
+                {(Object.entries(SCHOOL_COLORS) as [SchoolCategory, string][]).map(([cat, color]) => (
+                  <div key={cat} className="legend-swatch-row">
+                    <span className="legend-dot" style={{ background: color }} />
+                    <span>{SCHOOL_LABELS[cat]}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
         <label className="layer-toggle">
