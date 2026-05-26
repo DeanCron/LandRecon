@@ -491,7 +491,7 @@ function transitPopup(stop: TransitStop): string {
 async function fetchSuperfundFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
   const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
   const params = new URLSearchParams({
-    where: '1=1',
+    where: "NPL_STATUS_CODE <> 'D'",
     outFields: SUPERFUND_FIELDS,
     geometry: bbox,
     geometryType: 'esriGeometryEnvelope',
@@ -1265,7 +1265,7 @@ function MapPage() {
         const radiusDeg = (5 * milesToMeters) / 111320
         const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
         const params = new URLSearchParams({
-          where: '1=1',
+          where: "NPL_STATUS_CODE <> 'D'",
           outFields: 'SITE_NAME,NPL_STATUS_CODE,URL_ALIAS_TXT',
           geometry: env,
           geometryType: 'esriGeometryEnvelope',
