@@ -24,21 +24,21 @@ type BaseMapId = 'street' | 'satellite' | 'light' | 'dark'
 const BASE_MAPS: Record<BaseMapId, { label: string; url: string; attribution: string; maxZoom: number; subdomains?: string }> = {
   street: {
     label: 'Street',
-    url: `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    url: `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&style=feature:poi%7Cvisibility:off&key=${GOOGLE_MAPS_KEY}`,
     attribution: '&copy; Google Maps',
     maxZoom: 21,
     subdomains: '0123',
   },
   satellite: {
     label: 'Satellite',
-    url: `https://mt{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    url: `https://mt{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}&style=feature:poi%7Cvisibility:off&key=${GOOGLE_MAPS_KEY}`,
     attribution: '&copy; Google Maps',
     maxZoom: 21,
     subdomains: '0123',
   },
   light: {
     label: 'Light',
-    url: `https://mt{s}.google.com/vt/lyrs=r&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    url: `https://mt{s}.google.com/vt/lyrs=r&x={x}&y={y}&z={z}&style=feature:poi%7Cvisibility:off&key=${GOOGLE_MAPS_KEY}`,
     attribution: '&copy; Google Maps',
     maxZoom: 21,
     subdomains: '0123',
