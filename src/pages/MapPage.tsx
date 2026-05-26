@@ -544,6 +544,7 @@ type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
 const COSTCO_ANALYSIS_RADIUS_MI = 150
 const COSTCO_GREEN_RADIUS_MI = 30
+const HELIPORTS_ENABLED = false
 
 function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   if (distMi <= COSTCO_GREEN_RADIUS_MI) return 'good'
@@ -1182,6 +1183,7 @@ function MapPage() {
 
       // Check heliports within 3 miles
       (async () => {
+        if (!HELIPORTS_ENABLED) return [] as { name: string; distanceMi: number }[]
         const radiusDeg = (3 * milesToMeters) / 111320
         const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
         const query = `[out:json][timeout:10];(
@@ -1648,7 +1650,7 @@ function MapPage() {
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('schools')) toggleSchools()
-    if (requested.has('heliports')) toggleHeliports()
+    if (requested.has('heliports') && HELIPORTS_ENABLED) toggleHeliports()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2004,15 +2006,17 @@ function MapPage() {
           </div>
         )}
 
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={heliportsVisible}
-            onChange={toggleHeliports}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">Heliports</span>
-        </label>
+        {HELIPORTS_ENABLED && (
+          <label className="layer-toggle">
+            <input
+              type="checkbox"
+              checked={heliportsVisible}
+              onChange={toggleHeliports}
+              disabled={status !== 'ready'}
+            />
+            <span className="layer-label">Heliports</span>
+          </label>
+        )}
 
         <label className="layer-toggle">
           <input
@@ -2154,7 +2158,7 @@ function MapPage() {
                 </div>
               )}
 
-              {analysisResults.heliports.length > 0 && (
+              {HELIPORTS_ENABLED && analysisResults.heliports.length > 0 && (
                 <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('heliports')}>
                   <div className="analysis-icon">⚠️</div>
                   <div className="analysis-detail">
@@ -2201,12 +2205,12 @@ function MapPage() {
                 </div>
               )}
 
-              {!analysisResults.noiseLevel && analysisResults.heliports.length === 0 && analysisResults.superfunds.length === 0 && (
+              {!analysisResults.noiseLevel && (!HELIPORTS_ENABLED || analysisResults.heliports.length === 0) && analysisResults.superfunds.length === 0 && (
                 <div className="analysis-item clear">
                   <div className="analysis-icon">✅</div>
                   <div className="analysis-detail">
                     <strong>No issues found</strong>
-                    <p>Location is clear of airport noise corridors, heliports, and Superfund sites</p>
+                    <p>Location is clear of airport noise corridors{HELIPORTS_ENABLED ? ', heliports,' : ''} and Superfund sites</p>
                   </div>
                 </div>
               )}
@@ -2242,7 +2246,7 @@ function MapPage() {
               </>
             )}
 
-            {analysisDetail === 'heliports' && (
+            {HELIPORTS_ENABLED && analysisDetail === 'heliports' && (
               <>
                 <h3>Nearby Heliports</h3>
                 <ul className="analysis-detail-list">
