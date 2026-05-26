@@ -649,7 +649,8 @@ function MapPage() {
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
     costco: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number }[]
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [] })
+    costcoError: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false })
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
@@ -1175,7 +1176,7 @@ function MapPage() {
   }, [])
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [] })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false })
 
     const location = L.latLng(lat, lng)
     const milesToMeters = 1609.34
@@ -1364,8 +1365,9 @@ function MapPage() {
     const costcoData = costcoResult.status === 'fulfilled' ? costcoResult.value : { nearest: null, nearby: [] }
     const costco = costcoData.nearest
     const costcoNearby = costcoData.nearby
+    const costcoError = costcoResult.status === 'rejected'
 
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby })
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby, costcoError })
   }, [])
 
   useEffect(() => {
@@ -2314,11 +2316,11 @@ function MapPage() {
                   <div className="analysis-chevron">›</div>
                 </div>
               ) : (
-                <div className="analysis-item danger">
+                <div className={`analysis-item ${analysisResults.costcoError ? 'warning' : 'danger'}`}>
                   <div className="analysis-icon">🛒</div>
                   <div className="analysis-detail">
                     <strong>Nearest Costco</strong>
-                    <p>No Costco within {COSTCO_ANALYSIS_RADIUS_MI} miles</p>
+                    <p>{analysisResults.costcoError ? 'Search timed out — try again later' : `No Costco within ${COSTCO_ANALYSIS_RADIUS_MI} miles`}</p>
                   </div>
                 </div>
               )}
@@ -2493,6 +2495,12 @@ function MapPage() {
                       </>
                     )
                   })()
+                ) : analysisResults.costcoError ? (
+                  <>
+                    <p className="analysis-detail-level warning">
+                      Costco search timed out. The Overpass server may be busy — please try again later.
+                    </p>
+                  </>
                 ) : (
                   <>
                     <p className="analysis-detail-level danger">
