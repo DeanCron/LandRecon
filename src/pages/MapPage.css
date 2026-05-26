@@ -706,17 +706,17 @@
 
 .analysis-band.good {
   background: rgba(102, 187, 106, 0.2);
-  color: #4caf50;
+  color: #15803d;
 }
 
 .analysis-band.warning {
-  background: rgba(255, 204, 2, 0.2);
-  color: #d4a000;
+  background: rgba(255, 204, 2, 0.25);
+  color: #92400e;
 }
 
 .analysis-band.danger {
   background: rgba(239, 83, 80, 0.2);
-  color: #ef5350;
+  color: #b91c1c;
 }
 
 .traffic-legend {

@@ -17,7 +17,7 @@ function App() {
       <Route
         path="/map"
         element={
-          <Suspense fallback={<div style={{ color: '#fff', padding: '2rem' }}>Loading map…</div>}>
+          <Suspense fallback={<div style={{ color: 'var(--color-text)', padding: '2rem' }}>Loading map…</div>}>
             <KeyedMapPage />
           </Suspense>
         }
