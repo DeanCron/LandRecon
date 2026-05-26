@@ -100,7 +100,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-primary);
   border-radius: 8px;
-  box-shadow: 0 0 0 3px rgba(79, 143, 247, 0.15);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 
 .header-address-edit-icon {
