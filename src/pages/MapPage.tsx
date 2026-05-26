@@ -241,7 +241,7 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
 // overpass-api.de returns 406 to generic browser UAs, and the browser's
 // CORS preflight UA cannot be overridden from JavaScript, so the proxy
 // is required.
-const OVERPASS_ENDPOINTS = ['/overpass']
+const OVERPASS_ENDPOINTS = ['/overpass', '/overpass2']
 
 interface OverpassElement {
   type?: string
@@ -268,30 +268,40 @@ async function fetchOverpass<T = OverpassResponse>(
   let lastErr: unknown = null
   for (const url of OVERPASS_ENDPOINTS) {
     if (externalSignal?.aborted) break
-    const ctrl = new AbortController()
-    const onExternalAbort = () => ctrl.abort()
-    externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-        },
-        body,
-        signal: ctrl.signal,
-      })
-      if (!res.ok) {
-        lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
-        continue
+    // Retry up to 2 times on 504/429 for each endpoint
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (externalSignal?.aborted) break
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
+      const ctrl = new AbortController()
+      const onExternalAbort = () => ctrl.abort()
+      externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+          },
+          body,
+          signal: ctrl.signal,
+        })
+        if (res.status === 504 || res.status === 429) {
+          lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
+          continue
+        }
+        if (!res.ok) {
+          lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
+          break // non-retryable error, try next endpoint
+        }
+        return (await res.json()) as T
+      } catch (err) {
+        lastErr = err
+        break // network error, try next endpoint
+      } finally {
+        clearTimeout(timer)
+        externalSignal?.removeEventListener('abort', onExternalAbort)
       }
-      return (await res.json()) as T
-    } catch (err) {
-      lastErr = err
-    } finally {
-      clearTimeout(timer)
-      externalSignal?.removeEventListener('abort', onExternalAbort)
     }
   }
   console.warn('Overpass: all endpoints failed', lastErr)
@@ -1267,7 +1277,7 @@ function MapPage() {
         type CostcoHit = { osmId: string; name: string; city: string; distanceMi: number; lat: number; lng: number }
         const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
-        const query = `[out:json][timeout:20];(
+        const query = `[out:json][timeout:30];(
           node["brand"="Costco"]["shop"](${bbox});
           way["brand"="Costco"]["shop"](${bbox});
           relation["brand"="Costco"]["shop"](${bbox});
@@ -1275,7 +1285,7 @@ function MapPage() {
           way["brand:wikidata"="Q715583"]["shop"](${bbox});
           relation["brand:wikidata"="Q715583"]["shop"](${bbox});
         );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: 20000, signal: AbortSignal.timeout(20000) })
+        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000) })
         if (!data?.elements) return { nearest: null as CostcoHit | null, nearby: [] as CostcoHit[] }
         const seen = new Set<string>()
         const hits: CostcoHit[] = []

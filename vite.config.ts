@@ -19,6 +19,15 @@ export default defineConfig({
           'User-Agent': 'LandRecon/1.0',
         },
       },
+      '/overpass2': {
+        target: 'https://overpass.kumi.systems',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/api/interpreter',
+        headers: {
+          'User-Agent': 'LandRecon/1.0',
+        },
+      },
     },
   },
 })
