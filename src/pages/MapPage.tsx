@@ -672,17 +672,13 @@ function MapPage() {
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
   const [showFabHints, setShowFabHints] = useState(false)
 
-  // Show FAB tooltip hints once on mobile, auto-dismiss after 4s
+  // Show FAB tooltip hints once on mobile, dismiss on first tap
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     if (!mq.matches) return
     if (localStorage.getItem('lr_fab_hints_seen')) return
     const showTimer = setTimeout(() => setShowFabHints(true), 800)
-    const hideTimer = setTimeout(() => {
-      setShowFabHints(false)
-      localStorage.setItem('lr_fab_hints_seen', '1')
-    }, 5000)
-    return () => { clearTimeout(showTimer); clearTimeout(hideTimer) }
+    return () => clearTimeout(showTimer)
   }, [])
 
   const buildShareUrl = useCallback((): string => {
@@ -2049,7 +2045,7 @@ function MapPage() {
       {/* Mobile floating action buttons */}
       <button
         className="layer-toggle-btn"
-        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false); setShowFabHints(false) }}
+        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false); if (showFabHints) { setShowFabHints(false); localStorage.setItem('lr_fab_hints_seen', '1') } }}
         aria-label="Open layers"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
@@ -2057,7 +2053,7 @@ function MapPage() {
       </button>
       <button
         className="analysis-toggle-btn"
-        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setShowFabHints(false) }}
+        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); if (showFabHints) { setShowFabHints(false); localStorage.setItem('lr_fab_hints_seen', '1') } }}
         aria-label="Open analysis"
       >
         {showFabHints && <span className="fab-hint fab-hint-left">Location Analysis</span>}
