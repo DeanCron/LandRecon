@@ -17,26 +17,31 @@ const NOISE_PMTILES_URL =
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`
 
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
+
 type BaseMapId = 'street' | 'satellite' | 'light' | 'dark'
 
-const BASE_MAPS: Record<BaseMapId, { label: string; url: string; attribution: string; maxZoom: number }> = {
+const BASE_MAPS: Record<BaseMapId, { label: string; url: string; attribution: string; maxZoom: number; subdomains?: string }> = {
   street: {
     label: 'Street',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+    url: `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    attribution: '&copy; Google Maps',
+    maxZoom: 21,
+    subdomains: '0123',
   },
   satellite: {
     label: 'Satellite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri, Maxar, Earthstar Geographics',
-    maxZoom: 19,
+    url: `https://mt{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    attribution: '&copy; Google Maps',
+    maxZoom: 21,
+    subdomains: '0123',
   },
   light: {
     label: 'Light',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 20,
+    url: `https://mt{s}.google.com/vt/lyrs=r&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+    attribution: '&copy; Google Maps',
+    maxZoom: 21,
+    subdomains: '0123',
   },
   dark: {
     label: 'Dark',
@@ -1467,6 +1472,7 @@ function MapPage() {
         const baseLayer = L.tileLayer(BASE_MAPS.street.url, {
           attribution: BASE_MAPS.street.attribution,
           maxZoom: BASE_MAPS.street.maxZoom,
+          subdomains: BASE_MAPS.street.subdomains || 'abc',
         }).addTo(map)
 
         baseLayerRef.current = baseLayer
@@ -1577,6 +1583,7 @@ function MapPage() {
     const newLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
+      subdomains: config.subdomains || 'abc',
     }).addTo(map)
     newLayer.bringToBack()
     baseLayerRef.current = newLayer
