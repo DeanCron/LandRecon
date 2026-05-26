@@ -1715,7 +1715,7 @@ function MapPage() {
       const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
       const icon = L.divIcon({
         className: 'dc-label',
-        html: `<div class="dc-pin" style="background:${color}">DC</div>`,
+        html: `<div class="dc-pin" style="background:${color}">🏢</div>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       })
