@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './MapPage.css'
-import logo from '../assets/landrecon-logo.png'
+import logo from '../assets/landrecon-logo.webp'
 import {
   createNoiseLayer,
   queryNoiseLevelAtPoint,

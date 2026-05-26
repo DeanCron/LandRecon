@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import logo from '../assets/landrecon-logo.png'
+import logo from '../assets/landrecon-logo.webp'
 import './HomePage.css'
 
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
