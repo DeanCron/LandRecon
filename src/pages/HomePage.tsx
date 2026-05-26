@@ -141,7 +141,6 @@ function HomePage() {
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-              autoFocus
               autoComplete="off"
             />
             {showSuggestions && (

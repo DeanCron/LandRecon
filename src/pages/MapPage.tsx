@@ -668,6 +668,9 @@ function MapPage() {
   const addressWrapperRef = useRef<HTMLDivElement>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
 
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false)
+  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
+
   const buildShareUrl = useCallback((): string => {
     const params = new URLSearchParams()
     if (address) params.set('address', address)
@@ -2029,7 +2032,29 @@ function MapPage() {
         )}
       </div>
 
-      <aside className="layer-panel">
+      {/* Mobile floating action buttons */}
+      <button
+        className="layer-toggle-btn"
+        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) }}
+        aria-label="Open layers"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
+      </button>
+      <button
+        className="analysis-toggle-btn"
+        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) }}
+        aria-label="Open analysis"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+      </button>
+
+      {/* Mobile backdrop */}
+      {(layerPanelOpen || analysisPanelOpen) && (
+        <div className="mobile-panel-backdrop" onClick={() => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) }} />
+      )}
+
+      <aside className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
+        <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close layers">×</button>
         <h2 className="panel-title">Base Map</h2>
         <div className="basemap-switcher">
           {(Object.entries(BASE_MAPS) as [BaseMapId, typeof BASE_MAPS[BaseMapId]][]).map(([id, cfg]) => (
@@ -2199,9 +2224,14 @@ function MapPage() {
       </aside>
 
       {/* Location Analysis Panel */}
-      <aside className="analysis-panel">
+      <aside className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}>
         <div className="analysis-header">
           <h2>Location Analysis</h2>
+          <button
+            className="analysis-close"
+            onClick={() => setAnalysisPanelOpen(false)}
+            aria-label="Close analysis"
+          >×</button>
           <button
             className="share-button"
             onClick={handleShare}

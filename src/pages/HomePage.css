@@ -165,3 +165,45 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ── Mobile ───────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .home {
+    padding: 1.25rem 1rem;
+    min-height: 100dvh;
+  }
+
+  .home-title {
+    font-size: 2rem;
+    letter-spacing: -1px;
+  }
+
+  .home-subtitle {
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .home-input {
+    padding: 14px 14px 14px 44px;
+    font-size: 0.95rem;
+  }
+
+  .input-icon {
+    left: 14px;
+    top: 14px;
+  }
+
+  .home-button {
+    padding: 14px;
+  }
+
+  .suggestions-list {
+    max-height: 45vh;
+    overflow-y: auto;
+  }
+
+  .suggestion-item {
+    padding: 14px 16px;
+    font-size: 0.95rem;
+  }
+}
