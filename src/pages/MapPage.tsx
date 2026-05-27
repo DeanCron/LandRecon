@@ -583,6 +583,65 @@ function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   return 'danger'
 }
 
+function noiseSeverity(db: number): 'warning' | 'danger' {
+  if (db < 65) return 'warning'
+  return 'danger'
+}
+
+function superfundSeverity(sites: { status: string }[]): 'clear' | 'warning' | 'danger' {
+  if (sites.length === 0) return 'clear'
+  const hasActive = sites.some(s => s.status !== 'Deleted')
+  return hasActive ? 'danger' : 'warning'
+}
+
+function dataCenterSeverity(count: number): 'clear' | 'warning' | 'danger' {
+  if (count === 0) return 'clear'
+  if (count <= 2) return 'warning'
+  return 'danger'
+}
+
+type SeverityLevel = 'clear' | 'good' | 'warning' | 'danger'
+
+function computeLocationGrade(results: {
+  noiseLevel: number | null
+  superfunds: { status: string }[]
+  costco: { distanceMi: number } | null
+  costcoError: boolean
+  dataCenters: unknown[]
+}): { letter: string; color: string; severity: SeverityLevel; pct: number } {
+  const scores: number[] = []
+
+  // Noise: 0 = none, 1 = moderate (55-65), 2 = high (65+)
+  if (!results.noiseLevel) scores.push(0)
+  else if (results.noiseLevel < 65) scores.push(1)
+  else scores.push(2)
+
+  // Superfund
+  const sfSev = superfundSeverity(results.superfunds)
+  scores.push(sfSev === 'clear' ? 0 : sfSev === 'warning' ? 1 : 2)
+
+  // Costco
+  if (!results.costco) scores.push(results.costcoError ? 1 : 2)
+  else {
+    const cs = costcoSeverity(results.costco.distanceMi)
+    scores.push(cs === 'good' ? 0 : cs === 'warning' ? 1 : 2)
+  }
+
+  // Data centers
+  const dcSev = dataCenterSeverity(results.dataCenters.length)
+  scores.push(dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2)
+
+  const total = scores.reduce((a, b) => a + b, 0)
+  const max = scores.length * 2
+
+  const pct = 1 - total / max
+  if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct }
+  if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct }
+  if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct }
+  if (pct >= 0.25) return { letter: 'D', color: '#ff7043', severity: 'warning', pct }
+  return { letter: 'F', color: '#ef5350', severity: 'danger', pct }
+}
+
 function createClusterGroup(color?: string): L.MarkerClusterGroup {
   return L.markerClusterGroup({
     maxClusterRadius: 40,
@@ -699,11 +758,11 @@ function MapPage() {
     noiseLevel: number | null
     noiseAirport: string | null
     noiseAirportCode: string | null
-    superfunds: { name: string; distanceMi: number; status: string; url: string }[]
+    superfunds: { name: string; distanceMi: number; status: string; url: string; lat: number; lng: number }[]
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
-    dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[]
+    dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
@@ -714,6 +773,52 @@ function MapPage() {
   const [shareLongUrl, setShareLongUrl] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
+
+  // Saved analyses for comparison
+  type SavedAnalysis = {
+    address: string
+    date: string
+    grade: string
+    gradeColor: string
+    pct: number
+    noiseLevel: number | null
+    noiseAirport: string | null
+    superfundCount: number
+    superfundActive: number
+    costcoMi: number | null
+    dataCenterCount: number
+  }
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => {
+    try { return JSON.parse(localStorage.getItem('lr_saved_analyses') ?? '[]') } catch { return [] }
+  })
+  const [showCompare, setShowCompare] = useState(false)
+
+  const saveCurrentAnalysis = useCallback(() => {
+    if (analysisResults.loading) return
+    const grade = computeLocationGrade(analysisResults)
+    const entry: SavedAnalysis = {
+      address: document.querySelector('.analysis-address-display')?.textContent ?? 'Unknown',
+      date: new Date().toLocaleDateString(),
+      grade: grade.letter,
+      gradeColor: grade.color,
+      pct: grade.pct,
+      noiseLevel: analysisResults.noiseLevel,
+      noiseAirport: analysisResults.noiseAirport,
+      superfundCount: analysisResults.superfunds.length,
+      superfundActive: analysisResults.superfunds.filter(s => s.status !== 'Deleted').length,
+      costcoMi: analysisResults.costco?.distanceMi ?? null,
+      dataCenterCount: analysisResults.dataCenters.length,
+    }
+    const next = [entry, ...savedAnalyses].slice(0, 5)
+    setSavedAnalyses(next)
+    localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
+  }, [analysisResults, savedAnalyses])
+
+  const removeSavedAnalysis = useCallback((idx: number) => {
+    const next = savedAnalyses.filter((_, i) => i !== idx)
+    setSavedAnalyses(next)
+    localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
+  }, [savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -726,6 +831,44 @@ function MapPage() {
 
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
+
+  // Mobile bottom sheet drag state
+  const sheetRef = useRef<HTMLElement>(null)
+  const sheetDragRef = useRef<{ startY: number; startH: number } | null>(null)
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null)
+  const SHEET_SNAP_PEEK = 15  // vh
+  const SHEET_SNAP_HALF = 50
+  const SHEET_SNAP_FULL = 85
+
+  const handleSheetTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0]
+    sheetDragRef.current = { startY: touch.clientY, startH: sheetHeight ?? SHEET_SNAP_HALF }
+  }, [sheetHeight])
+
+  const handleSheetTouchMove = useCallback((e: React.TouchEvent) => {
+    const drag = sheetDragRef.current
+    if (!drag) return
+    const dy = drag.startY - e.touches[0].clientY
+    const dvh = (dy / window.innerHeight) * 100
+    const newH = Math.max(SHEET_SNAP_PEEK, Math.min(SHEET_SNAP_FULL, drag.startH + dvh))
+    setSheetHeight(newH)
+  }, [])
+
+  const handleSheetTouchEnd = useCallback(() => {
+    const drag = sheetDragRef.current
+    if (!drag) return
+    sheetDragRef.current = null
+    const h = sheetHeight ?? SHEET_SNAP_HALF
+    // Snap to closest
+    const snaps = [SHEET_SNAP_PEEK, SHEET_SNAP_HALF, SHEET_SNAP_FULL]
+    const closest = snaps.reduce((a, b) => Math.abs(b - h) < Math.abs(a - h) ? b : a)
+    if (closest <= SHEET_SNAP_PEEK) {
+      setAnalysisPanelOpen(false)
+      setSheetHeight(null)
+    } else {
+      setSheetHeight(closest)
+    }
+  }, [sheetHeight])
 
   // Experimental feature flags (persisted in localStorage)
   const [expMenuOpen, setExpMenuOpen] = useState(false)
@@ -1246,7 +1389,7 @@ function MapPage() {
         })
         if (!res.ok) return []
         const data = await res.json()
-        const results: { name: string; distanceMi: number; status: string; url: string }[] = []
+        const results: { name: string; distanceMi: number; status: string; url: string; lat: number; lng: number }[] = []
         for (const feat of data.features || []) {
           const centroid = feat.centroid || feat.geometry
           if (!centroid) continue
@@ -1264,6 +1407,8 @@ function MapPage() {
               distanceMi: Math.round(distMi * 10) / 10,
               status: statusLabel,
               url: urlAlias,
+              lat: cLat,
+              lng: cLon,
             })
           }
         }
@@ -1331,7 +1476,7 @@ function MapPage() {
           dataCenterDataRef.current = data
         }
         const radiusM = DATA_CENTER_ANALYSIS_RADIUS_MI * milesToMeters
-        const nearby: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[] = []
+        const nearby: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[] = []
         for (const dc of data) {
           const dist = location.distanceTo(L.latLng(dc.lat, dc.lng))
           if (dist <= radiusM) {
@@ -1344,6 +1489,8 @@ function MapPage() {
               operator: dc.operator,
               mw: dc.mw,
               sizerank: dc.sizerank,
+              lat: dc.lat,
+              lng: dc.lng,
             })
           }
         }
@@ -2251,7 +2398,7 @@ function MapPage() {
       </button>
       <button
         className="analysis-toggle-btn"
-        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) }}
+        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) }}
         aria-label="Open analysis"
       >
         <span className="fab-label">Analysis</span>
@@ -2493,339 +2640,437 @@ function MapPage() {
       </aside>
 
       {/* Location Analysis Panel */}
-      <aside className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}>
+      <aside
+        ref={sheetRef}
+        className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}
+        style={analysisPanelOpen && sheetHeight != null ? { maxHeight: `${sheetHeight}vh` } as React.CSSProperties : undefined}
+      >
+        <div
+          className="analysis-drag-handle"
+          onTouchStart={handleSheetTouchStart}
+          onTouchMove={handleSheetTouchMove}
+          onTouchEnd={handleSheetTouchEnd}
+        >
+          <div className="analysis-drag-bar" />
+        </div>
         <div className="analysis-header">
           <h2>Location Analysis</h2>
-          <button
-            className="analysis-close"
-            onClick={() => setAnalysisPanelOpen(false)}
-            aria-label="Close analysis"
-          >×</button>
-          <button
-            className="share-button"
-            onClick={handleShare}
-            disabled={status !== 'ready'}
-            title="Share this view as a short link"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="18" cy="5" r="3" />
-              <circle cx="6" cy="12" r="3" />
-              <circle cx="18" cy="19" r="3" />
-              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-            </svg>
-            Share
-          </button>
+          <div className="analysis-header-actions">
+            <button
+              className="analysis-action-btn"
+              onClick={() => {
+                const loc = targetLocationRef.current
+                if (loc) runLocationAnalysis(loc.lat, loc.lng)
+              }}
+              disabled={status !== 'ready' || analysisResults.loading}
+              title="Re-analyze this location"
+              aria-label="Re-analyze"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+            <button
+              className="analysis-action-btn"
+              onClick={handleShare}
+              disabled={status !== 'ready'}
+              title="Share this view as a short link"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+            </button>
+            <button
+              className="analysis-action-btn"
+              onClick={() => window.print()}
+              disabled={analysisResults.loading}
+              title="Print / export summary"
+              aria-label="Print"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 6 2 18 2 18 9" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="8" />
+              </svg>
+            </button>
+            <button
+              className="analysis-action-btn"
+              onClick={saveCurrentAnalysis}
+              disabled={analysisResults.loading}
+              title="Save for comparison"
+              aria-label="Save"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+            </button>
+            {savedAnalyses.length > 0 && (
+              <button
+                className="analysis-action-btn"
+                onClick={() => setShowCompare(!showCompare)}
+                title={`Compare (${savedAnalyses.length} saved)`}
+                aria-label="Compare"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="20" x2="18" y2="10" />
+                  <line x1="12" y1="20" x2="12" y2="4" />
+                  <line x1="6" y1="20" x2="6" y2="14" />
+                </svg>
+                <span className="compare-badge">{savedAnalyses.length}</span>
+              </button>
+            )}
+            <button
+              className="analysis-close"
+              onClick={() => setAnalysisPanelOpen(false)}
+              aria-label="Close analysis"
+            >×</button>
+          </div>
         </div>
+        {!analysisResults.loading && (() => {
+          const grade = computeLocationGrade(analysisResults)
+          return (
+            <div className="analysis-score-bar">
+              <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
+              <div className="analysis-score-label">
+                <strong>Location Score</strong>
+                <span>{grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'}</span>
+              </div>
+            </div>
+          )
+        })()}
+        <div className="analysis-print-header">
+          <h1>LandRecon — Location Analysis</h1>
+          <p>{address}</p>
+          <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
+        </div>
+        {showCompare && savedAnalyses.length > 0 && (
+          <div className="analysis-compare">
+            <h3 className="compare-title">Saved Comparisons</h3>
+            <div className="compare-table">
+              <div className="compare-row compare-header-row">
+                <span className="compare-cell compare-addr">Location</span>
+                <span className="compare-cell">Grade</span>
+                <span className="compare-cell">Noise</span>
+                <span className="compare-cell">Superfund</span>
+                <span className="compare-cell">Costco</span>
+                <span className="compare-cell">Data Ctrs</span>
+                <span className="compare-cell compare-actions"></span>
+              </div>
+              {savedAnalyses.map((sa, i) => (
+                <div className="compare-row" key={i}>
+                  <span className="compare-cell compare-addr" title={sa.address}>{sa.address}</span>
+                  <span className="compare-cell"><span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span></span>
+                  <span className="compare-cell">{sa.noiseLevel != null ? `${sa.noiseLevel} dB` : '—'}</span>
+                  <span className="compare-cell">{sa.superfundCount === 0 ? '✅ None' : `${sa.superfundActive} active`}</span>
+                  <span className="compare-cell">{sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
+                  <span className="compare-cell">{sa.dataCenterCount}</span>
+                  <span className="compare-cell compare-actions">
+                    <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove">×</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="analysis-content">
           {analysisResults.loading ? (
-            <div className="analysis-progress">
+            <div className="analysis-skeleton">
               {[
-                { key: 'noise', label: 'Airport Noise' },
-                { key: 'superfund', label: 'Superfund Sites' },
-                { key: 'costco', label: 'Costco' },
-                { key: 'datacenters', label: 'Data Centers' },
-              ].map(({ key, label }) => (
-                <div key={key} className={`analysis-progress-item ${analysisProgress[key] === 'done' ? 'done' : 'pending'}`}>
-                  <span className="analysis-progress-icon">
-                    {analysisProgress[key] === 'done' ? '✓' : ''}
-                  </span>
-                  <span>{label}</span>
+                { key: 'noise', icon: '✈️', label: 'Airport Noise' },
+                { key: 'superfund', icon: '☢️', label: 'Superfund Sites' },
+                { key: 'costco', icon: '🛒', label: 'Costco' },
+                { key: 'datacenters', icon: '🏢', label: 'Data Centers' },
+              ].map(({ key, icon, label }) => (
+                <div key={key} className={`analysis-card skeleton ${analysisProgress[key] === 'done' ? 'skeleton-done' : ''}`}>
+                  <div className="analysis-item">
+                    <div className="analysis-icon">{analysisProgress[key] === 'done' ? '✓' : icon}</div>
+                    <div className="analysis-detail">
+                      <strong>{label}</strong>
+                      <p>{analysisProgress[key] === 'done' ? 'Complete' : 'Checking…'}</p>
+                    </div>
+                    {analysisProgress[key] !== 'done' && <div className="skeleton-spinner" />}
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <>
-              {analysisResults.noiseLevel && (
-                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('noise')}>
-                  <div className="analysis-icon">⚠️</div>
+              {/* Noise */}
+              <div className={`analysis-card ${analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear'}`}>
+                <div
+                  className="analysis-item clickable"
+                  onClick={() => setAnalysisDetail(analysisDetail === 'noise' ? null : 'noise')}
+                >
+                  <div className="analysis-icon">{analysisResults.noiseLevel ? '✈️' : '✅'}</div>
                   <div className="analysis-detail">
                     <strong>Airport Noise</strong>
-                    <p>~{analysisResults.noiseLevel} dB DNL — click for details</p>
+                    <p>{analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected'}</p>
                   </div>
-                  <div className="analysis-chevron">›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>›</div>
                 </div>
-              )}
-
-              {analysisResults.superfunds.length > 0 && (
-                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('superfunds')}>
-                  <div className="analysis-icon">⚠️</div>
-                  <div className="analysis-detail">
-                    <strong>Nearby Superfund Sites</strong>
-                    <p>{analysisResults.superfunds.length} found — click for details</p>
+                {analysisDetail === 'noise' && (
+                  <div className="analysis-expand">
+                    {analysisResults.noiseLevel ? (
+                      <>
+                        {analysisResults.noiseAirport && (
+                          <p className="analysis-expand-sub">
+                            {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
+                          </p>
+                        )}
+                        <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB DNL</p>
+                        <div className="analysis-expand-rec">
+                          <strong>Recommendation</strong>
+                          <p>
+                            Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
+                            We recommend repeat visits at different times of day — including early morning,
+                            evening, and weekends — to assess whether the noise level is acceptable.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
+                    )}
                   </div>
-                  <div className="analysis-chevron">›</div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {analysisResults.costco ? (
+              {/* Superfund */}
+              <div className={`analysis-card ${superfundSeverity(analysisResults.superfunds)}`}>
                 <div
-                  className={`analysis-item ${costcoSeverity(analysisResults.costco.distanceMi)} clickable`}
-                  onClick={() => setAnalysisDetail('costco')}
+                  className="analysis-item clickable"
+                  onClick={() => setAnalysisDetail(analysisDetail === 'superfunds' ? null : 'superfunds')}
+                >
+                  <div className="analysis-icon">{analysisResults.superfunds.length > 0 ? '☢️' : '✅'}</div>
+                  <div className="analysis-detail">
+                    <strong>Superfund Sites</strong>
+                    <p>{analysisResults.superfunds.length > 0
+                      ? `${analysisResults.superfunds.length} within 5 mi`
+                      : 'No Superfund sites within 5 miles'}</p>
+                  </div>
+                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>›</div>
+                </div>
+                {analysisDetail === 'superfunds' && (
+                  <div className="analysis-expand">
+                    {analysisResults.superfunds.length > 0 ? (
+                      <>
+                        <ul className="analysis-expand-list">
+                          {analysisResults.superfunds.map((s, i) => (
+                            <li key={i}>
+                              <div className="analysis-flyto-row">
+                                <div>
+                                  <strong>{s.name}</strong> — {s.distanceMi} mi
+                                  <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
+                                    {s.status}
+                                  </span>
+                                </div>
+                                <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)} title="Fly to location">📍</button>
+                              </div>
+                              {s.url && (
+                                <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
+                                  EPA Profile →
+                                </a>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="analysis-expand-rec">
+                          <strong>Recommendation</strong>
+                          <p>
+                            Sites marked "Deleted" have been cleaned up and removed from the NPL.
+                            For active sites, research using the EPA links above.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Costco */}
+              <div className={`analysis-card ${analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'warning' : 'danger'}`}>
+                <div
+                  className="analysis-item clickable"
+                  onClick={() => setAnalysisDetail(analysisDetail === 'costco' ? null : 'costco')}
                 >
                   <div className="analysis-icon">🛒</div>
                   <div className="analysis-detail">
                     <strong>Nearest Costco</strong>
-                    <p>
-                      {analysisResults.costco.distanceMi} mi
-                      {analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''} — click for details
-                    </p>
+                    <p>{analysisResults.costco
+                      ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
+                      : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
                   </div>
-                  <div className="analysis-chevron">›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>›</div>
                 </div>
-              ) : (
-                <div className={`analysis-item ${analysisResults.costcoError ? 'warning' : 'danger'}`}>
-                  <div className="analysis-icon">🛒</div>
-                  <div className="analysis-detail">
-                    <strong>Nearest Costco</strong>
-                    <p>{analysisResults.costcoError ? 'Search timed out — try again later' : `No Costco within ${COSTCO_ANALYSIS_RADIUS_MI} miles`}</p>
+                {analysisDetail === 'costco' && (
+                  <div className="analysis-expand">
+                    {analysisResults.costco ? (() => {
+                      const dist = analysisResults.costco.distanceMi
+                      const sev = costcoSeverity(dist)
+                      return (
+                        <>
+                          <p className="analysis-expand-sub">{analysisResults.costco.city || 'Costco Wholesale'}</p>
+                          <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
+                          <div className="analysis-costco-actions">
+                            <button className="analysis-flyto-link" onClick={() => mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15)}>
+                              📍 Show on map
+                            </button>
+                            <a
+                              className="costco-directions-link"
+                              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 11l19-9-9 19-2-8-8-2z" />
+                            </svg>
+                            Driving directions →
+                          </a>
+                          </div>
+                          <div className="analysis-expand-rec">
+                            {sev === 'good' && (
+                              <>
+                                <strong>Congratulations.</strong>
+                                <p>
+                                  You are about to be one of those insufferably happy people who
+                                  casually mention they "just popped over to Costco" on a Tuesday.
+                                  Studies (that I made up) show that residents within 30 miles of a
+                                  warehouse experience 73% more joy, own 4x more rotisserie
+                                  chickens, and have a deeply spiritual relationship with bulk
+                                  paper towels. You did this. You did this right.
+                                </p>
+                              </>
+                            )}
+                            {sev === 'warning' && (
+                              <>
+                                <strong>Acceptable. Barely.</strong>
+                                <p>
+                                  {dist} miles. That is a <em>commitment</em>. Not a quick errand —
+                                  a planned expedition with a packing list, a playlist, and a snack
+                                  for the road. You'll do it, sure, but every trip will end with
+                                  you whispering "was the gas worth it?" while you eat a
+                                  $1.50 hot dog in the parking lot.
+                                </p>
+                              </>
+                            )}
+                            {sev === 'danger' && (
+                              <>
+                                <strong>Real talk for a second.</strong>
+                                <p>
+                                  {dist} miles. To a Costco. Do you actually want to live that
+                                  far away from a building full of free samples and reasonably
+                                  priced tires? Is this house really worth a {Math.round(dist * 2)}-mile
+                                  round trip every time you need a flat of paper towels?
+                                </p>
+                              </>
+                            )}
+                          </div>
+                          <div className="analysis-expand-rec">
+                            <strong>Distance bands</strong>
+                            <p>
+                              <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                              <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                              <span className="analysis-band danger">51–100 mi</span> reconsider
+                            </p>
+                          </div>
+                        </>
+                      )
+                    })() : analysisResults.costcoError ? (
+                      <p className="analysis-expand-level warning">
+                        Costco search timed out. The Overpass server may be busy — try again later.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="analysis-expand-level danger">
+                          No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles.
+                        </p>
+                        <div className="analysis-expand-rec">
+                          <strong>⚠️ Are you sure about this?</strong>
+                          <p>
+                            There is <em>no Costco</em> within {COSTCO_ANALYSIS_RADIUS_MI} miles.
+                            You will have to survive on normal-sized packages of toilet paper.
+                            Sourcing a 48-pack of muffins will require <em>logistics</em>.
+                          </p>
+                        </div>
+                        <div className="analysis-expand-rec">
+                          <strong>Distance bands</strong>
+                          <p>
+                            <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                            <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                            <span className="analysis-band danger">51–100 mi</span> reconsider
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {analysisResults.dataCenters.length > 0 && (
+              {/* Data Centers */}
+              <div className={`analysis-card ${dataCenterSeverity(analysisResults.dataCenters.length)}`}>
                 <div
-                  className="analysis-item warning clickable"
-                  onClick={() => setAnalysisDetail('datacenters')}
+                  className="analysis-item clickable"
+                  onClick={() => setAnalysisDetail(analysisDetail === 'datacenters' ? null : 'datacenters')}
                 >
-                  <div className="analysis-icon">🏢</div>
+                  <div className="analysis-icon">{analysisResults.dataCenters.length > 0 ? '🏢' : '✅'}</div>
                   <div className="analysis-detail">
-                    <strong>Nearby Data Centers</strong>
-                    <p>{analysisResults.dataCenters.length} within {DATA_CENTER_ANALYSIS_RADIUS_MI} mi — click for details</p>
+                    <strong>Data Centers</strong>
+                    <p>{analysisResults.dataCenters.length > 0
+                      ? `${analysisResults.dataCenters.length} within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi`
+                      : 'No data centers nearby'}</p>
                   </div>
-                  <div className="analysis-chevron">›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>›</div>
                 </div>
-              )}
-
-              {!analysisResults.noiseLevel && analysisResults.superfunds.length === 0 && analysisResults.dataCenters.length === 0 && (
-                <div className="analysis-item clear">
-                  <div className="analysis-icon">✅</div>
-                  <div className="analysis-detail">
-                    <strong>No issues found</strong>
-                    <p>Location is clear of airport noise corridors, Superfund sites, and data centers</p>
+                {analysisDetail === 'datacenters' && (
+                  <div className="analysis-expand">
+                    {analysisResults.dataCenters.length > 0 ? (
+                      <>
+                        <div className="analysis-expand-rec">
+                          <strong>Why this matters</strong>
+                          <p>
+                            Data centers can impact surrounding areas through increased traffic,
+                            noise from cooling systems, and strain on local power and water resources.
+                          </p>
+                        </div>
+                        <ul className="analysis-expand-list">
+                          {analysisResults.dataCenters.map((dc, i) => (
+                            <li key={i} className="dc-analysis-item">
+                              <div className="dc-analysis-header">
+                                <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
+                                <strong>{dc.name || 'Unknown Facility'}</strong>
+                                <span className="dc-distance">{dc.distanceMi} mi</span>
+                                <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)} title="Fly to location">📍</button>
+                              </div>
+                              <div className="dc-analysis-meta">
+                                {dc.operator && <span>{dc.operator}</span>}
+                                {(dc.city || dc.state) && <span>{[dc.city, dc.state].filter(Boolean).join(', ')}</span>}
+                                <span>{dc.status}</span>
+                                {dc.mw && <span>{dc.mw} MW</span>}
+                                {dc.sizerank && dc.sizerank !== 'Unknown' && <span>{dc.sizerank}</span>}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </>
           )}
         </div>
       </aside>
 
-      {/* Analysis Detail Popup */}
-      {analysisDetail && (
-        <div className="analysis-detail-overlay" onClick={() => setAnalysisDetail(null)}>
-          <div className="analysis-detail-popup" onClick={(e) => e.stopPropagation()}>
-            <button className="analysis-detail-close" onClick={() => setAnalysisDetail(null)}>×</button>
-
-            {analysisDetail === 'noise' && (
-              <>
-                <h3>Airport Noise</h3>
-                {analysisResults.noiseAirport && (
-                  <p className="analysis-detail-airport">
-                    {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
-                  </p>
-                )}
-                <p className="analysis-detail-level">Estimated noise level: ~{analysisResults.noiseLevel} dB DNL</p>
-                <div className="analysis-detail-rec">
-                  <strong>Recommendation</strong>
-                  <p>
-                    Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
-                    We recommend repeat visits to this location at different times of day — including early morning,
-                    evening, and weekends — to assess whether the noise level is acceptable for your needs.
-                    Flight patterns and frequency can vary significantly by time of day.
-                  </p>
-                </div>
-              </>
-            )}
-
-            {analysisDetail === 'superfunds' && (
-              <>
-                <h3>Nearby Superfund Sites</h3>
-                <ul className="analysis-detail-list">
-                  {analysisResults.superfunds.map((s, i) => (
-                    <li key={i}>
-                      <strong>{s.name}</strong> — {s.distanceMi} mi away
-                      <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
-                        {s.status}
-                      </span>
-                      {s.url && (
-                        <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
-                          EPA Site Profile →
-                        </a>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                <div className="analysis-detail-rec">
-                  <strong>Recommendation</strong>
-                  <p>
-                    Sites marked as "Deleted" have been cleaned up and removed from the National Priorities List —
-                    these are generally no longer a concern. For all other sites (Final, Proposed), we recommend
-                    researching the site further using the EPA profile links above to understand the nature of
-                    contamination, cleanup progress, and any potential impact on nearby properties.
-                  </p>
-                </div>
-              </>
-            )}
-
-            {analysisDetail === 'costco' && (
-              <>
-                <h3>Nearest Costco</h3>
-                {analysisResults.costco ? (
-                  (() => {
-                    const dist = analysisResults.costco.distanceMi
-                    const sev = costcoSeverity(dist)
-                    return (
-                      <>
-                        <p className="analysis-detail-airport">
-                          {analysisResults.costco.city || 'Costco Wholesale'}
-                        </p>
-                        <p className={`analysis-detail-level ${sev}`}>
-                          {dist} miles from this address
-                        </p>
-                        <a
-                          className="costco-directions-link"
-                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M3 11l19-9-9 19-2-8-8-2z" />
-                          </svg>
-                          Driving directions →
-                        </a>
-                        <div className="analysis-detail-rec">
-                          {sev === 'good' && (
-                            <>
-                              <strong>Congratulations.</strong>
-                              <p>
-                                You are about to be one of those insufferably happy people who
-                                casually mention they "just popped over to Costco" on a Tuesday.
-                                Studies (that I made up) show that residents within 30 miles of a
-                                warehouse experience 73% more joy, own 4x more rotisserie
-                                chickens, and have a deeply spiritual relationship with bulk
-                                paper towels. You did this. You did this right.
-                              </p>
-                            </>
-                          )}
-                          {sev === 'warning' && (
-                            <>
-                              <strong>Acceptable. Barely.</strong>
-                              <p>
-                                {dist} miles. That is a <em>commitment</em>. Not a quick errand —
-                                a planned expedition with a packing list, a playlist, and a snack
-                                for the road. You'll do it, sure, but every trip will end with
-                                you whispering "was the gas worth it?" while you eat a
-                                $1.50 hot dog in the parking lot. People who live within
-                                30 miles are objectively happier. Just so you know.
-                              </p>
-                            </>
-                          )}
-                          {sev === 'danger' && (
-                            <>
-                              <strong>Real talk for a second.</strong>
-                              <p>
-                                {dist} miles. To a Costco. Do you actually want to live that
-                                far away from a building full of free samples and reasonably
-                                priced tires? Is this house — this <em>specific</em> house —
-                                really worth a {Math.round(dist * 2)}-mile round trip every time
-                                you need a flat of paper towels and an inexplicable kayak? Take
-                                a moment. Look at the listing. Look at the distance. Be honest
-                                with yourself.
-                              </p>
-                            </>
-                          )}
-                        </div>
-                        <div className="analysis-detail-rec">
-                          <strong>Distance bands</strong>
-                          <p>
-                            <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                            <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
-                            <span className="analysis-band danger">51–100 mi</span> reconsider your life
-                          </p>
-                        </div>
-                      </>
-                    )
-                  })()
-                ) : analysisResults.costcoError ? (
-                  <>
-                    <p className="analysis-detail-level warning">
-                      Costco search timed out. The Overpass server may be busy — please try again later.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="analysis-detail-level danger">
-                      No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles of this address.
-                    </p>
-                    <div className="analysis-detail-rec">
-                      <strong>⚠️ Are you sure about this?</strong>
-                      <p>
-                        Listen. I'm not your realtor. I'm not your therapist. I'm just a website.
-                        But before you sign anything, you should know that there is{' '}
-                        <em>no Costco</em> within {COSTCO_ANALYSIS_RADIUS_MI} miles of this
-                        address. None. Not one. You will have to leave your home, drive past
-                        multiple regular grocery stores like a peasant, and somehow survive on
-                        normal-sized packages of toilet paper. Sourcing a 48-pack of muffins
-                        will require <em>logistics</em>. Children will grow up not knowing the
-                        warm embrace of a food court churro. Pets will be denied the bulk
-                        kibble lifestyle they deserve. Buying a house outside the normal
-                        driving radius of a Costco is the kind of decision people quietly
-                        regret for decades. Please take a moment. Are you sure? Are you
-                        really, <em>really</em> sure?
-                      </p>
-                    </div>
-                    <div className="analysis-detail-rec">
-                      <strong>Distance bands</strong>
-                      <p>
-                        <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                        <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
-                        <span className="analysis-band danger">51–100 mi</span> reconsider your life
-                      </p>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-            {analysisDetail === 'datacenters' && (
-              <>
-                <h3>Nearby Data Centers</h3>
-                <p className="analysis-detail-level">
-                  {analysisResults.dataCenters.length} data center{analysisResults.dataCenters.length !== 1 ? 's' : ''} found nearby
-                </p>
-                <div className="analysis-detail-rec">
-                  <strong>Why this matters</strong>
-                  <p>
-                    Data centers can impact surrounding areas through increased traffic,
-                    noise from cooling systems, strain on local power and water resources,
-                    and potential effects on property values. Proximity is worth noting
-                    when evaluating a location.
-                  </p>
-                </div>
-                <ul className="analysis-detail-list">
-                  {analysisResults.dataCenters.map((dc, i) => (
-                    <li key={i} className="dc-analysis-item">
-                      <div className="dc-analysis-header">
-                        <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
-                        <strong>{dc.name || 'Unknown Facility'}</strong>
-                        <span className="dc-distance">{dc.distanceMi} mi</span>
-                      </div>
-                      <div className="dc-analysis-meta">
-                        {dc.operator && <span>{dc.operator}</span>}
-                        {(dc.city || dc.state) && <span>{[dc.city, dc.state].filter(Boolean).join(', ')}</span>}
-                        <span>{dc.status}</span>
-                        {dc.mw && <span>{dc.mw} MW</span>}
-                        {dc.sizerank && dc.sizerank !== 'Unknown' && <span>{dc.sizerank}</span>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-          </div>
-        </div>
-      )}
       {shareModalOpen && (
         <div className="analysis-detail-overlay" onClick={closeShareModal}>
           <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()}>
