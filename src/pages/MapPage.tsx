@@ -2287,35 +2287,8 @@ function MapPage() {
     }
 
     // Auto-enable the Costco layer whenever any Costco was found in the
-    // analysis radius. Drop a marker for each so they're all visible
-    // immediately. We intentionally do NOT extend the auto-zoom for Costcos
-    // — they're informational, not warnings, so keep the local view tight.
-    if (analysisResults.costcoNearby.length > 0 && !costcoVisible) {
-      const layer = costcoLayerRef.current
-      if (layer) {
-        layer.addTo(map)
-        costcoLoadedBoundsRef.current = null
-        costcoKnownIdsRef.current.clear()
-        layer.clearLayers()
-        for (const c of analysisResults.costcoNearby) {
-          const icon = L.divIcon({
-            className: 'costco-label',
-            html: `<div class="costco-pin">C</div>`,
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
-          })
-          const tooltipText = c.city ? `Costco — ${c.city}` : 'Costco'
-          const tooltip = c.address ? `${tooltipText}<br/>${c.address}` : tooltipText
-          L.marker([c.lat, c.lng], { icon })
-            .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
-            .addTo(layer)
-          costcoKnownIdsRef.current.add(c.osmId)
-        }
-        loadCostcoLabels(map, layer)
-        map.on('moveend', handleCostcoMove)
-        setCostcoVisible(true)
-      }
-    }
+    // Costco results are stored but the layer is NOT auto-enabled.
+    // The user can toggle it on manually from the layers panel.
 
     if (analysisResults.dataCenters.length > 0 && !dataCenterVisible) {
       const layer = dataCenterLayerRef.current
