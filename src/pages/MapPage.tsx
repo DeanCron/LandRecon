@@ -1519,7 +1519,9 @@ function MapPage() {
 
         L.control.zoom({ position: 'topright' }).addTo(map)
 
-        map.on('zoomend', () => { dbg('map', `Zoom level: ${map.getZoom()}`) })
+        map.on('zoomend', () => {
+          if (LR_DEBUG) console.log(`[LR:map] Zoom level: ${map.getZoom()}`)
+        })
 
         const houseIcon = L.divIcon({
           className: 'location-pin',
