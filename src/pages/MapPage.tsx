@@ -87,10 +87,10 @@ const SUPERFUND_FIELDS = [
 const LEGEND_STOPS = LEGEND_BANDS
 
 const SUPERFUND_STYLE: L.PathOptions = {
-  color: '#d500f9',
+  color: '#DC267F',
   weight: 3,
   opacity: 1,
-  fillColor: '#aa00ff',
+  fillColor: '#DC267F',
   fillOpacity: 0.25,
   dashArray: '6, 4',
 }
@@ -98,7 +98,7 @@ const SUPERFUND_STYLE: L.PathOptions = {
 const SUPERFUND_HOVER_STYLE: L.PathOptions = {
   weight: 5,
   fillOpacity: 0.45,
-  color: '#ff6eff',
+  color: '#E8559A',
 }
 
 // Schools API endpoints (NCES)
@@ -122,10 +122,10 @@ interface SchoolPoint {
 }
 
 const SCHOOL_COLORS: Record<SchoolCategory, string> = {
-  public: '#1565c0',
-  charter: '#2e7d32',
-  'private-religious': '#7b1fa2',
-  'private-other': '#e65100',
+  public: '#0072B2',
+  charter: '#009E73',
+  'private-religious': '#CC79A7',
+  'private-other': '#E69F00',
 }
 
 const SCHOOL_LABELS: Record<SchoolCategory, string> = {
@@ -346,10 +346,10 @@ interface TransitStop {
 }
 
 const TRANSIT_COLORS: Record<TransitStop['type'], string> = {
-  rail: '#0d47a1',
-  subway: '#ff3d00',
-  tram: '#00c853',
-  bus: '#ff8f00',
+  rail: '#0072B2',
+  subway: '#D55E00',
+  tram: '#009E73',
+  bus: '#E69F00',
 }
 
 const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
@@ -487,7 +487,7 @@ function superfundPopup(props: Record<string, string | null>): string {
   return `
     <div class="superfund-popup">
       <div class="popup-header">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7b1fa2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC267F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -520,10 +520,10 @@ interface DataCenter {
 }
 
 const DC_STATUS_COLORS: Record<string, string> = {
-  'Operating': '#22c55e',
-  'Proposed': '#3b82f6',
-  'Approved/Permitted/Under construction': '#f97316',
-  'Expanding': '#a855f7',
+  'Operating': '#009E73',
+  'Proposed': '#56B4E9',
+  'Approved/Permitted/Under construction': '#E69F00',
+  'Expanding': '#CC79A7',
   'Suspended': '#6b7280',
 }
 
@@ -543,9 +543,9 @@ type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 const EMS_TYPES = ['fire_station', 'hospital', 'police'] as const
 type EmsType = typeof EMS_TYPES[number]
 const EMS_COLORS: Record<EmsType, string> = {
-  fire_station: '#dc2626',
-  hospital: '#2563eb',
-  police: '#1e3a5f',
+  fire_station: '#D55E00',
+  hospital: '#0072B2',
+  police: '#332288',
 }
 const EMS_LABELS: Record<EmsType, string> = {
   fire_station: 'Fire Stations',

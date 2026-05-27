@@ -261,7 +261,7 @@
 }
 
 .map-overlay.error {
-  color: #f87171;
+  color: #D55E00;
 }
 
 .spinner {
@@ -497,8 +497,8 @@
   width: 18px;
   height: 14px;
   border-radius: 3px;
-  background: rgba(170, 0, 255, 0.25);
-  border: 2px solid #d500f9;
+  background: rgba(220, 38, 127, 0.25);
+  border: 2px solid #DC267F;
   flex-shrink: 0;
 }
 
@@ -635,8 +635,8 @@
 }
 
 .superfund-popup .popup-badge {
-  background: #f3e5f5;
-  color: #6a1b9a;
+  background: #FCE4EC;
+  color: #A81050;
   padding: 1px 8px;
   border-radius: 10px;
   font-size: 0.73rem;
@@ -662,7 +662,7 @@
 .superfund-popup .popup-footer a {
   display: inline-flex;
   align-items: center;
-  color: #7b1fa2;
+  color: #DC267F;
   text-decoration: none;
   font-size: 0.8rem;
   font-weight: 500;
@@ -670,7 +670,7 @@
 }
 
 .superfund-popup .popup-footer a:hover {
-  color: #4a148c;
+  color: #A81050;
   text-decoration: underline;
 }
 
@@ -786,7 +786,7 @@
   line-height: 32px;
   width: 32px;
   height: 32px;
-  background: #d32f2f;
+  background: #D55E00;
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 3px #fff;
   cursor: pointer;
@@ -804,7 +804,7 @@
   line-height: 32px;
   width: 32px;
   height: 32px;
-  background: #1565c0;
+  background: #0072B2;
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 3px #fff;
   cursor: pointer;
@@ -823,7 +823,7 @@
   line-height: 32px;
   width: 32px;
   height: 32px;
-  background: #e32b30;
+  background: #D55E00;
   color: #fff;
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 3px #fff;
@@ -938,18 +938,18 @@
 }
 
 .analysis-band.good {
-  background: rgba(102, 187, 106, 0.2);
-  color: #15803d;
+  background: rgba(0, 158, 115, 0.2);
+  color: #006B4F;
 }
 
 .analysis-band.warning {
-  background: rgba(255, 204, 2, 0.25);
+  background: rgba(230, 159, 0, 0.25);
   color: #92400e;
 }
 
 .analysis-band.danger {
-  background: rgba(239, 83, 80, 0.2);
-  color: #b91c1c;
+  background: rgba(213, 94, 0, 0.2);
+  color: #8B3800;
 }
 
 .traffic-legend {
@@ -1253,24 +1253,24 @@
   color: var(--color-text);
   margin-bottom: 16px;
   padding: 8px 12px;
-  background: rgba(255, 204, 2, 0.1);
+  background: rgba(230, 159, 0, 0.1);
   border-radius: 6px;
-  border-left: 3px solid #ffcc02;
+  border-left: 3px solid #E69F00;
 }
 
 .analysis-detail-level.good {
-  background: rgba(102, 187, 106, 0.12);
-  border-left-color: #66bb6a;
+  background: rgba(0, 158, 115, 0.12);
+  border-left-color: #009E73;
 }
 
 .analysis-detail-level.warning {
-  background: rgba(255, 204, 2, 0.12);
-  border-left-color: #ffcc02;
+  background: rgba(230, 159, 0, 0.12);
+  border-left-color: #E69F00;
 }
 
 .analysis-detail-level.danger {
-  background: rgba(239, 83, 80, 0.12);
-  border-left-color: #ef5350;
+  background: rgba(213, 94, 0, 0.12);
+  border-left-color: #D55E00;
 }
 
 .costco-directions-link {
@@ -1279,7 +1279,7 @@
   gap: 6px;
   margin: 0 0 16px;
   padding: 8px 14px;
-  background: #e32b30;
+  background: #D55E00;
   color: #fff !important;
   text-decoration: none;
   border-radius: 6px;
@@ -1290,7 +1290,7 @@
 
 .costco-directions-link:hover,
 .costco-directions-link:focus {
-  background: #b91f24;
+  background: #A04700;
 }
 
 .costco-directions-link svg {
@@ -1348,18 +1348,18 @@
 }
 
 .status-cleared {
-  background: rgba(102, 187, 106, 0.2);
-  color: #2e7d32;
+  background: rgba(0, 158, 115, 0.2);
+  color: #006B4F;
 }
 
 .status-active {
-  background: rgba(255, 152, 0, 0.2);
-  color: #e65100;
+  background: rgba(213, 94, 0, 0.2);
+  color: #D55E00;
 }
 
 .analysis-epa-link {
   font-size: 0.78rem;
-  color: #1976d2;
+  color: #0072B2;
   text-decoration: none;
   margin-left: auto;
 }
@@ -1469,7 +1469,7 @@
 
 .share-error {
   font-size: 0.78rem;
-  color: #c62828;
+  color: #D55E00;
   margin: -4px 0 12px;
 }
 
