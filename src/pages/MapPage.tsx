@@ -674,6 +674,8 @@ function MapPage() {
     fire_station: true, hospital: true, police: true,
   })
   const emsSubVisibleRef = useRef(emsSubVisible)
+  const targetLocationRef = useRef<L.LatLng | null>(null)
+  const transitPreloadedRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
@@ -1112,15 +1114,23 @@ function MapPage() {
 
     setTransitLoading(true)
     try {
-      const padded = bounds.pad(0.3)
-      const center = map.getCenter()
-      const ne = padded.getNorthEast()
-      const minRadiusM = 16093 // 10 miles
-      const radiusM = Math.min(Math.max(center.distanceTo(ne), minRadiusM), 50000)
+      // On first load, preload the full 50km radius around the target location
+      // instead of just the visible viewport
+      const target = targetLocationRef.current
+      const isPreload = !transitPreloadedRef.current && target
+      const searchCenter = isPreload ? target : map.getCenter()
+      const radiusM = isPreload
+        ? 50000
+        : Math.min(Math.max(searchCenter.distanceTo(bounds.pad(0.3).getNorthEast()), 16093), 50000)
+
+      if (isPreload) {
+        dbg('transit', `Preloading full 50km radius around target (${target.lat.toFixed(4)}, ${target.lng.toFixed(4)})`)
+        transitPreloadedRef.current = true
+      }
 
       const googleStops = await Promise.all(
         (['rail', 'subway', 'tram', 'bus'] as const).map((t) =>
-          fetchTransitFromGoogle({ lat: center.lat, lng: center.lng }, radiusM, t).catch(() => [] as TransitStop[])
+          fetchTransitFromGoogle({ lat: searchCenter.lat, lng: searchCenter.lng }, radiusM, t).catch(() => [] as TransitStop[])
         ),
       )
 
@@ -1157,14 +1167,14 @@ function MapPage() {
         }
       }
 
-      // Store the actual coverage area (circle from center, not padded bounds)
+      // Store the actual coverage area (circle from search center, not padded bounds)
       // so zooming out beyond the searched radius triggers a reload
       const covDeg = radiusM / 111320
       transitLoadedBoundsRef.current = L.latLngBounds(
-        [center.lat - covDeg, center.lng - covDeg * 1.3],
-        [center.lat + covDeg, center.lng + covDeg * 1.3],
+        [searchCenter.lat - covDeg, searchCenter.lng - covDeg * 1.3],
+        [searchCenter.lat + covDeg, searchCenter.lng + covDeg * 1.3],
       )
-      dbg('transit', `Rendered ${seen.size} unique transit stops (radius=${Math.round(radiusM)}m)`)
+      dbg('transit', `Rendered ${seen.size} unique transit stops (radius=${Math.round(radiusM)}m, center=${searchCenter.lat.toFixed(4)},${searchCenter.lng.toFixed(4)})`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
     } finally {
@@ -1484,6 +1494,7 @@ function MapPage() {
         const lat = results[0].position.lat
         const lng = results[0].position.lon
         dbg('init', `Geocoded to ${lat}, ${lng}`)
+        targetLocationRef.current = L.latLng(lat, lng)
 
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
