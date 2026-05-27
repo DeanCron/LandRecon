@@ -125,7 +125,7 @@ function HomePage() {
           <img src={logo} alt="Land Recon" width="480" height="102" />
         </div>
         <p className="home-subtitle">
-          Uncover environmental risks, infrastructure, and land insights for any U.S. address.
+          Smart neighborhood insights for any U.S. address
         </p>
         <form className="home-form" onSubmit={handleSubmit}>
           <div className="input-wrapper" ref={wrapperRef}>
