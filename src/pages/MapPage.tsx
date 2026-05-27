@@ -570,7 +570,7 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco', 'datacenters'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco', 'datacenters', 'ems'] as const
 
 interface DataCenter {
   name: string
@@ -605,6 +605,24 @@ const DC_STATUS_LABELS: Record<string, string> = {
 
 const DATA_CENTER_ANALYSIS_RADIUS_MI = 10
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
+
+const EMS_TYPES = ['fire_station', 'hospital', 'police'] as const
+type EmsType = typeof EMS_TYPES[number]
+const EMS_COLORS: Record<EmsType, string> = {
+  fire_station: '#dc2626',
+  hospital: '#2563eb',
+  police: '#1e3a5f',
+}
+const EMS_LABELS: Record<EmsType, string> = {
+  fire_station: 'Fire Stations',
+  hospital: 'Hospitals',
+  police: 'Police Stations',
+}
+const EMS_ICONS: Record<EmsType, string> = {
+  fire_station: '🚒',
+  hospital: '🏥',
+  police: '🚔',
+}
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
@@ -673,6 +691,14 @@ function MapPage() {
     Object.fromEntries(DC_STATUSES.map((s) => [s, true]))
   )
   const dcSubVisibleRef = useRef(dcSubVisible)
+  const emsLayerRef = useRef<L.LayerGroup | null>(null)
+  const emsSubLayersRef = useRef<Record<EmsType, L.LayerGroup> | null>(null)
+  const emsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const emsKnownIdsRef = useRef<Set<string>>(new Set())
+  const [emsSubVisible, setEmsSubVisible] = useState<Record<EmsType, boolean>>({
+    fire_station: true, hospital: true, police: true,
+  })
+  const emsSubVisibleRef = useRef(emsSubVisible)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
@@ -691,6 +717,8 @@ function MapPage() {
   const [costcoVisible, setCostcoVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
   const [dataCenterVisible, setDataCenterVisible] = useState(false)
+  const [emsVisible, setEmsVisible] = useState(false)
+  const [emsLoading, setEmsLoading] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
     loading: boolean
@@ -747,10 +775,11 @@ function MapPage() {
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
     if (dataCenterVisible) active.push('datacenters')
+    if (emsVisible) active.push('ems')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, dataCenterVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1541,6 +1570,8 @@ function MapPage() {
 
         dataCenterLayerRef.current = L.layerGroup()
 
+        emsLayerRef.current = L.layerGroup()
+
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
           opacity: 0.7,
@@ -1587,6 +1618,10 @@ function MapPage() {
       dataCenterLayerRef.current = null
       dataCenterSubLayersRef.current = null
       dataCenterDataRef.current = null
+      emsLayerRef.current = null
+      emsSubLayersRef.current = null
+      emsLoadedBoundsRef.current = null
+      emsKnownIdsRef.current.clear()
       mapRef.current?.remove()
       mapRef.current = null
     }
@@ -1791,6 +1826,139 @@ function MapPage() {
     }
   }
 
+  const loadEmsData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    const bounds = map.getBounds()
+    const loaded = emsLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) return
+
+    setEmsLoading(true)
+    try {
+      const padded = bounds.pad(0.3)
+      const center = padded.getCenter()
+      const ne = padded.getNorthEast()
+      const radiusM = Math.min(center.distanceTo(ne), 50000)
+
+      let subLayers = emsSubLayersRef.current
+      if (!subLayers) {
+        subLayers = {} as Record<EmsType, L.LayerGroup>
+        for (const t of EMS_TYPES) subLayers[t] = L.layerGroup()
+        emsSubLayersRef.current = subLayers
+        for (const t of EMS_TYPES) {
+          if (emsSubVisibleRef.current[t]) subLayers[t].addTo(layer)
+        }
+      }
+
+      const known = emsKnownIdsRef.current
+      const results = await Promise.all(
+        EMS_TYPES.map(async (type) => {
+          try {
+            const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+              },
+              body: JSON.stringify({
+                includedTypes: [type],
+                locationRestriction: {
+                  circle: {
+                    center: { latitude: center.lat, longitude: center.lng },
+                    radius: radiusM,
+                  },
+                },
+                maxResultCount: 20,
+              }),
+            })
+            if (!res.ok) return []
+            const data = await res.json()
+            return (data.places || []).map((p: Record<string, unknown>) => ({ ...p, _emsType: type }))
+          } catch {
+            return []
+          }
+        })
+      )
+
+      for (const places of results) {
+        for (const place of places) {
+          const id = place.id as string
+          if (!id || known.has(id)) continue
+          const loc = place.location as { latitude: number; longitude: number } | undefined
+          if (!loc) continue
+          const name = (place.displayName as { text: string })?.text || ''
+          const address = (place.formattedAddress as string) || ''
+          const type = place._emsType as EmsType
+          const sub = subLayers[type]
+          if (!sub) continue
+
+          const color = EMS_COLORS[type]
+          const emoji = EMS_ICONS[type]
+          const icon = L.divIcon({
+            className: 'ems-label',
+            html: `<div class="ems-pin" style="background:${color}">${emoji}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          })
+          const tooltip = [name, address].filter(Boolean).join('<br/>')
+          L.marker([loc.latitude, loc.longitude], { icon })
+            .bindTooltip(tooltip, { direction: 'top', offset: [0, -14] })
+            .addTo(sub)
+          known.add(id)
+        }
+      }
+
+      emsLoadedBoundsRef.current = loaded
+        ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
+        : padded
+    } catch (err) {
+      console.warn('EMS data fetch failed:', err)
+    } finally {
+      setEmsLoading(false)
+    }
+  }, [])
+
+  const handleEmsMove = useCallback(() => {
+    const map = mapRef.current
+    const layer = emsLayerRef.current
+    if (map && layer) loadEmsData(map, layer)
+  }, [loadEmsData])
+
+  const toggleEms = () => {
+    const map = mapRef.current
+    const layer = emsLayerRef.current
+    if (!map || !layer) return
+    if (emsVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleEmsMove)
+      layer.clearLayers()
+      emsSubLayersRef.current = null
+      emsLoadedBoundsRef.current = null
+      emsKnownIdsRef.current.clear()
+    } else {
+      layer.addTo(map)
+      loadEmsData(map, layer)
+      map.on('moveend', handleEmsMove)
+    }
+    setEmsVisible(!emsVisible)
+  }
+
+  const toggleEmsSub = (type: EmsType) => {
+    const parentLayer = emsLayerRef.current
+    const subLayers = emsSubLayersRef.current
+    if (!parentLayer || !subLayers) return
+
+    const nowVisible = !emsSubVisible[type]
+    const next = { ...emsSubVisible, [type]: nowVisible }
+    setEmsSubVisible(next)
+    emsSubVisibleRef.current = next
+
+    if (nowVisible) {
+      subLayers[type].addTo(parentLayer)
+    } else {
+      parentLayer.removeLayer(subLayers[type])
+    }
+  }
+
   const toggleSuperfund = () => {
     const map = mapRef.current
     const layer = superfundLayerRef.current
@@ -1919,6 +2087,7 @@ function MapPage() {
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
     if (requested.has('datacenters')) toggleDataCenters()
+    if (requested.has('ems')) toggleEms()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -2351,6 +2520,34 @@ function MapPage() {
                 />
                 <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s], opacity: dcSubVisible[s] ? 1 : 0.35 }} />
                 <span style={{ opacity: dcSubVisible[s] ? 1 : 0.5 }}>{DC_STATUS_LABELS[s]}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <label className="layer-toggle">
+          <input
+            type="checkbox"
+            checked={emsVisible}
+            onChange={toggleEms}
+            disabled={status !== 'ready'}
+          />
+          <span className="layer-label">
+            Emergency Services
+            {emsLoading && <span className="layer-loading"> ⏳</span>}
+          </span>
+        </label>
+        {emsVisible && (
+          <div className="dc-legend">
+            {EMS_TYPES.map((t) => (
+              <label key={t} className="transit-sub-toggle">
+                <input
+                  type="checkbox"
+                  checked={emsSubVisible[t]}
+                  onChange={() => toggleEmsSub(t)}
+                />
+                <span className="legend-dot" style={{ background: EMS_COLORS[t], opacity: emsSubVisible[t] ? 1 : 0.35 }} />
+                <span style={{ opacity: emsSubVisible[t] ? 1 : 0.5 }}>{EMS_LABELS[t]}</span>
               </label>
             ))}
           </div>
