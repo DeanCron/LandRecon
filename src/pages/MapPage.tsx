@@ -3376,7 +3376,7 @@ function MapPage() {
                       {analysisResults.nearestER.address && (
                         <p className="analysis-expand-level" style={{ fontSize: '0.78rem', color: '#888' }}>{analysisResults.nearestER.address}</p>
                       )}
-                      <p className={`analysis-expand-level ${sev === 'clear' || sev === 'good' ? 'clear' : sev}`}>{dist} miles from this address</p>
+                      <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
                         <button className="analysis-flyto-link" onClick={() => showHighlightPin(analysisResults.nearestER!.lat, analysisResults.nearestER!.lng, analysisResults.nearestER!.name)}>
                           📍 Show on map
@@ -3408,8 +3408,9 @@ function MapPage() {
                         <strong>Distance bands</strong>
                         <p>
                           <span className="analysis-band good">≤ 5 mi</span> excellent · {' '}
-                          <span className="analysis-band warning">6–10 mi</span> good · {' '}
-                          <span className="analysis-band danger">&gt; 10 mi</span> concern
+                          <span className="analysis-band good">6–10 mi</span> good · {' '}
+                          <span className="analysis-band warning">11–15 mi</span> caution · {' '}
+                          <span className="analysis-band danger">&gt; 15 mi</span> concern
                         </p>
                       </div>
                     </>
