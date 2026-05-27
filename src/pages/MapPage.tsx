@@ -608,38 +608,53 @@ function computeLocationGrade(results: {
   costco: { distanceMi: number } | null
   costcoError: boolean
   dataCenters: unknown[]
-}): { letter: string; color: string; severity: SeverityLevel; pct: number } {
-  const scores: number[] = []
+}): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] } {
+  const breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] = []
 
-  // Noise: 0 = none, 1 = moderate (55-65), 2 = high (65+)
-  if (!results.noiseLevel) scores.push(0)
-  else if (results.noiseLevel < 65) scores.push(1)
-  else scores.push(2)
+  // Noise: 0 = none, 1 = moderate (<65), 2 = high (65+)
+  let noiseScore = 0
+  let noiseDetail = 'No airport noise detected'
+  if (results.noiseLevel) {
+    if (results.noiseLevel < 65) { noiseScore = 1; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
+    else { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
+  }
+  breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 2, detail: noiseDetail })
 
   // Superfund
   const sfSev = superfundSeverity(results.superfunds)
-  scores.push(sfSev === 'clear' ? 0 : sfSev === 'warning' ? 1 : 2)
+  const sfScore = sfSev === 'clear' ? 0 : sfSev === 'warning' ? 1 : 2
+  const sfDetail = results.superfunds.length === 0 ? 'None within 5 mi'
+    : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
+  breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 2, detail: sfDetail })
 
   // Costco
-  if (!results.costco) scores.push(results.costcoError ? 1 : 2)
-  else {
+  let costcoScore: number
+  let costcoDetail: string
+  if (!results.costco) {
+    costcoScore = results.costcoError ? 1 : 2
+    costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
+  } else {
     const cs = costcoSeverity(results.costco.distanceMi)
-    scores.push(cs === 'good' ? 0 : cs === 'warning' ? 1 : 2)
+    costcoScore = cs === 'good' ? 0 : cs === 'warning' ? 1 : 2
+    costcoDetail = `${results.costco.distanceMi} mi away`
   }
+  breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 2, detail: costcoDetail })
 
   // Data centers
   const dcSev = dataCenterSeverity(results.dataCenters.length)
-  scores.push(dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2)
+  const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
+  const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
+  breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail })
 
-  const total = scores.reduce((a, b) => a + b, 0)
-  const max = scores.length * 2
+  const total = breakdown.reduce((a, b) => a + b.score, 0)
+  const max = breakdown.reduce((a, b) => a + b.max, 0)
 
   const pct = 1 - total / max
-  if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct }
-  if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct }
-  if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct }
-  if (pct >= 0.25) return { letter: 'D', color: '#ff7043', severity: 'warning', pct }
-  return { letter: 'F', color: '#ef5350', severity: 'danger', pct }
+  if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct, breakdown }
+  if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct, breakdown }
+  if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct, breakdown }
+  if (pct >= 0.25) return { letter: 'D', color: '#ff7043', severity: 'warning', pct, breakdown }
+  return { letter: 'F', color: '#ef5350', severity: 'danger', pct, breakdown }
 }
 
 function createClusterGroup(color?: string): L.MarkerClusterGroup {
@@ -792,6 +807,7 @@ function MapPage() {
     try { return JSON.parse(localStorage.getItem('lr_saved_analyses') ?? '[]') } catch { return [] }
   })
   const [showCompare, setShowCompare] = useState(false)
+  const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
     if (analysisResults.loading) return
@@ -2736,13 +2752,46 @@ function MapPage() {
         {!analysisResults.loading && (() => {
           const grade = computeLocationGrade(analysisResults)
           return (
-            <div className="analysis-score-bar">
-              <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
-              <div className="analysis-score-label">
-                <strong>Location Score</strong>
-                <span>{grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'}</span>
+            <>
+              <div className="analysis-score-bar" onClick={() => setShowScoreBreakdown(!showScoreBreakdown)} style={{ cursor: 'pointer' }} title="Click for score breakdown">
+                <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
+                <div className="analysis-score-label">
+                  <strong>Location Score</strong>
+                  <span>{grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'} — {Math.round(grade.pct * 100)}%</span>
+                </div>
+                <div className={`analysis-chevron${showScoreBreakdown ? ' expanded' : ''}`}>›</div>
               </div>
-            </div>
+              {showScoreBreakdown && (
+                <div className="score-breakdown">
+                  <div className="score-breakdown-header">
+                    <strong>Score Breakdown</strong>
+                    <span className="score-breakdown-formula">Lower penalties = higher score</span>
+                  </div>
+                  {grade.breakdown.map((b) => {
+                    const barColor = b.score === 0 ? '#4caf50' : b.score === 1 ? '#ffb300' : '#ef5350'
+                    const statusLabel = b.score === 0 ? 'No penalty' : b.score === 1 ? 'Minor penalty' : 'Major penalty'
+                    return (
+                      <div className="score-breakdown-row" key={b.label}>
+                        <div className="score-breakdown-label">
+                          <span>{b.icon}</span>
+                          <span>{b.label}</span>
+                        </div>
+                        <div className="score-breakdown-bar-track">
+                          <div className="score-breakdown-bar-fill" style={{ width: `${((b.max - b.score) / b.max) * 100}%`, background: barColor }} />
+                        </div>
+                        <div className="score-breakdown-info">
+                          <span className="score-breakdown-status" style={{ color: barColor }}>{statusLabel}</span>
+                          <span className="score-breakdown-detail">{b.detail}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <div className="score-breakdown-total">
+                    Overall: <strong>{Math.round(grade.pct * 100)}%</strong> → <span style={{ color: grade.color, fontWeight: 700 }}>{grade.letter}</span>
+                  </div>
+                </div>
+              )}
+            </>
           )
         })()}
         <div className="analysis-print-header">
@@ -2805,7 +2854,7 @@ function MapPage() {
                     <strong>Airport Noise</strong>
                     <p>{analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2822,7 +2871,7 @@ function MapPage() {
                       ? `${analysisResults.superfunds.length} within 5 mi`
                       : 'No Superfund sites within 5 miles'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2839,7 +2888,7 @@ function MapPage() {
                       ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
                       : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2856,7 +2905,7 @@ function MapPage() {
                       ? `${analysisResults.dataCenters.length} within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi`
                       : 'No data centers nearby'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>›</div>
+                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
             </>

@@ -1113,6 +1113,85 @@
   color: var(--color-text-muted);
 }
 
+/* Score breakdown flyout */
+.score-breakdown {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  animation: expandIn 0.2s ease;
+}
+
+.score-breakdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.score-breakdown-header strong {
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.score-breakdown-formula {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.score-breakdown-row {
+  margin-bottom: 10px;
+}
+
+.score-breakdown-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 3px;
+}
+
+.score-breakdown-bar-track {
+  height: 6px;
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.score-breakdown-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.score-breakdown-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+}
+
+.score-breakdown-status {
+  font-weight: 600;
+}
+
+.score-breakdown-detail {
+  color: var(--color-text-muted);
+}
+
+.score-breakdown-total {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.82rem;
+  color: var(--color-text);
+  text-align: center;
+}
+
 .analysis-drag-handle {
   display: none;
 }
