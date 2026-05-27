@@ -174,7 +174,7 @@ function HomePage() {
           </button>
         </form>
         <footer className="home-footer">
-          <button className="home-about-link" onClick={() => setShowAbout(true)}>About LandRecon</button>
+          <button className="home-about-link" onClick={() => setShowAbout(true)}>What is LandRecon?</button>
         </footer>
       </div>
 
