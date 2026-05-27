@@ -23,7 +23,7 @@ const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
 
-type BaseMapId = 'street' | 'satellite' | 'light' | 'dark'
+type BaseMapId = 'street' | 'satellite'
 
 interface BaseMapConfig {
   label: string
@@ -46,17 +46,6 @@ const BASE_MAPS: Record<BaseMapId, BaseMapConfig> = {
     attribution: '&copy; Google Maps',
     maxZoom: 21,
     subdomains: '0123',
-  },
-  light: {
-    label: 'Light',
-    maxZoom: 21,
-    googleSession: { mapType: 'terrain', styles: GOOGLE_NO_POI },
-  },
-  dark: {
-    label: 'Dark',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 20,
   },
 }
 
