@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
+    "@types/leaflet.markercluster": "^1.5.6",
     "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
     "pbf": "^4.0.2",
     "pmtiles": "^4.4.1",
     "protomaps-leaflet": "^5.1.0",

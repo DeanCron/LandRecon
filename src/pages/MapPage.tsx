@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet.markercluster'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import {
@@ -579,6 +582,35 @@ function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   return 'danger'
 }
 
+function createClusterGroup(color?: string): L.MarkerClusterGroup {
+  return L.markerClusterGroup({
+    maxClusterRadius: 40,
+    disableClusteringAtZoom: 16,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    chunkedLoading: true,
+    ...(color ? {
+      iconCreateFunction: (cluster: L.MarkerCluster) => {
+        const count = cluster.getChildCount()
+        return L.divIcon({
+          html: `<div class="cluster-icon" style="background:${color}">${count}</div>`,
+          className: 'marker-cluster-custom',
+          iconSize: L.point(34, 34),
+        })
+      },
+    } : {}),
+  })
+}
+
+function makeDotIcon(color: string, size: number): L.DivIcon {
+  return L.divIcon({
+    className: 'cluster-dot',
+    html: `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.15)"></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  })
+}
+
 interface TomTomSuggestion {
   id: string
   type: string
@@ -1095,10 +1127,10 @@ function MapPage() {
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
         subLayers = {
-          rail: L.layerGroup(),
-          subway: L.layerGroup(),
-          tram: L.layerGroup(),
-          bus: L.layerGroup(),
+          rail: createClusterGroup(TRANSIT_COLORS.rail),
+          subway: createClusterGroup(TRANSIT_COLORS.subway),
+          tram: createClusterGroup(TRANSIT_COLORS.tram),
+          bus: createClusterGroup(TRANSIT_COLORS.bus),
         }
         transitSubLayersRef.current = subLayers
         for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
@@ -1118,15 +1150,8 @@ function MapPage() {
           if (seen.has(key)) continue
           seen.add(key)
           const color = TRANSIT_COLORS[stop.type]
-          const radius = stop.type === 'bus' ? 5 : 7
-          L.circleMarker([stop.lat, stop.lon], {
-            radius,
-            fillColor: color,
-            color: '#fff',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.85,
-          })
+          const size = stop.type === 'bus' ? 10 : 14
+          L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
             .bindPopup(transitPopup(stop), { maxWidth: 260 })
             .addTo(subLayers[stop.type])
         }
@@ -1157,16 +1182,11 @@ function MapPage() {
       const schools = await fetchSchools(bounds)
       dbg('schools', `Got ${schools.length} schools`)
       // Build all markers before touching the layer to avoid flicker
-      const newMarkers: L.CircleMarker[] = []
+      const newMarkers: L.Marker[] = []
       for (const school of schools) {
         const color = SCHOOL_COLORS[school.category]
-        const marker = L.circleMarker([school.lat, school.lon], {
-          radius: 6,
-          fillColor: color,
-          color: '#fff',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.85,
+        const marker = L.marker([school.lat, school.lon], {
+          icon: makeDotIcon(color, 12),
         }).bindTooltip(school.name, { direction: 'top', offset: [0, -6], className: 'location-tooltip' })
         newMarkers.push(marker)
       }
@@ -1514,7 +1534,7 @@ function MapPage() {
         transitLayerRef.current = L.layerGroup()
 
         // Create schools layer (not added to map until toggled on)
-        schoolLayerRef.current = L.layerGroup()
+        schoolLayerRef.current = createClusterGroup()
 
         // Create heliport label layer (not added to map until toggled on)
         heliportLayerRef.current = L.layerGroup()
@@ -1709,7 +1729,7 @@ function MapPage() {
     if (!subLayers) {
       subLayers = {} as Record<string, L.LayerGroup>
       for (const s of DC_STATUSES) {
-        subLayers[s] = L.layerGroup()
+        subLayers[s] = createClusterGroup(DC_STATUS_COLORS[s])
       }
       dataCenterSubLayersRef.current = subLayers
       for (const s of DC_STATUSES) {
@@ -1805,7 +1825,7 @@ function MapPage() {
       let subLayers = emsSubLayersRef.current
       if (!subLayers) {
         subLayers = {} as Record<EmsType, L.LayerGroup>
-        for (const t of EMS_TYPES) subLayers[t] = L.layerGroup()
+        for (const t of EMS_TYPES) subLayers[t] = createClusterGroup(EMS_COLORS[t])
         emsSubLayersRef.current = subLayers
         for (const t of EMS_TYPES) {
           if (emsSubVisibleRef.current[t]) subLayers[t].addTo(layer)
