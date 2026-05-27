@@ -76,27 +76,39 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
 
   const pad = 8
   const current = steps[step]
-  const pos = current.position || 'bottom'
+  const tooltipW = 320
 
   let tooltipStyle: React.CSSProperties = {}
   if (rect) {
     const cx = rect.left + rect.width / 2
     const cy = rect.top + rect.height / 2
+    const spaceRight = window.innerWidth - rect.right
+    const spaceLeft = rect.left
+    const spaceBottom = window.innerHeight - rect.bottom
+    const spaceTop = rect.top
+
+    let pos = current.position || 'bottom'
+    if (pos === 'left' && spaceLeft < tooltipW + 30) pos = spaceRight > tooltipW + 30 ? 'right' : 'bottom'
+    if (pos === 'right' && spaceRight < tooltipW + 30) pos = spaceLeft > tooltipW + 30 ? 'left' : 'bottom'
+    if (pos === 'bottom' && spaceBottom < 200) pos = 'top'
+    if (pos === 'top' && spaceTop < 200) pos = 'bottom'
 
     switch (pos) {
       case 'bottom':
-        tooltipStyle = { top: rect.bottom + pad + 8, left: Math.max(12, Math.min(cx - 160, window.innerWidth - 340)) }
+        tooltipStyle = { top: rect.bottom + pad + 8, left: Math.max(12, Math.min(cx - tooltipW / 2, window.innerWidth - tooltipW - 16)) }
         break
       case 'top':
-        tooltipStyle = { bottom: window.innerHeight - rect.top + pad + 8, left: Math.max(12, Math.min(cx - 160, window.innerWidth - 340)) }
+        tooltipStyle = { bottom: window.innerHeight - rect.top + pad + 8, left: Math.max(12, Math.min(cx - tooltipW / 2, window.innerWidth - tooltipW - 16)) }
         break
       case 'left':
-        tooltipStyle = { top: Math.max(12, cy - 60), right: window.innerWidth - rect.left + pad + 8 }
+        tooltipStyle = { top: Math.max(12, Math.min(cy - 60, window.innerHeight - 220)), right: window.innerWidth - rect.left + pad + 8 }
         break
       case 'right':
-        tooltipStyle = { top: Math.max(12, cy - 60), left: rect.right + pad + 8 }
+        tooltipStyle = { top: Math.max(12, Math.min(cy - 60, window.innerHeight - 220)), left: rect.right + pad + 8 }
         break
     }
+  } else {
+    tooltipStyle = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
   }
 
   return (

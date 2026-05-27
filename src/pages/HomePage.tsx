@@ -136,7 +136,7 @@ function HomePage() {
             <input
               type="text"
               className="home-input"
-              placeholder="e.g. 1600 Pennsylvania Ave NW, Washington, DC 20500"
+              placeholder="e.g. 6001 S Stony Island Ave, Chicago, IL 60637"
               value={address}
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}

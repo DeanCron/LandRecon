@@ -3234,7 +3234,7 @@ function MapPage() {
               selector: '.layer-panel',
               title: '🗺️ Map Layers',
               content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more.',
-              position: 'left',
+              position: 'right',
             },
             {
               selector: '.analysis-panel',
