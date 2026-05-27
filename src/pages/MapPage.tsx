@@ -2349,209 +2349,233 @@ function MapPage() {
 
         <h2 className="panel-title overlay-title">Layers</h2>
 
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={noiseVisible}
-            onChange={toggleNoise}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">Airport Noise</span>
-        </label>
-        {noiseVisible && (
-          <div className="noise-legend">
-            <div className="legend-bar">
-              {LEGEND_STOPS.map((stop, i) => (
-                <div
-                  key={i}
-                  className="legend-segment"
-                  style={{ background: stop.color }}
-                />
-              ))}
-            </div>
-            <div className="legend-labels">
-              <span>{LEGEND_STOPS[0].dbMin} dB</span>
-              <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
-            </div>
-          </div>
-        )}
-
-        {HELIPORTS_ENABLED && (
-          <label className="layer-toggle">
-            <input
-              type="checkbox"
-              checked={heliportsVisible}
-              onChange={toggleHeliports}
-              disabled={status !== 'ready'}
-            />
-            <span className="layer-label">Heliports</span>
-          </label>
-        )}
-
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={costcoVisible}
-            onChange={toggleCostco}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">Costco Warehouses</span>
-        </label>
-
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={dataCenterVisible}
-            onChange={toggleDataCenters}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">Data Centers</span>
-        </label>
-        {dataCenterVisible && (
-          <div className="dc-legend">
-            {DC_STATUSES.map((s) => (
-              <label key={s} className="transit-sub-toggle">
-                <input
-                  type="checkbox"
-                  checked={dcSubVisible[s]}
-                  onChange={() => toggleDcSub(s)}
-                />
-                <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s], opacity: dcSubVisible[s] ? 1 : 0.35 }} />
-                <span style={{ opacity: dcSubVisible[s] ? 1 : 0.5 }}>{DC_STATUS_LABELS[s]}</span>
-              </label>
-            ))}
-          </div>
-        )}
-
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={emsVisible}
-            onChange={toggleEms}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">
-            Emergency Services
-            {emsLoading && <span className="layer-loading"> ⏳</span>}
-          </span>
-        </label>
-        {emsVisible && (
-          <div className="dc-legend">
-            {EMS_TYPES.map((t) => (
-              <label key={t} className="transit-sub-toggle">
-                <input
-                  type="checkbox"
-                  checked={emsSubVisible[t]}
-                  onChange={() => toggleEmsSub(t)}
-                />
-                <span className="legend-dot" style={{ background: EMS_COLORS[t], opacity: emsSubVisible[t] ? 1 : 0.35 }} />
-                <span style={{ opacity: emsSubVisible[t] ? 1 : 0.5 }}>{EMS_LABELS[t]}</span>
-              </label>
-            ))}
-          </div>
-        )}
-
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={superfundVisible}
-            onChange={toggleSuperfund}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">
-            Superfund Sites
-            {superfundLoading && <span className="layer-loading"> ⏳</span>}
-          </span>
-        </label>
-        {superfundVisible && (
-          <div className="superfund-legend">
-            <div className="legend-swatch-row">
-              <span className="legend-swatch" />
-              <span>NPL Site Boundary</span>
-            </div>
-          </div>
-        )}
-
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={transitVisible}
-            onChange={toggleTransit}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">
-            Public Transit
-            {transitLoading && <span className="layer-loading"> ⏳</span>}
-          </span>
-        </label>
-        {transitVisible && (
-          <div className="transit-legend">
-            {(Object.keys(TRANSIT_COLORS) as TransitStop['type'][]).map((type) => (
-              <label key={type} className="transit-sub-toggle">
-                <input
-                  type="checkbox"
-                  checked={transitSubVisible[type]}
-                  onChange={() => toggleTransitSub(type)}
-                />
-                <span className="legend-dot" style={{ background: TRANSIT_COLORS[type], opacity: transitSubVisible[type] ? 1 : 0.35 }} />
-                <span style={{ opacity: transitSubVisible[type] ? 1 : 0.5 }}>{TRANSIT_LABELS[type]}</span>
-              </label>
-            ))}
-          </div>
-        )}
-
-        {SCHOOLS_ENABLED && (
-          <>
+        {/* ── Aviation ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">Aviation</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
-                checked={schoolsVisible}
-                onChange={toggleSchools}
+                checked={noiseVisible}
+                onChange={toggleNoise}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Airport Noise</span>
+            </label>
+            {noiseVisible && (
+              <div className="noise-legend">
+                <div className="legend-bar">
+                  {LEGEND_STOPS.map((stop, i) => (
+                    <div
+                      key={i}
+                      className="legend-segment"
+                      style={{ background: stop.color }}
+                    />
+                  ))}
+                </div>
+                <div className="legend-labels">
+                  <span>{LEGEND_STOPS[0].dbMin} dB</span>
+                  <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
+                </div>
+              </div>
+            )}
+
+            {HELIPORTS_ENABLED && (
+              <label className="layer-toggle">
+                <input
+                  type="checkbox"
+                  checked={heliportsVisible}
+                  onChange={toggleHeliports}
+                  disabled={status !== 'ready'}
+                />
+                <span className="layer-label">Heliports</span>
+              </label>
+            )}
+          </div>
+        </details>
+
+        {/* ── Transportation ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">Transportation</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={transitVisible}
+                onChange={toggleTransit}
                 disabled={status !== 'ready'}
               />
               <span className="layer-label">
-                Nearby Schools
-                {schoolsLoading && <span className="layer-loading"> ⏳</span>}
+                Public Transit
+                {transitLoading && <span className="layer-loading"> ⏳</span>}
               </span>
             </label>
-            {schoolsVisible && (
-              <div className="school-legend">
-                {(Object.entries(SCHOOL_COLORS) as [SchoolCategory, string][]).map(([cat, color]) => (
-                  <div key={cat} className="legend-swatch-row">
-                    <span className="legend-dot" style={{ background: color }} />
-                    <span>{SCHOOL_LABELS[cat]}</span>
-                  </div>
+            {transitVisible && (
+              <div className="transit-legend">
+                {(Object.keys(TRANSIT_COLORS) as TransitStop['type'][]).map((type) => (
+                  <label key={type} className="transit-sub-toggle">
+                    <input
+                      type="checkbox"
+                      checked={transitSubVisible[type]}
+                      onChange={() => toggleTransitSub(type)}
+                    />
+                    <span className="legend-dot" style={{ background: TRANSIT_COLORS[type], opacity: transitSubVisible[type] ? 1 : 0.35 }} />
+                    <span style={{ opacity: transitSubVisible[type] ? 1 : 0.5 }}>{TRANSIT_LABELS[type]}</span>
+                  </label>
                 ))}
               </div>
             )}
-          </>
-        )}
 
-        <label className="layer-toggle">
-          <input
-            type="checkbox"
-            checked={trafficVisible}
-            onChange={toggleTraffic}
-            disabled={status !== 'ready'}
-          />
-          <span className="layer-label">Live Traffic</span>
-        </label>
-        {trafficVisible && (
-          <div className="traffic-legend">
-            <div className="legend-bar">
-              <div className="legend-segment" style={{ background: '#00b050' }} />
-              <div className="legend-segment" style={{ background: '#ffff00' }} />
-              <div className="legend-segment" style={{ background: '#ff8000' }} />
-              <div className="legend-segment" style={{ background: '#ff0000' }} />
-              <div className="legend-segment" style={{ background: '#800000' }} />
-            </div>
-            <div className="legend-labels">
-              <span>Free flow</span>
-              <span>Congested</span>
-            </div>
-            <div className="traffic-note">Real-time data only</div>
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={trafficVisible}
+                onChange={toggleTraffic}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Live Traffic</span>
+            </label>
+            {trafficVisible && (
+              <div className="traffic-legend">
+                <div className="legend-bar">
+                  <div className="legend-segment" style={{ background: '#00b050' }} />
+                  <div className="legend-segment" style={{ background: '#ffff00' }} />
+                  <div className="legend-segment" style={{ background: '#ff8000' }} />
+                  <div className="legend-segment" style={{ background: '#ff0000' }} />
+                  <div className="legend-segment" style={{ background: '#800000' }} />
+                </div>
+                <div className="legend-labels">
+                  <span>Free flow</span>
+                  <span>Congested</span>
+                </div>
+                <div className="traffic-note">Real-time data only</div>
+              </div>
+            )}
           </div>
-        )}
+        </details>
+
+        {/* ── Services ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">Services</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={emsVisible}
+                onChange={toggleEms}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Emergency Services
+                {emsLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {emsVisible && (
+              <div className="dc-legend">
+                {EMS_TYPES.map((t) => (
+                  <label key={t} className="transit-sub-toggle">
+                    <input
+                      type="checkbox"
+                      checked={emsSubVisible[t]}
+                      onChange={() => toggleEmsSub(t)}
+                    />
+                    <span className="legend-dot" style={{ background: EMS_COLORS[t], opacity: emsSubVisible[t] ? 1 : 0.35 }} />
+                    <span style={{ opacity: emsSubVisible[t] ? 1 : 0.5 }}>{EMS_LABELS[t]}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={costcoVisible}
+                onChange={toggleCostco}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Costco Warehouses</span>
+            </label>
+
+            {SCHOOLS_ENABLED && (
+              <>
+                <label className="layer-toggle">
+                  <input
+                    type="checkbox"
+                    checked={schoolsVisible}
+                    onChange={toggleSchools}
+                    disabled={status !== 'ready'}
+                  />
+                  <span className="layer-label">
+                    Nearby Schools
+                    {schoolsLoading && <span className="layer-loading"> ⏳</span>}
+                  </span>
+                </label>
+                {schoolsVisible && (
+                  <div className="school-legend">
+                    {(Object.entries(SCHOOL_COLORS) as [SchoolCategory, string][]).map(([cat, color]) => (
+                      <div key={cat} className="legend-swatch-row">
+                        <span className="legend-dot" style={{ background: color }} />
+                        <span>{SCHOOL_LABELS[cat]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </details>
+
+        {/* ── Environmental ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">Environmental</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={superfundVisible}
+                onChange={toggleSuperfund}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Superfund Sites
+                {superfundLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {superfundVisible && (
+              <div className="superfund-legend">
+                <div className="legend-swatch-row">
+                  <span className="legend-swatch" />
+                  <span>NPL Site Boundary</span>
+                </div>
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={dataCenterVisible}
+                onChange={toggleDataCenters}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Data Centers</span>
+            </label>
+            {dataCenterVisible && (
+              <div className="dc-legend">
+                {DC_STATUSES.map((s) => (
+                  <label key={s} className="transit-sub-toggle">
+                    <input
+                      type="checkbox"
+                      checked={dcSubVisible[s]}
+                      onChange={() => toggleDcSub(s)}
+                    />
+                    <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s], opacity: dcSubVisible[s] ? 1 : 0.35 }} />
+                    <span style={{ opacity: dcSubVisible[s] ? 1 : 0.5 }}>{DC_STATUS_LABELS[s]}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
       </aside>
 
       {/* Location Analysis Panel */}
