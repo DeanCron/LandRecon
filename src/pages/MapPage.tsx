@@ -623,6 +623,11 @@ const EMS_ICONS: Record<EmsType, string> = {
   hospital: '🏥',
   police: '🚔',
 }
+const EMS_QUERIES: Record<EmsType, string> = {
+  fire_station: 'fire stations',
+  hospital: 'hospitals',
+  police: 'police stations',
+}
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
@@ -1852,7 +1857,7 @@ function MapPage() {
       const results = await Promise.all(
         EMS_TYPES.map(async (type) => {
           try {
-            const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+            const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1860,8 +1865,8 @@ function MapPage() {
                 'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
               },
               body: JSON.stringify({
-                includedPrimaryTypes: [type],
-                locationRestriction: {
+                textQuery: EMS_QUERIES[type],
+                locationBias: {
                   circle: {
                     center: { latitude: center.lat, longitude: center.lng },
                     radius: radiusM,
@@ -1885,15 +1890,10 @@ function MapPage() {
           if (!id || known.has(id)) continue
           const loc = place.location as { latitude: number; longitude: number } | undefined
           if (!loc) continue
+          if (!padded.contains([loc.latitude, loc.longitude])) continue
           const name = (place.displayName as { text: string })?.text || ''
           const address = (place.formattedAddress as string) || ''
           const type = place._emsType as EmsType
-
-          // Only keep hospitals / medical centers with ER capability
-          if (type === 'hospital') {
-            const lower = name.toLowerCase()
-            if (!lower.includes('hospital') && !lower.includes('medical center') && !lower.includes('emergency')) continue
-          }
 
           const sub = subLayers[type]
           if (!sub) continue
