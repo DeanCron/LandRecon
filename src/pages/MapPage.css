@@ -849,7 +849,7 @@
   line-height: 32px;
   width: 32px;
   height: 32px;
-  background: #D55E00;
+  background: #e32b30;
   color: #fff;
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 3px #fff;
@@ -1305,7 +1305,7 @@
   gap: 6px;
   margin: 0 0 16px;
   padding: 8px 14px;
-  background: #D55E00;
+  background: #e32b30;
   color: #fff !important;
   text-decoration: none;
   border-radius: 6px;
@@ -1316,7 +1316,7 @@
 
 .costco-directions-link:hover,
 .costco-directions-link:focus {
-  background: #A04700;
+  background: #b91f24;
 }
 
 .costco-directions-link svg {
