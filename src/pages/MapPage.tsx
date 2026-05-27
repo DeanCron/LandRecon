@@ -23,9 +23,10 @@ const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relativ
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
 
 // Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
+declare const __BUILD_VERSION__: string
 const LR_DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('LR_DEBUG') === '1'
 function dbg(tag: string, ...args: unknown[]) { if (LR_DEBUG) console.debug(`[LR:${tag}]`, ...args) }
-if (LR_DEBUG) console.info('%c[LandRecon] Debug mode ON — set localStorage LR_DEBUG=0 to disable', 'color:#0ea5e9;font-weight:bold')
+if (LR_DEBUG) console.info(`%c[LandRecon] Debug mode ON — build ${__BUILD_VERSION__}`, 'color:#0ea5e9;font-weight:bold')
 
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
@@ -201,7 +202,7 @@ async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
       console.warn('Private school fetch failed:', err)
       return { features: [] }
     }),
-    fetchOverpass(osmQuery).then((d) => d ?? { elements: [] }),
+    fetchOverpass(osmQuery, { label: 'schools' }).then((d) => d ?? { elements: [] }),
   ])
 
   const schools: SchoolPoint[] = []
@@ -294,9 +295,10 @@ interface OverpassResponse {
 
 async function fetchOverpass<T = OverpassResponse>(
   query: string,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+  opts: { timeoutMs?: number; signal?: AbortSignal; label?: string } = {},
 ): Promise<T | null> {
-  const { timeoutMs = 20000, signal: externalSignal } = opts
+  const { timeoutMs = 20000, signal: externalSignal, label } = opts
+  const tag = label ? `overpass:${label}` : 'overpass'
   const body = `data=${encodeURIComponent(query)}`
   let lastErr: unknown = null
   for (const url of OVERPASS_ENDPOINTS) {
@@ -304,7 +306,7 @@ async function fetchOverpass<T = OverpassResponse>(
     for (let attempt = 0; attempt < 2; attempt++) {
       if (externalSignal?.aborted) break
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
-      dbg('overpass', `${url} attempt ${attempt + 1}`)
+      dbg(tag, `${url} attempt ${attempt + 1}`)
       const ctrl = new AbortController()
       const onExternalAbort = () => ctrl.abort()
       externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
@@ -936,9 +938,8 @@ function MapPage() {
         relation["aeroway"="aerodrome"]["name"~"[Ee]xecutive"](${bbox});
       );out body center;`
 
-      const data = await fetchOverpass(query)
+      const data = await fetchOverpass(query, { label: 'airports' })
       if (!data?.elements || data.elements.length === 0) { dbg('airports', 'No airports found'); return }
-      dbg('airports', `Got ${data.elements.length} airports from Overpass`)
 
       const known = airportKnownIdsRef.current
       for (const el of data.elements) {
@@ -992,10 +993,8 @@ function MapPage() {
         relation["aeroway"="heliport"](${bbox});
       );out body center;`
 
-      const data = await fetchOverpass(query)
+      const data = await fetchOverpass(query, { label: 'heliports' })
       if (!data?.elements || data.elements.length === 0) return
-
-      const known = heliportKnownIdsRef.current
       for (const el of data.elements) {
         const id = `${el.type}-${el.id}`
         if (known.has(id)) continue
@@ -1044,7 +1043,7 @@ function MapPage() {
         relation["brand:wikidata"="Q715583"]["shop"](${bbox});
       );out body center;`
 
-      const data = await fetchOverpass(query)
+      const data = await fetchOverpass(query, { label: 'costco' })
       if (!data?.elements || data.elements.length === 0) {
         costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
         return
@@ -1294,7 +1293,7 @@ function MapPage() {
           node["aeroway"="heliport"](${bbox});
           way["aeroway"="heliport"](${bbox});
         );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: TIMEOUT, signal: AbortSignal.timeout(TIMEOUT) })
+        const data = await fetchOverpass(query, { timeoutMs: TIMEOUT, signal: AbortSignal.timeout(TIMEOUT), label: 'analysis-heliports' })
         if (!data?.elements) return []
         const results: { name: string; distanceMi: number }[] = []
         for (const el of data.elements) {
@@ -1376,7 +1375,7 @@ function MapPage() {
           way["brand:wikidata"="Q715583"]["shop"](${bbox});
           relation["brand:wikidata"="Q715583"]["shop"](${bbox});
         );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000) })
+        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000), label: 'analysis-costco' })
         if (!data?.elements) return { nearest: null as CostcoHit | null, nearby: [] as CostcoHit[] }
         const seen = new Set<string>()
         const hits: CostcoHit[] = []
@@ -2181,7 +2180,7 @@ function MapPage() {
           way["aeroway"="heliport"](${bbox});
           relation["aeroway"="heliport"](${bbox});
         );out body center;`
-        fetchOverpass(query).then(data => {
+        fetchOverpass(query, { label: 'heliports-layer' }).then(data => {
           if (!data?.elements) return
           const known = heliportKnownIdsRef.current
           for (const el of data.elements) {

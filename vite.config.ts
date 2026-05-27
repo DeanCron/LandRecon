@@ -1,8 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { execSync } from 'child_process'
+
+const gitHash = execSync('git rev-parse --short HEAD').toString().trim()
+const buildTime = new Date().toISOString()
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __BUILD_VERSION__: JSON.stringify(`${gitHash} (${buildTime})`),
+  },
   plugins: [react()],
   server: {
     proxy: {
