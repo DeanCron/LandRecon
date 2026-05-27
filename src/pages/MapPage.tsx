@@ -809,6 +809,7 @@ function MapPage() {
   })
   const [showCompare, setShowCompare] = useState(false)
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
     if (analysisResults.loading) return
@@ -2305,6 +2306,19 @@ function MapPage() {
           </svg>
           Home
         </button>
+        <button
+          className="map-home-button"
+          onClick={() => setShowAbout(true)}
+          title="About LandRecon"
+          aria-label="About"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          About
+        </button>
         <div className="header-address-wrapper" ref={addressWrapperRef}>
           {!editingAddress ? (
             <button
@@ -3269,6 +3283,45 @@ function MapPage() {
             },
           ]}
         />
+      )}
+
+      {showAbout && (
+        <div className="about-overlay" onClick={() => setShowAbout(false)}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="about-header">
+              <h2>About LandRecon</h2>
+              <button className="about-close" onClick={() => setShowAbout(false)}>×</button>
+            </div>
+            <div className="about-body">
+              <p>
+                LandRecon helps homebuyers and curious neighbors understand what's really around a property.
+                Enter any U.S. address and instantly see airport noise levels, EPA Superfund sites, nearby
+                data centers, retail proximity, and more — all scored and visualized on an interactive map.
+              </p>
+              <p>
+                Our goal is to surface the hidden factors that affect where you live and work — the kind of
+                details that don't show up in a typical listing but can make all the difference.
+              </p>
+              <h3>What we analyze</h3>
+              <ul>
+                <li>✈️ <strong>Airport Noise</strong> — FAA noise contour data mapped to your address</li>
+                <li>☢️ <strong>Superfund Sites</strong> — EPA hazardous waste sites within 5 miles</li>
+                <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco</li>
+                <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
+              </ul>
+              <h3>How scoring works</h3>
+              <p>
+                Each category is evaluated and assigned a concern level. These are combined into an overall
+                letter grade (A through F) so you can compare locations at a glance. Click the score bar
+                for a full breakdown of how each factor contributed.
+              </p>
+              <p className="about-disclaimer">
+                LandRecon is provided for informational purposes only. Data may not be complete or current.
+                Always verify important findings through official sources before making decisions.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

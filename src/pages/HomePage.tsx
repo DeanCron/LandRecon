@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.webp'
 import './HomePage.css'
 
+declare const __BUILD_VERSION__: string
+
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 
 interface TomTomResult {
@@ -38,6 +40,7 @@ function HomePage() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [showAbout, setShowAbout] = useState(false)
   const navigate = useNavigate()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -170,7 +173,51 @@ function HomePage() {
             </svg>
           </button>
         </form>
+        <footer className="home-footer">
+          <button className="home-about-link" onClick={() => setShowAbout(true)}>About</button>
+          <span className="home-footer-sep">·</span>
+          <span className="home-version">{typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : ''}</span>
+        </footer>
       </div>
+
+      {showAbout && (
+        <div className="about-overlay" onClick={() => setShowAbout(false)}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="about-header">
+              <h2>About LandRecon</h2>
+              <button className="about-close" onClick={() => setShowAbout(false)}>×</button>
+            </div>
+            <div className="about-body">
+              <p>
+                LandRecon helps homebuyers and curious neighbors understand what's really around a property.
+                Enter any U.S. address and instantly see airport noise levels, EPA Superfund sites, nearby
+                data centers, retail proximity, and more — all scored and visualized on an interactive map.
+              </p>
+              <p>
+                Our goal is to surface the hidden factors that affect where you live and work — the kind of
+                details that don't show up in a typical listing but can make all the difference.
+              </p>
+              <h3>What we analyze</h3>
+              <ul>
+                <li>✈️ <strong>Airport Noise</strong> — FAA noise contour data mapped to your address</li>
+                <li>☢️ <strong>Superfund Sites</strong> — EPA hazardous waste sites within 5 miles</li>
+                <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco (a surprisingly strong quality-of-life indicator)</li>
+                <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
+              </ul>
+              <h3>How scoring works</h3>
+              <p>
+                Each category is evaluated and assigned a concern level. These are combined into an overall
+                letter grade (A through F) so you can compare locations at a glance. Click the score bar
+                for a full breakdown of how each factor contributed.
+              </p>
+              <p className="about-disclaimer">
+                LandRecon is provided for informational purposes only. Data may not be complete or current.
+                Always verify important findings through official sources before making decisions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
