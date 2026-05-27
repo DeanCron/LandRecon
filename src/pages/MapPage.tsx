@@ -585,7 +585,7 @@ function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
 function createClusterGroup(color?: string): L.MarkerClusterGroup {
   return L.markerClusterGroup({
     maxClusterRadius: 40,
-    disableClusteringAtZoom: 16,
+    disableClusteringAtZoom: 14,
     spiderfyOnMaxZoom: true,
     showCoverageOnHover: false,
     chunkedLoading: true,
