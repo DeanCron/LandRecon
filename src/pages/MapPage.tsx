@@ -1867,7 +1867,7 @@ function MapPage() {
               headers: {
                 'Content-Type': 'application/json',
                 'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.types',
               },
               body: JSON.stringify({
                 textQuery: query,
@@ -1902,6 +1902,11 @@ function MapPage() {
           const name = (place.displayName as { text: string })?.text || ''
           const address = (place.formattedAddress as string) || ''
           const type = place._emsType as EmsType
+          const placeTypes = (place.types as string[]) || []
+
+          // Filter out mismatched results (e.g. USPS in police results)
+          if (type === 'police' && !placeTypes.includes('police')) continue
+          if (type === 'fire_station' && !placeTypes.includes('fire_station')) continue
 
           const sub = subLayers[type]
           if (!sub) continue
