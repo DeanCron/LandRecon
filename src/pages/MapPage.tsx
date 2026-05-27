@@ -3123,6 +3123,17 @@ function MapPage() {
                     )}
                     <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB DNL</p>
                     <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Aircraft noise is measured in DNL (Day-Night Average Sound Level) and affects sleep quality, outdoor enjoyment, and long-term health.
+                        {analysisResults.noiseLevel >= 65
+                          ? ' At this level, the FAA considers the area "significantly impacted." Expect frequent and noticeable aircraft noise throughout the day.'
+                          : analysisResults.noiseLevel >= 55
+                          ? ' This area falls within the moderate impact zone. Noise may be noticeable during peak flight hours and could affect outdoor conversations.'
+                          : ' This area is within a mapped noise contour but at a relatively low level. Occasional aircraft noise may be audible.'}
+                      </p>
+                    </div>
+                    <div className="analysis-expand-rec">
                       <strong>Recommendation</strong>
                       <p>
                         Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
@@ -3132,7 +3143,16 @@ function MapPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
+                  <>
+                    <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Airport noise can significantly affect quality of life, property values, and health.
+                        This location is outside all mapped noise contours — a positive indicator for peaceful living.
+                      </p>
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -3141,6 +3161,17 @@ function MapPage() {
               <>
                 {analysisResults.superfunds.length > 0 ? (
                   <>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        EPA Superfund sites are locations contaminated with hazardous waste that pose risks to human health and the environment.
+                        {analysisResults.superfunds.every(s => s.status === 'Deleted')
+                          ? ' All nearby sites have been cleaned up and removed from the National Priorities List — a reassuring sign.'
+                          : analysisResults.superfunds.some(s => s.status !== 'Deleted')
+                          ? ' Active sites may have ongoing contamination of soil, groundwater, or air, which can affect property values and health.'
+                          : ''}
+                      </p>
+                    </div>
                     <ul className="analysis-expand-list">
                       {analysisResults.superfunds.map((s, i) => (
                         <li key={i}>
@@ -3170,7 +3201,16 @@ function MapPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
+                  <>
+                    <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Superfund sites can contaminate local soil, groundwater, and air — posing health risks and reducing property values.
+                        The absence of any sites nearby is a positive indicator for this location.
+                      </p>
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -3310,7 +3350,17 @@ function MapPage() {
                     </ul>
                   </>
                 ) : (
-                  <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                  <>
+                    <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Data centers can impact surrounding areas through increased traffic,
+                        noise from cooling systems, and strain on local power and water resources.
+                        The absence of any nearby is a positive indicator for this location.
+                      </p>
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -3370,8 +3420,9 @@ function MapPage() {
                       No emergency rooms found within {ER_ANALYSIS_RADIUS_MI} miles.
                     </p>
                     <div className="analysis-expand-rec">
-                      <strong>⚠️ Limited emergency access</strong>
+                      <strong>Why this matters</strong>
                       <p>
+                        Proximity to an emergency room can be critical in life-threatening situations.
                         No hospitals or emergency departments were found within the search radius.
                         This could significantly impact response times in a medical emergency.
                       </p>
