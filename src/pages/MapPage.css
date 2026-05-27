@@ -993,7 +993,7 @@
 
 .analysis-panel {
   position: absolute;
-  top: 170px;
+  top: 210px;
   right: 16px;
   width: 340px;
   max-height: calc(100vh - 100px);
