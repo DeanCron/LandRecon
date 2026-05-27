@@ -765,6 +765,7 @@ function MapPage() {
   })
   const emsSubVisibleRef = useRef(emsSubVisible)
   const targetLocationRef = useRef<L.LatLng | null>(null)
+  const highlightMarkerRef = useRef<L.Marker | null>(null)
   const transitPreloadedRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -978,9 +979,28 @@ function MapPage() {
   }, [])
 
   const flyToAddress = useCallback(() => {
+    if (highlightMarkerRef.current) {
+      highlightMarkerRef.current.remove()
+      highlightMarkerRef.current = null
+    }
     if (targetLocationRef.current && mapRef.current) {
       mapRef.current.flyTo(targetLocationRef.current, mapRef.current.getZoom(), { duration: 0.5 })
     }
+  }, [])
+
+  const showHighlightPin = useCallback((lat: number, lng: number, label: string) => {
+    if (!mapRef.current) return
+    if (highlightMarkerRef.current) {
+      highlightMarkerRef.current.remove()
+    }
+    const icon = L.divIcon({
+      className: 'highlight-pin',
+      html: `<div class="highlight-pin-inner">🏥</div><div class="highlight-pin-label">${label}</div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    })
+    highlightMarkerRef.current = L.marker([lat, lng], { icon }).addTo(mapRef.current)
+    mapRef.current.flyTo([lat, lng], 15)
   }, [])
 
   const cancelEditingAddress = useCallback(() => {
@@ -3308,7 +3328,7 @@ function MapPage() {
                       )}
                       <p className={`analysis-expand-level ${sev === 'clear' || sev === 'good' ? 'clear' : sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
-                        <button className="analysis-flyto-link" onClick={() => mapRef.current?.flyTo([analysisResults.nearestER!.lat, analysisResults.nearestER!.lng], 15)}>
+                        <button className="analysis-flyto-link" onClick={() => showHighlightPin(analysisResults.nearestER!.lat, analysisResults.nearestER!.lng, analysisResults.nearestER!.name)}>
                           📍 Show on map
                         </button>
                         <a

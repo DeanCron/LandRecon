@@ -2234,6 +2234,40 @@
   }
 }
 
+/* Highlight pin for analysis flyto */
+.highlight-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.highlight-pin-inner {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+  animation: highlightBounce 0.5s ease;
+}
+
+.highlight-pin-label {
+  margin-top: 2px;
+  background: #1a1a2e;
+  color: #fff;
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+@keyframes highlightBounce {
+  0% { transform: translateY(-20px); opacity: 0; }
+  60% { transform: translateY(4px); opacity: 1; }
+  100% { transform: translateY(0); }
+}
+
 /* About modal (shared class names with HomePage) */
 .about-overlay {
   position: fixed;
