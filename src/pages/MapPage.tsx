@@ -675,6 +675,7 @@ function MapPage() {
     costcoError: boolean
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[]
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+  const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
@@ -1193,6 +1194,15 @@ function MapPage() {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
     setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
 
+    const checks = ['noise', 'heliports', 'superfund', 'costco', 'datacenters'] as const
+    const progress: Record<string, 'pending' | 'done'> = {}
+    for (const c of checks) progress[c] = 'pending'
+    setAnalysisProgress({ ...progress })
+    const markDone = (key: string) => {
+      progress[key] = 'done'
+      setAnalysisProgress({ ...progress })
+    }
+
     const location = L.latLng(lat, lng)
     const milesToMeters = 1609.34
     const TIMEOUT = 10000
@@ -1201,13 +1211,11 @@ function MapPage() {
     const [noiseResult, heliportResult, superfundResult, costcoResult, dataCenterResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
+        try {
         const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
         if (!band) return null
-        // `level` retains the legacy contract used by the analysis UI:
-        // the lower edge of the dB band containing the point.
         const level = band.dbMin
 
-        // Find the nearest airport
         let airportName: string | null = null
         let airportCode: string | null = null
         try {
@@ -1244,10 +1252,12 @@ function MapPage() {
         }
 
         return { level, airport: airportName, code: airportCode }
+        } finally { markDone('noise') }
       })(),
 
       // Check heliports within 3 miles
       (async () => {
+        try {
         if (!HELIPORTS_ENABLED) return [] as { name: string; distanceMi: number }[]
         const radiusDeg = (3 * milesToMeters) / 111320
         const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
@@ -1274,10 +1284,12 @@ function MapPage() {
         }
         results.sort((a, b) => a.distanceMi - b.distanceMi)
         return results
+        } finally { markDone('heliports') }
       })(),
 
       // Check Superfund sites within 5 miles
       (async () => {
+        try {
         const radiusDeg = (5 * milesToMeters) / 111320
         const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
         const params = new URLSearchParams({
@@ -1320,12 +1332,12 @@ function MapPage() {
         }
         results.sort((a, b) => a.distanceMi - b.distanceMi)
         return results
+        } finally { markDone('superfund') }
       })(),
 
-      // Find every Costco within COSTCO_ANALYSIS_RADIUS_MI (so we can drop
-      // them all on the auto-enabled layer) and pick the nearest one for the
-      // analysis card.
+      // Find every Costco within COSTCO_ANALYSIS_RADIUS_MI
       (async () => {
+        try {
         type CostcoHit = { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }
         const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
@@ -1369,10 +1381,12 @@ function MapPage() {
         }
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
         return { nearest: hits[0] ?? null, nearby: hits }
+        } finally { markDone('costco') }
       })(),
 
       // Data centers within radius (static JSON)
       (async () => {
+        try {
         let data = dataCenterDataRef.current
         if (!data) {
           const res = await fetch('/data/data-centers.json')
@@ -1398,6 +1412,7 @@ function MapPage() {
         }
         nearby.sort((a, b) => a.distanceMi - b.distanceMi)
         return nearby
+        } finally { markDone('datacenters') }
       })(),
     ])
 
@@ -2708,7 +2723,22 @@ function MapPage() {
         </div>
         <div className="analysis-content">
           {analysisResults.loading ? (
-            <div className="analysis-loading"><div className="spinner" /><p>Analyzing location…</p></div>
+            <div className="analysis-progress">
+              {[
+                { key: 'noise', label: 'Airport Noise' },
+                { key: 'superfund', label: 'Superfund Sites' },
+                { key: 'costco', label: 'Nearest Costco' },
+                { key: 'datacenters', label: 'Data Centers' },
+                ...(HELIPORTS_ENABLED ? [{ key: 'heliports', label: 'Heliports' }] : []),
+              ].map(({ key, label }) => (
+                <div key={key} className={`analysis-progress-item ${analysisProgress[key] === 'done' ? 'done' : 'pending'}`}>
+                  <span className="analysis-progress-icon">
+                    {analysisProgress[key] === 'done' ? '✓' : ''}
+                  </span>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
           ) : (
             <>
               {analysisResults.noiseLevel && (
