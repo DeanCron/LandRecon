@@ -217,21 +217,21 @@
 }
 
 .home-about-link {
-  background: none;
-  border: 1px solid #ccc;
+  background: #1a1a2e;
+  border: 2px solid #1a1a2e;
   border-radius: 20px;
-  color: #555;
+  color: #fff;
   cursor: pointer;
   font-size: 0.82rem;
-  padding: 6px 18px;
+  font-weight: 500;
+  padding: 8px 22px;
   letter-spacing: 0.02em;
   transition: all 0.2s ease;
 }
 
 .home-about-link:hover {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: #999;
-  color: #333;
+  background: #2d2d4e;
+  border-color: #2d2d4e;
 }
 
 /* About modal */
