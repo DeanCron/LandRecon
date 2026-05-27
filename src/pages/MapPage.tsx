@@ -891,6 +891,7 @@ function MapPage() {
   const expMenuRef = useRef<HTMLDivElement>(null)
   const [SCHOOLS_ENABLED, setSchoolsEnabled] = useState(() => getExpFlag('lr_exp_schools', SCHOOLS_DEFAULT))
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
+  const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
 
   const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
     const next = !current
@@ -2379,6 +2380,10 @@ function MapPage() {
                 <input type="checkbox" checked={debugEnabled} onChange={() => { toggleExpFlag('LR_DEBUG', debugEnabled, setDebugEnabled) }} />
                 <span>Debug Logging</span>
               </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={baseMapSwitcherEnabled} onChange={() => { toggleExpFlag('lr_exp_basemap', baseMapSwitcherEnabled, setBaseMapSwitcherEnabled) }} />
+                <span>Base Map Selector</span>
+              </label>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -2428,19 +2433,23 @@ function MapPage() {
 
       <aside className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
         <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close layers">×</button>
-        <h2 className="panel-title">Base Map</h2>
-        <div className="basemap-switcher">
-          {(Object.entries(BASE_MAPS) as [BaseMapId, typeof BASE_MAPS[BaseMapId]][]).map(([id, cfg]) => (
-            <button
-              key={id}
-              className={`basemap-btn ${id === activeBaseMap ? 'active' : ''}`}
-              onClick={() => switchBaseMap(id)}
-              disabled={status !== 'ready'}
-            >
-              {cfg.label}
-            </button>
-          ))}
-        </div>
+        {baseMapSwitcherEnabled && (
+          <>
+            <h2 className="panel-title">Base Map</h2>
+            <div className="basemap-switcher">
+              {(Object.entries(BASE_MAPS) as [BaseMapId, typeof BASE_MAPS[BaseMapId]][]).map(([id, cfg]) => (
+                <button
+                  key={id}
+                  className={`basemap-btn ${id === activeBaseMap ? 'active' : ''}`}
+                  onClick={() => switchBaseMap(id)}
+                  disabled={status !== 'ready'}
+                >
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <h2 className="panel-title overlay-title">Layers</h2>
 
