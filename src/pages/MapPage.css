@@ -1554,21 +1554,22 @@
 .costco-directions-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 16px;
-  padding: 8px 14px;
-  background: #e32b30;
-  color: #fff !important;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 12px;
+  background: var(--color-bg);
+  color: var(--color-primary) !important;
   text-decoration: none;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: background 0.15s ease;
+  font-size: 0.8rem;
+  font-family: inherit;
+  transition: border-color 0.15s;
 }
 
 .costco-directions-link:hover,
 .costco-directions-link:focus {
-  background: #b91f24;
+  border-color: var(--color-primary);
 }
 
 .costco-directions-link svg {
