@@ -1838,10 +1838,12 @@ function MapPage() {
 
     setEmsLoading(true)
     try {
-      const padded = bounds.pad(0.3)
-      const center = padded.getCenter()
+      const padded = bounds.pad(0.5)
+      const center = map.getCenter()
+      // At least 10 miles so zoomed-in views still find nearby services
+      const minRadiusM = 16093
       const ne = padded.getNorthEast()
-      const radiusM = Math.min(center.distanceTo(ne), 50000)
+      const radiusM = Math.min(Math.max(center.distanceTo(ne), minRadiusM), 50000)
 
       let subLayers = emsSubLayersRef.current
       if (!subLayers) {
@@ -1875,10 +1877,14 @@ function MapPage() {
                 maxResultCount: 20,
               }),
             })
-            if (!res.ok) return []
+            if (!res.ok) {
+              console.warn(`EMS ${type} search failed:`, res.status)
+              return []
+            }
             const data = await res.json()
             return (data.places || []).map((p: Record<string, unknown>) => ({ ...p, _emsType: type }))
-          } catch {
+          } catch (err) {
+            console.warn(`EMS ${type} search error:`, err)
             return []
           }
         })
@@ -1890,7 +1896,6 @@ function MapPage() {
           if (!id || known.has(id)) continue
           const loc = place.location as { latitude: number; longitude: number } | undefined
           if (!loc) continue
-          if (!padded.contains([loc.latitude, loc.longitude])) continue
           const name = (place.displayName as { text: string })?.text || ''
           const address = (place.formattedAddress as string) || ''
           const type = place._emsType as EmsType
