@@ -603,7 +603,7 @@ const DC_STATUS_LABELS: Record<string, string> = {
   'Suspended': 'Suspended',
 }
 
-const DATA_CENTER_ANALYSIS_RADIUS_MI = 25
+const DATA_CENTER_ANALYSIS_RADIUS_MI = 10
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
