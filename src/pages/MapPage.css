@@ -1446,7 +1446,8 @@
   border-left: 3px solid #E69F00;
 }
 
-.analysis-expand-level.good {
+.analysis-expand-level.good,
+.analysis-expand-level.clear {
   background: rgba(0, 158, 115, 0.12);
   border-left-color: #009E73;
 }
