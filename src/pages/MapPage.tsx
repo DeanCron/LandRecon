@@ -2807,30 +2807,6 @@ function MapPage() {
                   </div>
                   <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>›</div>
                 </div>
-                {analysisDetail === 'noise' && (
-                  <div className="analysis-expand">
-                    {analysisResults.noiseLevel ? (
-                      <>
-                        {analysisResults.noiseAirport && (
-                          <p className="analysis-expand-sub">
-                            {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
-                          </p>
-                        )}
-                        <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB DNL</p>
-                        <div className="analysis-expand-rec">
-                          <strong>Recommendation</strong>
-                          <p>
-                            Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
-                            We recommend repeat visits at different times of day — including early morning,
-                            evening, and weekends — to assess whether the noise level is acceptable.
-                          </p>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Superfund */}
@@ -2848,43 +2824,6 @@ function MapPage() {
                   </div>
                   <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>›</div>
                 </div>
-                {analysisDetail === 'superfunds' && (
-                  <div className="analysis-expand">
-                    {analysisResults.superfunds.length > 0 ? (
-                      <>
-                        <ul className="analysis-expand-list">
-                          {analysisResults.superfunds.map((s, i) => (
-                            <li key={i}>
-                              <div className="analysis-flyto-row">
-                                <div>
-                                  <strong>{s.name}</strong> — {s.distanceMi} mi
-                                  <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
-                                    {s.status}
-                                  </span>
-                                </div>
-                                <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)} title="Fly to location">📍</button>
-                              </div>
-                              {s.url && (
-                                <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
-                                  EPA Profile →
-                                </a>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                        <div className="analysis-expand-rec">
-                          <strong>Recommendation</strong>
-                          <p>
-                            Sites marked "Deleted" have been cleaned up and removed from the NPL.
-                            For active sites, research using the EPA links above.
-                          </p>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Costco */}
@@ -2902,108 +2841,6 @@ function MapPage() {
                   </div>
                   <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>›</div>
                 </div>
-                {analysisDetail === 'costco' && (
-                  <div className="analysis-expand">
-                    {analysisResults.costco ? (() => {
-                      const dist = analysisResults.costco.distanceMi
-                      const sev = costcoSeverity(dist)
-                      return (
-                        <>
-                          <p className="analysis-expand-sub">{analysisResults.costco.city || 'Costco Wholesale'}</p>
-                          <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
-                          <div className="analysis-costco-actions">
-                            <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
-                              📍 Show on map
-                            </button>
-                            <a
-                              className="costco-directions-link"
-                              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M3 11l19-9-9 19-2-8-8-2z" />
-                            </svg>
-                            Driving directions →
-                          </a>
-                          </div>
-                          <div className="analysis-expand-rec">
-                            {sev === 'good' && (
-                              <>
-                                <strong>Congratulations.</strong>
-                                <p>
-                                  You are about to be one of those insufferably happy people who
-                                  casually mention they "just popped over to Costco" on a Tuesday.
-                                  Studies (that I made up) show that residents within 30 miles of a
-                                  warehouse experience 73% more joy, own 4x more rotisserie
-                                  chickens, and have a deeply spiritual relationship with bulk
-                                  paper towels. You did this. You did this right.
-                                </p>
-                              </>
-                            )}
-                            {sev === 'warning' && (
-                              <>
-                                <strong>Acceptable. Barely.</strong>
-                                <p>
-                                  {dist} miles. That is a <em>commitment</em>. Not a quick errand —
-                                  a planned expedition with a packing list, a playlist, and a snack
-                                  for the road. You'll do it, sure, but every trip will end with
-                                  you whispering "was the gas worth it?" while you eat a
-                                  $1.50 hot dog in the parking lot.
-                                </p>
-                              </>
-                            )}
-                            {sev === 'danger' && (
-                              <>
-                                <strong>Real talk for a second.</strong>
-                                <p>
-                                  {dist} miles. To a Costco. Do you actually want to live that
-                                  far away from a building full of free samples and reasonably
-                                  priced tires? Is this house really worth a {Math.round(dist * 2)}-mile
-                                  round trip every time you need a flat of paper towels?
-                                </p>
-                              </>
-                            )}
-                          </div>
-                          <div className="analysis-expand-rec">
-                            <strong>Distance bands</strong>
-                            <p>
-                              <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                              <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
-                              <span className="analysis-band danger">51–100 mi</span> reconsider
-                            </p>
-                          </div>
-                        </>
-                      )
-                    })() : analysisResults.costcoError ? (
-                      <p className="analysis-expand-level warning">
-                        Costco search timed out. The Overpass server may be busy — try again later.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="analysis-expand-level danger">
-                          No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles.
-                        </p>
-                        <div className="analysis-expand-rec">
-                          <strong>⚠️ Are you sure about this?</strong>
-                          <p>
-                            There is <em>no Costco</em> within {COSTCO_ANALYSIS_RADIUS_MI} miles.
-                            You will have to survive on normal-sized packages of toilet paper.
-                            Sourcing a 48-pack of muffins will require <em>logistics</em>.
-                          </p>
-                        </div>
-                        <div className="analysis-expand-rec">
-                          <strong>Distance bands</strong>
-                          <p>
-                            <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
-                            <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
-                            <span className="analysis-band danger">51–100 mi</span> reconsider
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Data Centers */}
@@ -3021,47 +2858,230 @@ function MapPage() {
                   </div>
                   <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>›</div>
                 </div>
-                {analysisDetail === 'datacenters' && (
-                  <div className="analysis-expand">
-                    {analysisResults.dataCenters.length > 0 ? (
-                      <>
-                        <div className="analysis-expand-rec">
-                          <strong>Why this matters</strong>
-                          <p>
-                            Data centers can impact surrounding areas through increased traffic,
-                            noise from cooling systems, and strain on local power and water resources.
-                          </p>
-                        </div>
-                        <ul className="analysis-expand-list">
-                          {analysisResults.dataCenters.map((dc, i) => (
-                            <li key={i} className="dc-analysis-item">
-                              <div className="dc-analysis-header">
-                                <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
-                                <strong>{dc.name || 'Unknown Facility'}</strong>
-                                <span className="dc-distance">{dc.distanceMi} mi</span>
-                                <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)} title="Fly to location">📍</button>
-                              </div>
-                              <div className="dc-analysis-meta">
-                                {dc.operator && <span>{dc.operator}</span>}
-                                {(dc.city || dc.state) && <span>{[dc.city, dc.state].filter(Boolean).join(', ')}</span>}
-                                <span>{dc.status}</span>
-                                {dc.mw && <span>{dc.mw} MW</span>}
-                                {dc.sizerank && dc.sizerank !== 'Unknown' && <span>{dc.sizerank}</span>}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
-                    )}
-                  </div>
-                )}
               </div>
             </>
           )}
         </div>
       </aside>
+
+      {/* Detail popout — positioned to the left of analysis panel */}
+      {analysisDetail && !analysisResults.loading && (
+        <aside className="analysis-popout">
+          <div className="analysis-popout-header">
+            <strong>
+              {analysisDetail === 'noise' ? '✈️ Airport Noise' :
+               analysisDetail === 'superfunds' ? '☢️ Superfund Sites' :
+               analysisDetail === 'costco' ? '🛒 Nearest Costco' :
+               '🏢 Data Centers'}
+            </strong>
+            <button className="analysis-popout-close" onClick={() => setAnalysisDetail(null)}>×</button>
+          </div>
+          <div className="analysis-popout-body">
+            {analysisDetail === 'noise' && (
+              <>
+                {analysisResults.noiseLevel ? (
+                  <>
+                    {analysisResults.noiseAirport && (
+                      <p className="analysis-expand-sub">
+                        {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
+                      </p>
+                    )}
+                    <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB DNL</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Recommendation</strong>
+                      <p>
+                        Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
+                        We recommend repeat visits at different times of day — including early morning,
+                        evening, and weekends — to assess whether the noise level is acceptable.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'superfunds' && (
+              <>
+                {analysisResults.superfunds.length > 0 ? (
+                  <>
+                    <ul className="analysis-expand-list">
+                      {analysisResults.superfunds.map((s, i) => (
+                        <li key={i}>
+                          <div className="analysis-flyto-row">
+                            <div>
+                              <strong>{s.name}</strong> — {s.distanceMi} mi
+                              <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
+                                {s.status}
+                              </span>
+                            </div>
+                            <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)} title="Fly to location">📍</button>
+                          </div>
+                          {s.url && (
+                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
+                              EPA Profile →
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="analysis-expand-rec">
+                      <strong>Recommendation</strong>
+                      <p>
+                        Sites marked "Deleted" have been cleaned up and removed from the NPL.
+                        For active sites, research using the EPA links above.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'costco' && (
+              <>
+                {analysisResults.costco ? (() => {
+                  const dist = analysisResults.costco.distanceMi
+                  const sev = costcoSeverity(dist)
+                  return (
+                    <>
+                      <p className="analysis-expand-sub">{analysisResults.costco.city || 'Costco Wholesale'}</p>
+                      <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
+                      <div className="analysis-costco-actions">
+                        <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
+                          📍 Show on map
+                        </button>
+                        <a
+                          className="costco-directions-link"
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 11l19-9-9 19-2-8-8-2z" />
+                          </svg>
+                          Driving directions →
+                        </a>
+                      </div>
+                      <div className="analysis-expand-rec">
+                        {sev === 'good' && (
+                          <>
+                            <strong>Congratulations.</strong>
+                            <p>
+                              You are about to be one of those insufferably happy people who
+                              casually mention they "just popped over to Costco" on a Tuesday.
+                              Studies (that I made up) show that residents within 30 miles of a
+                              warehouse experience 73% more joy, own 4x more rotisserie
+                              chickens, and have a deeply spiritual relationship with bulk
+                              paper towels. You did this. You did this right.
+                            </p>
+                          </>
+                        )}
+                        {sev === 'warning' && (
+                          <>
+                            <strong>Acceptable. Barely.</strong>
+                            <p>
+                              {dist} miles. That is a <em>commitment</em>. Not a quick errand —
+                              a planned expedition with a packing list, a playlist, and a snack
+                              for the road. You'll do it, sure, but every trip will end with
+                              you whispering "was the gas worth it?" while you eat a
+                              $1.50 hot dog in the parking lot.
+                            </p>
+                          </>
+                        )}
+                        {sev === 'danger' && (
+                          <>
+                            <strong>Real talk for a second.</strong>
+                            <p>
+                              {dist} miles. To a Costco. Do you actually want to live that
+                              far away from a building full of free samples and reasonably
+                              priced tires? Is this house really worth a {Math.round(dist * 2)}-mile
+                              round trip every time you need a flat of paper towels?
+                            </p>
+                          </>
+                        )}
+                      </div>
+                      <div className="analysis-expand-rec">
+                        <strong>Distance bands</strong>
+                        <p>
+                          <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                          <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                          <span className="analysis-band danger">51–100 mi</span> reconsider
+                        </p>
+                      </div>
+                    </>
+                  )
+                })() : analysisResults.costcoError ? (
+                  <p className="analysis-expand-level warning">
+                    Costco search timed out. The Overpass server may be busy — try again later.
+                  </p>
+                ) : (
+                  <>
+                    <p className="analysis-expand-level danger">
+                      No Costco found within {COSTCO_ANALYSIS_RADIUS_MI} miles.
+                    </p>
+                    <div className="analysis-expand-rec">
+                      <strong>⚠️ Are you sure about this?</strong>
+                      <p>
+                        There is <em>no Costco</em> within {COSTCO_ANALYSIS_RADIUS_MI} miles.
+                        You will have to survive on normal-sized packages of toilet paper.
+                        Sourcing a 48-pack of muffins will require <em>logistics</em>.
+                      </p>
+                    </div>
+                    <div className="analysis-expand-rec">
+                      <strong>Distance bands</strong>
+                      <p>
+                        <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                        <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                        <span className="analysis-band danger">51–100 mi</span> reconsider
+                      </p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'datacenters' && (
+              <>
+                {analysisResults.dataCenters.length > 0 ? (
+                  <>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Data centers can impact surrounding areas through increased traffic,
+                        noise from cooling systems, and strain on local power and water resources.
+                      </p>
+                    </div>
+                    <ul className="analysis-expand-list">
+                      {analysisResults.dataCenters.map((dc, i) => (
+                        <li key={i} className="dc-analysis-item">
+                          <div className="dc-analysis-header">
+                            <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
+                            <strong>{dc.name || 'Unknown Facility'}</strong>
+                            <span className="dc-distance">{dc.distanceMi} mi</span>
+                            <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)} title="Fly to location">📍</button>
+                          </div>
+                          <div className="dc-analysis-meta">
+                            {dc.operator && <span>{dc.operator}</span>}
+                            {(dc.city || dc.state) && <span>{[dc.city, dc.state].filter(Boolean).join(', ')}</span>}
+                            <span>{dc.status}</span>
+                            {dc.mw && <span>{dc.mw} MW</span>}
+                            {dc.sizerank && dc.sizerank !== 'Unknown' && <span>{dc.sizerank}</span>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                )}
+              </>
+            )}
+          </div>
+        </aside>
+      )}
 
       {shareModalOpen && (
         <div className="analysis-detail-overlay" onClick={closeShareModal}>
