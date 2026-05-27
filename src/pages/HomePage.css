@@ -217,10 +217,10 @@
 }
 
 .home-about-link {
-  background: rgba(100, 116, 139, 0.12);
-  border: 1.5px solid rgba(100, 116, 139, 0.25);
+  background: #5b7a9d;
+  border: 1.5px solid #5b7a9d;
   border-radius: 20px;
-  color: #64748b;
+  color: #fff;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 600;
@@ -230,9 +230,8 @@
 }
 
 .home-about-link:hover {
-  background: rgba(100, 116, 139, 0.2);
-  border-color: rgba(100, 116, 139, 0.4);
-  color: #475569;
+  background: #4a6a8a;
+  border-color: #4a6a8a;
 }
 
 /* About modal */
