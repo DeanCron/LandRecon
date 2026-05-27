@@ -2920,7 +2920,7 @@ function MapPage() {
                           <p className="analysis-expand-sub">{analysisResults.costco.city || 'Costco Wholesale'}</p>
                           <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                           <div className="analysis-costco-actions">
-                            <button className="analysis-flyto-link" onClick={() => { setCostcoVisible(true); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
+                            <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
                               📍 Show on map
                             </button>
                             <a
