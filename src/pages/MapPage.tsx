@@ -565,8 +565,13 @@ const EMS_QUERIES: Record<EmsType, string[]> = {
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
-const HELIPORTS_ENABLED = false
-const SCHOOLS_ENABLED = false
+const HELIPORTS_DEFAULT = false
+const SCHOOLS_DEFAULT = false
+
+function getExpFlag(key: string, fallback: boolean): boolean {
+  const v = localStorage.getItem(key)
+  return v === null ? fallback : v === '1'
+}
 
 function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
   if (distMi <= COSTCO_GREEN_RADIUS_MI) return 'good'
@@ -691,6 +696,29 @@ function MapPage() {
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
   const [showFabHints, setShowFabHints] = useState(false)
+
+  // Experimental feature flags (persisted in localStorage)
+  const [expMenuOpen, setExpMenuOpen] = useState(false)
+  const expMenuRef = useRef<HTMLDivElement>(null)
+  const [HELIPORTS_ENABLED, setHeliportsEnabled] = useState(() => getExpFlag('lr_exp_heliports', HELIPORTS_DEFAULT))
+  const [SCHOOLS_ENABLED, setSchoolsEnabled] = useState(() => getExpFlag('lr_exp_schools', SCHOOLS_DEFAULT))
+  const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
+
+  const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
+    const next = !current
+    localStorage.setItem(key, next ? '1' : '0')
+    setter(next)
+  }
+
+  // Close secret menu on outside click
+  useEffect(() => {
+    if (!expMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (expMenuRef.current && !expMenuRef.current.contains(e.target as Node)) setExpMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [expMenuOpen])
 
   // Show FAB tooltip hints once on mobile, dismiss on first tap
   useEffect(() => {
@@ -2336,8 +2364,32 @@ function MapPage() {
             </div>
           )}
         </div>
-        <div className="map-header-logo-wrapper" aria-hidden="true">
-          <img src={logo} alt="" className="map-header-logo" />
+        <div className="map-header-logo-wrapper" ref={expMenuRef}>
+          <img
+            src={logo}
+            alt=""
+            className="map-header-logo"
+            onClick={() => setExpMenuOpen((v) => !v)}
+            style={{ cursor: 'pointer' }}
+          />
+          {expMenuOpen && (
+            <div className="exp-menu">
+              <div className="exp-menu-title">Experimental</div>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={HELIPORTS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_heliports', HELIPORTS_ENABLED, setHeliportsEnabled) }} />
+                <span>Heliports Layer</span>
+              </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={SCHOOLS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_schools', SCHOOLS_ENABLED, setSchoolsEnabled) }} />
+                <span>Nearby Schools Layer</span>
+              </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={debugEnabled} onChange={() => { toggleExpFlag('LR_DEBUG', debugEnabled, setDebugEnabled) }} />
+                <span>Debug Logging</span>
+              </label>
+              <div className="exp-menu-hint">Changes take effect on reload</div>
+            </div>
+          )}
         </div>
       </header>
 
