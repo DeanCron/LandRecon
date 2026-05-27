@@ -2451,7 +2451,7 @@ function MapPage() {
           </>
         )}
 
-        <h2 className="panel-title overlay-title">Layers</h2>
+        <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Layers</h2>
 
         {/* ── Transportation ── */}
         <details className="layer-group">
