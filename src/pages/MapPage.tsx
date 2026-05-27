@@ -2350,7 +2350,7 @@ function MapPage() {
         <h2 className="panel-title overlay-title">Layers</h2>
 
         {/* ── Aviation ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">Aviation</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
@@ -2395,7 +2395,7 @@ function MapPage() {
         </details>
 
         {/* ── Transportation ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">Transportation</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
@@ -2455,7 +2455,7 @@ function MapPage() {
         </details>
 
         {/* ── Services ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">Services</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
@@ -2526,7 +2526,7 @@ function MapPage() {
         </details>
 
         {/* ── Environmental ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">Environmental</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
