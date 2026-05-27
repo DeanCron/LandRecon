@@ -893,6 +893,7 @@ function MapPage() {
   const [SCHOOLS_ENABLED, setSchoolsEnabled] = useState(() => getExpFlag('lr_exp_schools', SCHOOLS_DEFAULT))
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
+  const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
 
   const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
     const next = !current
@@ -2385,6 +2386,10 @@ function MapPage() {
                 <input type="checkbox" checked={baseMapSwitcherEnabled} onChange={() => { toggleExpFlag('lr_exp_basemap', baseMapSwitcherEnabled, setBaseMapSwitcherEnabled) }} />
                 <span>Base Map Selector</span>
               </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={tourEnabled} onChange={() => { toggleExpFlag('lr_exp_tour', tourEnabled, setTourEnabled) }} />
+                <span>Guided Tour</span>
+              </label>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -3216,6 +3221,7 @@ function MapPage() {
       {status === 'ready' && (
         <GuidedTour
           storageKey="lr_tour_done"
+          forceShow={tourEnabled}
           delay={2000}
           steps={[
             {

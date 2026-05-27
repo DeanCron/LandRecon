@@ -13,11 +13,12 @@ interface TourStep {
 interface GuidedTourProps {
   steps: TourStep[]
   storageKey?: string
+  forceShow?: boolean
   onComplete?: () => void
   delay?: number
 }
 
-export default function GuidedTour({ steps, storageKey = 'lr_tour_done', onComplete, delay = 1500 }: GuidedTourProps) {
+export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceShow = false, onComplete, delay = 1500 }: GuidedTourProps) {
   const [active, setActive] = useState(false)
   const [step, setStep] = useState(0)
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -25,10 +26,10 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', onCompl
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localStorage.getItem(storageKey) !== '1') setActive(true)
+      if (forceShow || localStorage.getItem(storageKey) !== '1') setActive(true)
     }, delay)
     return () => clearTimeout(timer)
-  }, [storageKey, delay])
+  }, [storageKey, delay, forceShow])
 
   const measureTarget = useCallback(() => {
     if (!active || step >= steps.length) return
