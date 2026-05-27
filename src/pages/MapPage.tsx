@@ -2447,7 +2447,7 @@ function MapPage() {
         onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) }}
         aria-label="Open analysis"
       >
-        <span className="fab-label">Analysis</span>
+        <span className="fab-label">Report</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
       </button>
 
@@ -2689,7 +2689,7 @@ function MapPage() {
         </details>
       </aside>
 
-      {/* Location Analysis Panel */}
+      {/* Neighborhood Report Panel */}
       <aside
         ref={sheetRef}
         className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}
@@ -2704,7 +2704,7 @@ function MapPage() {
           <div className="analysis-drag-bar" />
         </div>
         <div className="analysis-header">
-          <h2>Location Analysis</h2>
+          <h2>Neighborhood Report</h2>
           <div className="analysis-header-actions">
             <button
               className="analysis-action-btn"
@@ -2801,7 +2801,7 @@ function MapPage() {
           )
         })()}
         <div className="analysis-print-header">
-          <h1>LandRecon — Location Analysis</h1>
+          <h1>LandRecon — Neighborhood Report</h1>
           <p>{address}</p>
           <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
         </div>
@@ -3259,7 +3259,7 @@ function MapPage() {
             },
             {
               selector: '.analysis-panel',
-              title: '📊 Location Analysis',
+              title: '📊 Neighborhood Report',
               content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout.',
               position: 'left',
             },
