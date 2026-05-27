@@ -356,10 +356,10 @@ const TRANSIT_COLORS: Record<TransitStop['type'], string> = {
 }
 
 const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
-  rail: 'Rail Station',
-  subway: 'Subway',
-  tram: 'Tram Stop',
-  bus: 'Bus Stop',
+  rail: 'Rail Stations',
+  subway: 'Subway Stations',
+  tram: 'Tram Stops',
+  bus: 'Bus Stops',
 }
 
 
@@ -2403,11 +2403,11 @@ function MapPage() {
               <div className="exp-menu-title">Experimental</div>
               <label className="exp-menu-item">
                 <input type="checkbox" checked={HELIPORTS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_heliports', HELIPORTS_ENABLED, setHeliportsEnabled) }} />
-                <span>Heliports Layer</span>
+                <span>Heliports</span>
               </label>
               <label className="exp-menu-item">
                 <input type="checkbox" checked={SCHOOLS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_schools', SCHOOLS_ENABLED, setSchoolsEnabled) }} />
-                <span>Nearby Schools Layer</span>
+                <span>Schools</span>
               </label>
               <label className="exp-menu-item">
                 <input type="checkbox" checked={debugEnabled} onChange={() => { toggleExpFlag('LR_DEBUG', debugEnabled, setDebugEnabled) }} />
@@ -2622,7 +2622,7 @@ function MapPage() {
                 onChange={toggleCostco}
                 disabled={status !== 'ready'}
               />
-              <span className="layer-label">Costco Warehouses</span>
+              <span className="layer-label">Costco</span>
             </label>
 
             {SCHOOLS_ENABLED && (
@@ -2635,7 +2635,7 @@ function MapPage() {
                     disabled={status !== 'ready'}
                   />
                   <span className="layer-label">
-                    Nearby Schools
+                    Schools
                     {schoolsLoading && <span className="layer-loading"> ⏳</span>}
                   </span>
                 </label>
@@ -2738,7 +2738,7 @@ function MapPage() {
               {[
                 { key: 'noise', label: 'Airport Noise' },
                 { key: 'superfund', label: 'Superfund Sites' },
-                { key: 'costco', label: 'Nearest Costco' },
+                { key: 'costco', label: 'Costco' },
                 { key: 'datacenters', label: 'Data Centers' },
                 ...(HELIPORTS_ENABLED ? [{ key: 'heliports', label: 'Heliports' }] : []),
               ].map(({ key, label }) => (
@@ -2756,7 +2756,7 @@ function MapPage() {
                 <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('noise')}>
                   <div className="analysis-icon">⚠️</div>
                   <div className="analysis-detail">
-                    <strong>Airport Noise Corridor</strong>
+                    <strong>Airport Noise</strong>
                     <p>~{analysisResults.noiseLevel} dB DNL — click for details</p>
                   </div>
                   <div className="analysis-chevron">›</div>
@@ -2767,7 +2767,7 @@ function MapPage() {
                 <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('heliports')}>
                   <div className="analysis-icon">⚠️</div>
                   <div className="analysis-detail">
-                    <strong>Heliports within 3 miles</strong>
+                    <strong>Nearby Heliports</strong>
                     <p>{analysisResults.heliports.length} found — click for details</p>
                   </div>
                   <div className="analysis-chevron">›</div>
@@ -2778,7 +2778,7 @@ function MapPage() {
                 <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('superfunds')}>
                   <div className="analysis-icon">⚠️</div>
                   <div className="analysis-detail">
-                    <strong>Superfund Sites within 5 miles</strong>
+                    <strong>Nearby Superfund Sites</strong>
                     <p>{analysisResults.superfunds.length} found — click for details</p>
                   </div>
                   <div className="analysis-chevron">›</div>
@@ -2817,7 +2817,7 @@ function MapPage() {
                 >
                   <div className="analysis-icon">🏢</div>
                   <div className="analysis-detail">
-                    <strong>Data Centers Nearby</strong>
+                    <strong>Nearby Data Centers</strong>
                     <p>{analysisResults.dataCenters.length} within {DATA_CENTER_ANALYSIS_RADIUS_MI} mi — click for details</p>
                   </div>
                   <div className="analysis-chevron">›</div>
@@ -2846,7 +2846,7 @@ function MapPage() {
 
             {analysisDetail === 'noise' && (
               <>
-                <h3>Airport Noise Corridor</h3>
+                <h3>Airport Noise</h3>
                 {analysisResults.noiseAirport && (
                   <p className="analysis-detail-airport">
                     {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
@@ -2887,7 +2887,7 @@ function MapPage() {
 
             {analysisDetail === 'superfunds' && (
               <>
-                <h3>Superfund Sites</h3>
+                <h3>Nearby Superfund Sites</h3>
                 <ul className="analysis-detail-list">
                   {analysisResults.superfunds.map((s, i) => (
                     <li key={i}>
@@ -3036,7 +3036,7 @@ function MapPage() {
             )}
             {analysisDetail === 'datacenters' && (
               <>
-                <h3>Data Centers Within {DATA_CENTER_ANALYSIS_RADIUS_MI} Miles</h3>
+                <h3>Nearby Data Centers</h3>
                 <p className="analysis-detail-level">
                   {analysisResults.dataCenters.length} data center{analysisResults.dataCenters.length !== 1 ? 's' : ''} found nearby
                 </p>
