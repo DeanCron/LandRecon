@@ -125,7 +125,7 @@ function HomePage() {
           <img src={logo} alt="Land Recon" width="480" height="102" />
         </div>
         <p className="home-subtitle">
-          Enter a U.S. street address to explore land data and map layers.
+          Analyze any U.S. address for airport noise, environmental hazards, nearby infrastructure, and more — all visualized on an interactive map.
         </p>
         <form className="home-form" onSubmit={handleSubmit}>
           <div className="input-wrapper" ref={wrapperRef}>
