@@ -509,7 +509,7 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'heliports', 'traffic', 'costco', 'datacenters', 'ems'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'traffic', 'costco', 'datacenters', 'ems'] as const
 
 interface DataCenter {
   name: string
@@ -570,7 +570,6 @@ const EMS_QUERIES: Record<EmsType, string[]> = {
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
-const HELIPORTS_DEFAULT = false
 const SCHOOLS_DEFAULT = false
 
 function getExpFlag(key: string, fallback: boolean): boolean {
@@ -654,9 +653,6 @@ function MapPage() {
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const schoolLayerRef = useRef<L.LayerGroup | null>(null)
   const schoolLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
-  const heliportLayerRef = useRef<L.LayerGroup | null>(null)
-  const heliportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
-  const heliportKnownIdsRef = useRef<Set<string>>(new Set())
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
   const costcoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoKnownIdsRef = useRef<Set<string>>(new Set())
@@ -692,7 +688,6 @@ function MapPage() {
   const transitSubVisibleRef = useRef(transitSubVisible)
   const [schoolsVisible, setSchoolsVisible] = useState(false)
   const [schoolsLoading, setSchoolsLoading] = useState(false)
-  const [heliportsVisible, setHeliportsVisible] = useState(false)
   const [costcoVisible, setCostcoVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
   const [dataCenterVisible, setDataCenterVisible] = useState(false)
@@ -704,15 +699,14 @@ function MapPage() {
     noiseLevel: number | null
     noiseAirport: string | null
     noiseAirportCode: string | null
-    heliports: { name: string; distanceMi: number }[]
     superfunds: { name: string; distanceMi: number; status: string; url: string }[]
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string }[]
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'heliports' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -736,7 +730,6 @@ function MapPage() {
   // Experimental feature flags (persisted in localStorage)
   const [expMenuOpen, setExpMenuOpen] = useState(false)
   const expMenuRef = useRef<HTMLDivElement>(null)
-  const [HELIPORTS_ENABLED, setHeliportsEnabled] = useState(() => getExpFlag('lr_exp_heliports', HELIPORTS_DEFAULT))
   const [SCHOOLS_ENABLED, setSchoolsEnabled] = useState(() => getExpFlag('lr_exp_schools', SCHOOLS_DEFAULT))
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
 
@@ -765,7 +758,6 @@ function MapPage() {
     if (superfundVisible) active.push('superfund')
     if (transitVisible) active.push('transit')
     if (schoolsVisible) active.push('schools')
-    if (heliportsVisible) active.push('heliports')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
     if (dataCenterVisible) active.push('datacenters')
@@ -773,7 +765,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, heliportsVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -973,57 +965,6 @@ function MapPage() {
     }
   }, [])
 
-  const loadHeliportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    const bounds = map.getBounds()
-    const loaded = heliportLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('heliports', 'Skipping — bounds already loaded'); return }
-    dbg('heliports', 'Loading heliport labels…')
-
-    try {
-      const padded = bounds.pad(1.0)
-      const s = padded.getSouth(), w = padded.getWest()
-      const n = padded.getNorth(), e = padded.getEast()
-      const bbox = `${s},${w},${n},${e}`
-      const query = `[out:json][timeout:15];(
-        node["aeroway"="helipad"](${bbox});
-        way["aeroway"="helipad"](${bbox});
-        relation["aeroway"="helipad"](${bbox});
-        node["aeroway"="heliport"](${bbox});
-        way["aeroway"="heliport"](${bbox});
-        relation["aeroway"="heliport"](${bbox});
-      );out body center;`
-
-      const data = await fetchOverpass(query, { label: 'heliports' })
-      if (!data?.elements || data.elements.length === 0) return
-
-      const known = heliportKnownIdsRef.current
-      for (const el of data.elements) {
-        const id = `${el.type}-${el.id}`
-        if (known.has(id)) continue
-
-        const lat = el.lat ?? el.center?.lat
-        const lon = el.lon ?? el.center?.lon
-        if (lat == null || lon == null) continue
-        const tags = el.tags || {}
-        const name = tags.name || tags.official_name || tags.description || ''
-        if (!name) continue
-        const label = name
-
-        const icon = L.divIcon({
-          className: 'heliport-label',
-          html: `<div class="heliport-pin">🚁</div>`,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        })
-        L.marker([lat, lon], { icon }).bindTooltip(label, { direction: 'top', offset: [0, -16] }).addTo(layer)
-        known.add(id)
-      }
-
-      heliportLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
-    } catch (err) {
-      console.warn('Heliport label fetch failed:', err)
-    }
-  }, [])
 
   const loadCostcoLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
@@ -1220,9 +1161,9 @@ function MapPage() {
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
 
-    const checks = ['noise', 'heliports', 'superfund', 'costco', 'datacenters'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -1236,7 +1177,7 @@ function MapPage() {
     const TIMEOUT = 10000
 
     // Run all checks in parallel with timeouts
-    const [noiseResult, heliportResult, superfundResult, costcoResult, dataCenterResult] = await Promise.allSettled([
+    const [noiseResult, superfundResult, costcoResult, dataCenterResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         try {
@@ -1281,38 +1222,6 @@ function MapPage() {
 
         return { level, airport: airportName, code: airportCode }
         } finally { markDone('noise') }
-      })(),
-
-      // Check heliports within 3 miles
-      (async () => {
-        try {
-        if (!HELIPORTS_ENABLED) return [] as { name: string; distanceMi: number }[]
-        const radiusDeg = (3 * milesToMeters) / 111320
-        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
-        const query = `[out:json][timeout:10];(
-          node["aeroway"="helipad"](${bbox});
-          way["aeroway"="helipad"](${bbox});
-          node["aeroway"="heliport"](${bbox});
-          way["aeroway"="heliport"](${bbox});
-        );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: TIMEOUT, signal: AbortSignal.timeout(TIMEOUT), label: 'analysis-heliports' })
-        if (!data?.elements) return []
-        const results: { name: string; distanceMi: number }[] = []
-        for (const el of data.elements) {
-          const elLat = el.lat ?? el.center?.lat
-          const elLon = el.lon ?? el.center?.lon
-          if (elLat == null || elLon == null) continue
-          const dist = location.distanceTo(L.latLng(elLat, elLon))
-          const distMi = dist / milesToMeters
-          if (distMi <= 3) {
-            const name = el.tags?.name || el.tags?.official_name || el.tags?.operator || el.tags?.description || ''
-            if (!name) continue
-            results.push({ name, distanceMi: Math.round(distMi * 10) / 10 })
-          }
-        }
-        results.sort((a, b) => a.distanceMi - b.distanceMi)
-        return results
-        } finally { markDone('heliports') }
       })(),
 
       // Check Superfund sites within 5 miles
@@ -1448,7 +1357,6 @@ function MapPage() {
     const noiseLevel = noiseData?.level ?? null
     const noiseAirport = noiseData?.airport ?? null
     const noiseAirportCode = noiseData?.code ?? null
-    const heliports = heliportResult.status === 'fulfilled' ? heliportResult.value : []
     const superfunds = superfundResult.status === 'fulfilled' ? superfundResult.value : []
     const costcoData = costcoResult.status === 'fulfilled' ? costcoResult.value : { nearest: null, nearby: [] }
     const costco = costcoData.nearest
@@ -1458,12 +1366,11 @@ function MapPage() {
 
     dbg('analysis', 'Results:', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
-      heliports: heliports.length,
       superfunds: superfunds.length,
       costco: costco ? `${costco.distanceMi.toFixed(1)} mi` : 'none',
       dataCenters: dataCenters.length,
     })
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby, costcoError, dataCenters })
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, superfunds, costco, costcoNearby, costcoError, dataCenters })
   }, [])
 
   useEffect(() => {
@@ -1559,9 +1466,6 @@ function MapPage() {
         // Create schools layer (not added to map until toggled on)
         schoolLayerRef.current = createClusterGroup()
 
-        // Create heliport label layer (not added to map until toggled on)
-        heliportLayerRef.current = L.layerGroup()
-
         // Create Costco label layer (not added to map until toggled on)
         costcoLayerRef.current = L.layerGroup()
 
@@ -1605,9 +1509,6 @@ function MapPage() {
       transitLoadedBoundsRef.current = null
       schoolLayerRef.current = null
       schoolLoadedBoundsRef.current = null
-      heliportLayerRef.current = null
-      heliportLoadedBoundsRef.current = null
-      heliportKnownIdsRef.current.clear()
       costcoLayerRef.current = null
       costcoLoadedBoundsRef.current = null
       costcoKnownIdsRef.current.clear()
@@ -1676,34 +1577,6 @@ function MapPage() {
       loadAirportLabels(map, layer)
     }
   }, [loadAirportLabels])
-
-  const toggleHeliports = () => {
-    const map = mapRef.current
-    const layer = heliportLayerRef.current
-    if (!map || !layer) return
-    dbg('toggle', `heliports → ${heliportsVisible ? 'OFF' : 'ON'}`)
-
-    if (heliportsVisible) {
-      map.removeLayer(layer)
-      map.off('moveend', handleHeliportMove)
-    } else {
-      layer.addTo(map)
-      heliportLoadedBoundsRef.current = null
-      heliportKnownIdsRef.current.clear()
-      layer.clearLayers()
-      loadHeliportLabels(map, layer)
-      map.on('moveend', handleHeliportMove)
-    }
-    setHeliportsVisible(!heliportsVisible)
-  }
-
-  const handleHeliportMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = heliportLayerRef.current
-    if (map && layer) {
-      loadHeliportLabels(map, layer)
-    }
-  }, [loadHeliportLabels])
 
   const handleCostcoMove = useCallback(() => {
     const map = mapRef.current
@@ -2109,7 +1982,6 @@ function MapPage() {
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('schools') && SCHOOLS_ENABLED) toggleSchools()
-    if (requested.has('heliports') && HELIPORTS_ENABLED) toggleHeliports()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
     if (requested.has('datacenters')) toggleDataCenters()
@@ -2157,67 +2029,6 @@ function MapPage() {
       }
       // Noise corridors typically extend ~3-5 miles from airport
       maxRadiusMeters = Math.max(maxRadiusMeters, 5 * milesToMeters)
-    }
-
-    if (analysisResults.heliports.length > 0 && !heliportsVisible) {
-      const layer = heliportLayerRef.current
-      if (layer) {
-        layer.addTo(map)
-        heliportLoadedBoundsRef.current = null
-        heliportKnownIdsRef.current.clear()
-        layer.clearLayers()
-        // Only show the specific heliports found by analysis (within 3mi)
-        // Re-query with tight bounds matching the 3mi radius
-        const radiusDeg = (3 * milesToMeters) / 111320
-        const constrainedBounds = L.latLngBounds(
-          [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
-          [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
-        )
-        // Load only within 3mi and filter by distance
-        const s = constrainedBounds.getSouth(), w = constrainedBounds.getWest()
-        const n = constrainedBounds.getNorth(), e = constrainedBounds.getEast()
-        const bbox = `${s},${w},${n},${e}`
-        const query = `[out:json][timeout:15];(
-          node["aeroway"="helipad"](${bbox});
-          way["aeroway"="helipad"](${bbox});
-          relation["aeroway"="helipad"](${bbox});
-          node["aeroway"="heliport"](${bbox});
-          way["aeroway"="heliport"](${bbox});
-          relation["aeroway"="heliport"](${bbox});
-        );out body center;`
-        fetchOverpass(query, { label: 'heliports-layer' }).then(data => {
-          if (!data?.elements) return
-          const known = heliportKnownIdsRef.current
-          for (const el of data.elements) {
-            const id = `${el.type}-${el.id}`
-            if (known.has(id)) continue
-            const elLat = el.lat ?? el.center?.lat
-            const elLon = el.lon ?? el.center?.lon
-            if (elLat == null || elLon == null) continue
-            // Filter to 3mi radius
-            const dist = center.distanceTo(L.latLng(elLat, elLon))
-            if (dist > 3 * milesToMeters) continue
-            const tags = el.tags || {}
-            const name = tags.name || tags.official_name || tags.operator || tags.description || ''
-            if (!name) continue
-            const icon = L.divIcon({
-              className: 'heliport-label',
-              html: `<div class="heliport-pin">🚁</div>`,
-              iconSize: [32, 32],
-              iconAnchor: [16, 16],
-            })
-            L.marker([elLat, elLon], { icon }).bindTooltip(name, { direction: 'top', offset: [0, -16] }).addTo(layer)
-            known.add(id)
-          }
-          heliportLoadedBoundsRef.current = constrainedBounds
-        }).catch(() => {})
-        // Don't attach moveend — keep constrained to 3mi
-        setHeliportsVisible(true)
-      }
-      const farthest = analysisResults.heliports[analysisResults.heliports.length - 1]
-      if (farthest) {
-        maxRadiusMeters = Math.max(maxRadiusMeters, farthest.distanceMi * milesToMeters * 1.2)
-      }
     }
 
     if (analysisResults.superfunds.length > 0 && !superfundVisible) {
@@ -2398,10 +2209,6 @@ function MapPage() {
             <div className="exp-menu">
               <div className="exp-menu-title">Experimental</div>
               <label className="exp-menu-item">
-                <input type="checkbox" checked={HELIPORTS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_heliports', HELIPORTS_ENABLED, setHeliportsEnabled) }} />
-                <span>Heliports</span>
-              </label>
-              <label className="exp-menu-item">
                 <input type="checkbox" checked={SCHOOLS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_schools', SCHOOLS_ENABLED, setSchoolsEnabled) }} />
                 <span>Schools</span>
               </label>
@@ -2474,9 +2281,9 @@ function MapPage() {
 
         <h2 className="panel-title overlay-title">Layers</h2>
 
-        {/* ── Aviation ── */}
+        {/* ── Transportation ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">Aviation</summary>
+          <summary className="layer-group-heading">Transportation</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -2505,24 +2312,6 @@ function MapPage() {
               </div>
             )}
 
-            {HELIPORTS_ENABLED && (
-              <label className="layer-toggle">
-                <input
-                  type="checkbox"
-                  checked={heliportsVisible}
-                  onChange={toggleHeliports}
-                  disabled={status !== 'ready'}
-                />
-                <span className="layer-label">Heliports</span>
-              </label>
-            )}
-          </div>
-        </details>
-
-        {/* ── Transportation ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">Transportation</summary>
-          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -2736,7 +2525,6 @@ function MapPage() {
                 { key: 'superfund', label: 'Superfund Sites' },
                 { key: 'costco', label: 'Costco' },
                 { key: 'datacenters', label: 'Data Centers' },
-                ...(HELIPORTS_ENABLED ? [{ key: 'heliports', label: 'Heliports' }] : []),
               ].map(({ key, label }) => (
                 <div key={key} className={`analysis-progress-item ${analysisProgress[key] === 'done' ? 'done' : 'pending'}`}>
                   <span className="analysis-progress-icon">
@@ -2754,17 +2542,6 @@ function MapPage() {
                   <div className="analysis-detail">
                     <strong>Airport Noise</strong>
                     <p>~{analysisResults.noiseLevel} dB DNL — click for details</p>
-                  </div>
-                  <div className="analysis-chevron">›</div>
-                </div>
-              )}
-
-              {HELIPORTS_ENABLED && analysisResults.heliports.length > 0 && (
-                <div className="analysis-item warning clickable" onClick={() => setAnalysisDetail('heliports')}>
-                  <div className="analysis-icon">⚠️</div>
-                  <div className="analysis-detail">
-                    <strong>Nearby Heliports</strong>
-                    <p>{analysisResults.heliports.length} found — click for details</p>
                   </div>
                   <div className="analysis-chevron">›</div>
                 </div>
@@ -2820,12 +2597,12 @@ function MapPage() {
                 </div>
               )}
 
-              {!analysisResults.noiseLevel && (!HELIPORTS_ENABLED || analysisResults.heliports.length === 0) && analysisResults.superfunds.length === 0 && analysisResults.dataCenters.length === 0 && (
+              {!analysisResults.noiseLevel && analysisResults.superfunds.length === 0 && analysisResults.dataCenters.length === 0 && (
                 <div className="analysis-item clear">
                   <div className="analysis-icon">✅</div>
                   <div className="analysis-detail">
                     <strong>No issues found</strong>
-                    <p>Location is clear of airport noise corridors{HELIPORTS_ENABLED ? ', heliports,' : ''}, Superfund sites, and data centers</p>
+                    <p>Location is clear of airport noise corridors, Superfund sites, and data centers</p>
                   </div>
                 </div>
               )}
@@ -2856,26 +2633,6 @@ function MapPage() {
                     We recommend repeat visits to this location at different times of day — including early morning,
                     evening, and weekends — to assess whether the noise level is acceptable for your needs.
                     Flight patterns and frequency can vary significantly by time of day.
-                  </p>
-                </div>
-              </>
-            )}
-
-            {HELIPORTS_ENABLED && analysisDetail === 'heliports' && (
-              <>
-                <h3>Nearby Heliports</h3>
-                <ul className="analysis-detail-list">
-                  {analysisResults.heliports.map((h, i) => (
-                    <li key={i}><strong>{h.name}</strong> — {h.distanceMi} mi away</li>
-                  ))}
-                </ul>
-                <div className="analysis-detail-rec">
-                  <strong>Recommendation</strong>
-                  <p>
-                    Check helicopter flight paths in the area. Some heliports serve medical centers that use
-                    helicopters for patient transport — these can operate at all hours and generate significant
-                    low-altitude noise. People living near active heliports often report that helicopters are
-                    louder and slower-moving than fixed-wing aircraft, making the noise more noticeable.
                   </p>
                 </div>
               </>
