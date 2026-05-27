@@ -1003,7 +1003,7 @@
   position: absolute;
   top: 140px;
   right: 16px;
-  width: 340px;
+  width: 380px;
   max-height: calc(100vh - 100px);
   overflow-y: auto;
   overflow-x: hidden;
@@ -1906,7 +1906,7 @@
   pointer-events: none;
 }
 
-/* Compare table */
+/* Compare cards */
 .analysis-compare {
   margin: 8px 0 4px;
   font-size: 0.82rem;
@@ -1919,41 +1919,44 @@
   color: var(--color-text);
 }
 
-.compare-table {
-  display: grid;
-  grid-template-columns: minmax(80px, 1.8fr) 50px repeat(4, 1fr) 28px;
-  gap: 1px;
-  background: var(--color-border);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.compare-row {
-  display: contents;
-}
-
-.compare-cell {
+.compare-card {
   background: var(--color-bg);
-  padding: 5px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.compare-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compare-card-addr {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--color-text);
+}
+
+.compare-card-stats {
   display: flex;
-  align-items: center;
-}
-
-.compare-header-row .compare-cell {
-  background: var(--color-surface);
-  font-weight: 600;
-  font-size: 0.75rem;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 5px;
+  font-size: 0.78rem;
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
-.compare-addr {
-  min-width: 0;
+.compare-card-date {
+  margin-top: 3px;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  opacity: 0.7;
 }
 
 .compare-grade {
@@ -1966,6 +1969,7 @@
   font-weight: 700;
   font-size: 0.75rem;
   color: #fff;
+  flex-shrink: 0;
 }
 
 .compare-del {
@@ -1976,6 +1980,7 @@
   font-size: 1rem;
   padding: 0;
   line-height: 1;
+  flex-shrink: 0;
 }
 .compare-del:hover {
   color: #e74c3c;

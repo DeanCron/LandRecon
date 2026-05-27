@@ -2753,30 +2753,22 @@ function MapPage() {
         {showCompare && savedAnalyses.length > 0 && (
           <div className="analysis-compare">
             <h3 className="compare-title">Saved Comparisons</h3>
-            <div className="compare-table">
-              <div className="compare-row compare-header-row">
-                <span className="compare-cell compare-addr">Location</span>
-                <span className="compare-cell">Grade</span>
-                <span className="compare-cell">Noise</span>
-                <span className="compare-cell">Superfund</span>
-                <span className="compare-cell">Costco</span>
-                <span className="compare-cell">Data Ctrs</span>
-                <span className="compare-cell compare-actions"></span>
-              </div>
-              {savedAnalyses.map((sa, i) => (
-                <div className="compare-row" key={i}>
-                  <span className="compare-cell compare-addr" title={sa.address}>{sa.address}</span>
-                  <span className="compare-cell"><span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span></span>
-                  <span className="compare-cell">{sa.noiseLevel != null ? `${sa.noiseLevel} dB` : '—'}</span>
-                  <span className="compare-cell">{sa.superfundCount === 0 ? '✅ None' : `${sa.superfundActive} active`}</span>
-                  <span className="compare-cell">{sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
-                  <span className="compare-cell">{sa.dataCenterCount}</span>
-                  <span className="compare-cell compare-actions">
-                    <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove">×</button>
-                  </span>
+            {savedAnalyses.map((sa, i) => (
+              <div className="compare-card" key={i}>
+                <div className="compare-card-header">
+                  <span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span>
+                  <span className="compare-card-addr" title={sa.address}>{sa.address}</span>
+                  <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove">×</button>
                 </div>
-              ))}
-            </div>
+                <div className="compare-card-stats">
+                  <span>✈️ {sa.noiseLevel != null ? `${sa.noiseLevel} dB` : 'None'}</span>
+                  <span>☢️ {sa.superfundCount === 0 ? 'None' : `${sa.superfundActive} active`}</span>
+                  <span>🛒 {sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
+                  <span>🏢 {sa.dataCenterCount} nearby</span>
+                </div>
+                <div className="compare-card-date">{sa.date}</div>
+              </div>
+            ))}
           </div>
         )}
         <div className="analysis-content">
