@@ -3144,7 +3144,7 @@ function MapPage() {
                   </>
                 ) : (
                   <>
-                    <p className="analysis-expand-level">This location is not within any mapped airport noise contour.</p>
+                    <p className="analysis-expand-level clear">This location is not within any mapped airport noise contour.</p>
                     <div className="analysis-expand-rec">
                       <strong>Why this matters</strong>
                       <p>
@@ -3202,7 +3202,7 @@ function MapPage() {
                   </>
                 ) : (
                   <>
-                    <p className="analysis-expand-level">No EPA Superfund sites found within 5 miles of this address.</p>
+                    <p className="analysis-expand-level clear">No EPA Superfund sites found within 5 miles of this address.</p>
                     <div className="analysis-expand-rec">
                       <strong>Why this matters</strong>
                       <p>
@@ -3351,7 +3351,7 @@ function MapPage() {
                   </>
                 ) : (
                   <>
-                    <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                    <p className="analysis-expand-level clear">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
                     <div className="analysis-expand-rec">
                       <strong>Why this matters</strong>
                       <p>
