@@ -1888,6 +1888,13 @@ function MapPage() {
           const name = (place.displayName as { text: string })?.text || ''
           const address = (place.formattedAddress as string) || ''
           const type = place._emsType as EmsType
+
+          // Only keep hospitals / medical centers with ER capability
+          if (type === 'hospital') {
+            const lower = name.toLowerCase()
+            if (!lower.includes('hospital') && !lower.includes('medical center') && !lower.includes('emergency')) continue
+          }
+
           const sub = subLayers[type]
           if (!sub) continue
 
