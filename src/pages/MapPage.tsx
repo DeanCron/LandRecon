@@ -2547,7 +2547,7 @@ function MapPage() {
                 </div>
               )}
 
-              {analysisResults.dataCenters.length > 0 ? (
+              {analysisResults.dataCenters.length > 0 && (
                 <div
                   className="analysis-item warning clickable"
                   onClick={() => setAnalysisDetail('datacenters')}
@@ -2559,22 +2559,14 @@ function MapPage() {
                   </div>
                   <div className="analysis-chevron">›</div>
                 </div>
-              ) : (
-                <div className="analysis-item good">
-                  <div className="analysis-icon">🏢</div>
-                  <div className="analysis-detail">
-                    <strong>Data Centers</strong>
-                    <p>None within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles</p>
-                  </div>
-                </div>
               )}
 
-              {!analysisResults.noiseLevel && (!HELIPORTS_ENABLED || analysisResults.heliports.length === 0) && analysisResults.superfunds.length === 0 && (
+              {!analysisResults.noiseLevel && (!HELIPORTS_ENABLED || analysisResults.heliports.length === 0) && analysisResults.superfunds.length === 0 && analysisResults.dataCenters.length === 0 && (
                 <div className="analysis-item clear">
                   <div className="analysis-icon">✅</div>
                   <div className="analysis-detail">
                     <strong>No issues found</strong>
-                    <p>Location is clear of airport noise corridors{HELIPORTS_ENABLED ? ', heliports,' : ''} and Superfund sites</p>
+                    <p>Location is clear of airport noise corridors{HELIPORTS_ENABLED ? ', heliports,' : ''}, Superfund sites, and data centers</p>
                   </div>
                 </div>
               )}
