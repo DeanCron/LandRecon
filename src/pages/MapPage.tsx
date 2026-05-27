@@ -623,10 +623,10 @@ const EMS_ICONS: Record<EmsType, string> = {
   hospital: '🏥',
   police: '🚔',
 }
-const EMS_QUERIES: Record<EmsType, string> = {
-  fire_station: 'fire stations',
-  hospital: 'hospitals',
-  police: 'police stations',
+const EMS_QUERIES: Record<EmsType, string[]> = {
+  fire_station: ['fire stations'],
+  hospital: ['hospitals', 'emergency rooms'],
+  police: ['police stations'],
 }
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
@@ -1856,8 +1856,11 @@ function MapPage() {
       }
 
       const known = emsKnownIdsRef.current
+      const queryPairs = EMS_TYPES.flatMap((type) =>
+        EMS_QUERIES[type].map((q) => ({ type, query: q }))
+      )
       const results = await Promise.all(
-        EMS_TYPES.map(async (type) => {
+        queryPairs.map(async ({ type, query }) => {
           try {
             const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
               method: 'POST',
@@ -1867,7 +1870,7 @@ function MapPage() {
                 'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
               },
               body: JSON.stringify({
-                textQuery: EMS_QUERIES[type],
+                textQuery: query,
                 locationBias: {
                   circle: {
                     center: { latitude: center.lat, longitude: center.lng },
@@ -1878,13 +1881,13 @@ function MapPage() {
               }),
             })
             if (!res.ok) {
-              console.warn(`EMS ${type} search failed:`, res.status)
+              console.warn(`EMS ${type} (${query}) search failed:`, res.status)
               return []
             }
             const data = await res.json()
             return (data.places || []).map((p: Record<string, unknown>) => ({ ...p, _emsType: type }))
           } catch (err) {
-            console.warn(`EMS ${type} search error:`, err)
+            console.warn(`EMS ${type} (${query}) search error:`, err)
             return []
           }
         })
