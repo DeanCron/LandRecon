@@ -55,6 +55,8 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
     steps[step]?.afterHide?.()
     localStorage.setItem(storageKey, '1')
     setActive(false)
+    setStep(0)
+    setRect(null)
     onComplete?.()
   }, [step, steps, storageKey, onComplete])
 

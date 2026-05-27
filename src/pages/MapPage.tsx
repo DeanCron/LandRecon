@@ -894,6 +894,7 @@ function MapPage() {
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
+  const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
 
   const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
     const next = !current
@@ -2390,6 +2391,10 @@ function MapPage() {
                 <input type="checkbox" checked={tourEnabled} onChange={() => { toggleExpFlag('lr_exp_tour', tourEnabled, setTourEnabled) }} />
                 <span>Guided Tour</span>
               </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={compareEnabled} onChange={() => { toggleExpFlag('lr_exp_compare', compareEnabled, setCompareEnabled) }} />
+                <span>Compare Locations</span>
+              </label>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -2729,20 +2734,22 @@ function MapPage() {
                 <rect x="6" y="14" width="12" height="8" />
               </svg>
             </button>
-            <button
-              className="analysis-action-btn"
-              onClick={saveCurrentAnalysis}
-              disabled={analysisResults.loading}
-              title="Save for comparison"
-              aria-label="Save"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                <polyline points="17 21 17 13 7 13 7 21" />
-                <polyline points="7 3 7 8 15 8" />
-              </svg>
-            </button>
-            {savedAnalyses.length > 0 && (
+            {compareEnabled && (
+              <button
+                className="analysis-action-btn"
+                onClick={saveCurrentAnalysis}
+                disabled={analysisResults.loading}
+                title="Save for comparison"
+                aria-label="Save"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
+                </svg>
+              </button>
+            )}
+            {compareEnabled && savedAnalyses.length > 0 && (
               <button
                 className="analysis-action-btn"
                 onClick={() => setShowCompare(!showCompare)}
@@ -2784,7 +2791,7 @@ function MapPage() {
           <p>{address}</p>
           <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
         </div>
-        {showCompare && savedAnalyses.length > 0 && (
+        {compareEnabled && showCompare && savedAnalyses.length > 0 && (
           <div className="analysis-compare">
             <h3 className="compare-title">Saved Comparisons</h3>
             {savedAnalyses.map((sa, i) => (
