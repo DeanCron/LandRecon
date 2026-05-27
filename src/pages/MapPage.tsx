@@ -2782,7 +2782,7 @@ function MapPage() {
               ].map(({ key, icon, label }) => (
                 <div key={key} className={`analysis-card skeleton ${analysisProgress[key] === 'done' ? 'skeleton-done' : ''}`}>
                   <div className="analysis-item">
-                    <div className="analysis-icon">{analysisProgress[key] === 'done' ? '✓' : icon}</div>
+                    <div className="analysis-icon">{icon}</div>
                     <div className="analysis-detail">
                       <strong>{label}</strong>
                       <p>{analysisProgress[key] === 'done' ? 'Complete' : 'Checking…'}</p>
@@ -2800,7 +2800,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'noise' ? null : 'noise')}
                 >
-                  <div className="analysis-icon">{analysisResults.noiseLevel ? '✈️' : '✅'}</div>
+                  <div className="analysis-icon">✈️</div>
                   <div className="analysis-detail">
                     <strong>Airport Noise</strong>
                     <p>{analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected'}</p>
@@ -2815,7 +2815,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'superfunds' ? null : 'superfunds')}
                 >
-                  <div className="analysis-icon">{analysisResults.superfunds.length > 0 ? '☢️' : '✅'}</div>
+                  <div className="analysis-icon">☢️</div>
                   <div className="analysis-detail">
                     <strong>Superfund Sites</strong>
                     <p>{analysisResults.superfunds.length > 0
@@ -2827,7 +2827,7 @@ function MapPage() {
               </div>
 
               {/* Costco */}
-              <div className={`analysis-card ${analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'warning' : 'danger'}`}>
+              <div className={`analysis-card ${analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
                 <div
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'costco' ? null : 'costco')}
@@ -2849,7 +2849,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'datacenters' ? null : 'datacenters')}
                 >
-                  <div className="analysis-icon">{analysisResults.dataCenters.length > 0 ? '🏢' : '✅'}</div>
+                  <div className="analysis-icon">🏢</div>
                   <div className="analysis-detail">
                     <strong>Data Centers</strong>
                     <p>{analysisResults.dataCenters.length > 0
