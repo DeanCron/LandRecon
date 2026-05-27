@@ -19,6 +19,11 @@ const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relativ
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
 
+// Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
+const LR_DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('LR_DEBUG') === '1'
+function dbg(tag: string, ...args: unknown[]) { if (LR_DEBUG) console.debug(`[LR:${tag}]`, ...args) }
+if (LR_DEBUG) console.info('%c[LandRecon] Debug mode ON — set localStorage LR_DEBUG=0 to disable', 'color:#0ea5e9;font-weight:bold')
+
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
@@ -30,8 +35,12 @@ const googleSessionCache = new Map<string, { token: string; expiry: number }>()
 async function getGoogleTileSession(mapType: string, styles?: Record<string, unknown>[]): Promise<string> {
   const key = `${mapType}:${JSON.stringify(styles || [])}`
   const cached = googleSessionCache.get(key)
-  if (cached && cached.expiry > Date.now() / 1000 + 300) return cached.token
+  if (cached && cached.expiry > Date.now() / 1000 + 300) {
+    dbg('tiles', 'Using cached session for', mapType)
+    return cached.token
+  }
 
+  dbg('tiles', 'Creating new tile session:', mapType, styles ? 'with styles' : 'no styles')
   const body: Record<string, unknown> = { mapType, language: 'en-US', region: 'US' }
   if (styles?.length) body.styles = styles
 
@@ -41,6 +50,7 @@ async function getGoogleTileSession(mapType: string, styles?: Record<string, unk
   )
   if (!res.ok) throw new Error(`Google Tiles API: ${res.status}`)
   const data = await res.json()
+  dbg('tiles', 'Session created, expires:', new Date(parseInt(data.expiry) * 1000).toISOString())
   googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
   return data.session
 }
@@ -288,10 +298,10 @@ async function fetchOverpass<T = OverpassResponse>(
   let lastErr: unknown = null
   for (const url of OVERPASS_ENDPOINTS) {
     if (externalSignal?.aborted) break
-    // Retry up to 2 times on 504/429 for each endpoint
     for (let attempt = 0; attempt < 2; attempt++) {
       if (externalSignal?.aborted) break
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
+      dbg('overpass', `${url} attempt ${attempt + 1}`)
       const ctrl = new AbortController()
       const onExternalAbort = () => ctrl.abort()
       externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
@@ -363,6 +373,7 @@ async function fetchTransitFromGoogle(
   type: TransitStop['type'],
 ): Promise<TransitStop[]> {
   const queries = TRANSIT_QUERIES[type]
+  dbg('transit', `Fetching ${type} (${queries.length} queries) radius=${Math.round(radiusM)}m center=${center.lat.toFixed(4)},${center.lng.toFixed(4)}`)
   const allPlaces: TransitStop[] = []
   const seen = new Set<string>()
   await Promise.all(
@@ -386,8 +397,13 @@ async function fetchTransitFromGoogle(
             maxResultCount: 20,
           }),
         })
-        if (!res.ok) return
+        if (!res.ok) {
+          dbg('transit', `Query "${query}" failed: ${res.status}`)
+          return
+        }
         const data = await res.json()
+        const count = (data.places || []).length
+        dbg('transit', `Query "${query}" → ${count} results`)
         for (const p of data.places || []) {
           if (seen.has(p.id)) continue
           seen.add(p.id)
@@ -403,6 +419,7 @@ async function fetchTransitFromGoogle(
       } catch { /* ignore */ }
     })
   )
+  dbg('transit', `${type} total unique: ${allPlaces.length}`)
   return allPlaces
 }
 
@@ -757,11 +774,13 @@ function MapPage() {
       return
     }
     addressDebounceRef.current = setTimeout(async () => {
+      dbg('geocode', 'Fetching suggestions for:', query)
       try {
         const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
         const res = await fetch(url)
         const data = await res.json()
         const results: TomTomSuggestion[] = data.results || []
+        dbg('geocode', `Got ${results.length} suggestions`)
         setAddressSuggestions(results)
         setShowAddressSuggestions(results.length > 0)
         setActiveSuggestionIndex(-1)
@@ -846,7 +865,8 @@ function MapPage() {
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = airportLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('airports', 'Skipping — bounds already loaded'); return }
+    dbg('airports', 'Loading airport labels…')
 
     try {
       const padded = bounds.pad(1.0)
@@ -863,7 +883,8 @@ function MapPage() {
       );out body center;`
 
       const data = await fetchOverpass(query)
-      if (!data?.elements || data.elements.length === 0) return
+      if (!data?.elements || data.elements.length === 0) { dbg('airports', 'No airports found'); return }
+      dbg('airports', `Got ${data.elements.length} airports from Overpass`)
 
       const known = airportKnownIdsRef.current
       for (const el of data.elements) {
@@ -900,7 +921,8 @@ function MapPage() {
   const loadHeliportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = heliportLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('heliports', 'Skipping — bounds already loaded'); return }
+    dbg('heliports', 'Loading heliport labels…')
 
     try {
       const padded = bounds.pad(1.0)
@@ -951,7 +973,8 @@ function MapPage() {
   const loadCostcoLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = costcoLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('costco', 'Skipping — bounds already loaded'); return }
+    dbg('costco', 'Loading Costco locations…')
 
     try {
       const padded = bounds.pad(1.0)
@@ -1010,16 +1033,15 @@ function MapPage() {
 
   const loadSuperfundData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
     const bounds = map.getBounds()
-
-    // Skip if we already loaded data covering the current view
     const loaded = superfundLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('superfund', 'Skipping — bounds already loaded'); return }
+    dbg('superfund', 'Loading Superfund sites…')
 
     setSuperfundLoading(true)
     try {
-      // Fetch a padded area so small pans don't trigger new requests
       const padded = bounds.pad(0.5)
       const geojson = await fetchSuperfundFeatures(padded)
+      dbg('superfund', `Got ${geojson.features?.length || 0} features`)
       layer.clearLayers()
       layer.addData(geojson)
       superfundLoadedBoundsRef.current = padded
@@ -1033,7 +1055,8 @@ function MapPage() {
   const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = transitLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('transit', 'Skipping — bounds already loaded'); return }
+    dbg('transit', 'Loading transit data…')
 
     setTransitLoading(true)
     try {
@@ -1090,6 +1113,7 @@ function MapPage() {
       }
 
       transitLoadedBoundsRef.current = padded
+      dbg('transit', `Rendered ${seen.size} unique transit stops`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
     } finally {
@@ -1099,18 +1123,19 @@ function MapPage() {
 
   const loadSchoolData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const center = map.getCenter()
-    // 5 mile radius in degrees (approx)
     const radiusDeg = 5 / 69
     const bounds = L.latLngBounds(
       [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
       [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
     )
     const loaded = schoolLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('schools', 'Skipping — bounds already loaded'); return }
+    dbg('schools', 'Loading school data…')
 
     setSchoolsLoading(true)
     try {
       const schools = await fetchSchools(bounds)
+      dbg('schools', `Got ${schools.length} schools`)
       // Build all markers before touching the layer to avoid flicker
       const newMarkers: L.CircleMarker[] = []
       for (const school of schools) {
@@ -1137,6 +1162,7 @@ function MapPage() {
   }, [])
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
+    dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
     setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, heliports: [], superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
 
     const location = L.latLng(lat, lng)
@@ -1359,6 +1385,13 @@ function MapPage() {
     const costcoError = costcoResult.status === 'rejected'
     const dataCenters = dataCenterResult.status === 'fulfilled' ? dataCenterResult.value : []
 
+    dbg('analysis', 'Results:', {
+      noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
+      heliports: heliports.length,
+      superfunds: superfunds.length,
+      costco: costco ? `${costco.distanceMi.toFixed(1)} mi` : 'none',
+      dataCenters: dataCenters.length,
+    })
     setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, heliports, superfunds, costco, costcoNearby, costcoError, dataCenters })
   }, [])
 
@@ -1372,6 +1405,7 @@ function MapPage() {
 
     setStatus('loading')
     setErrorMsg('')
+    dbg('init', 'Geocoding address:', address)
     const abortController = new AbortController()
     const geocodeUrl = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(address)}.json?key=${TOMTOM_API_KEY}&countrySet=US&limit=1`
 
@@ -1389,6 +1423,7 @@ function MapPage() {
 
         const lat = results[0].position.lat
         const lng = results[0].position.lon
+        dbg('init', `Geocoded to ${lat}, ${lng}`)
 
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
@@ -1397,10 +1432,12 @@ function MapPage() {
         })
 
         createBaseLayer('street').then((baseLayer) => {
+          dbg('init', 'Base layer created (Google Tiles)')
           baseLayer.addTo(map)
           baseLayerRef.current = baseLayer
         }).catch((err) => {
           console.error('Google Tiles API failed:', err)
+          dbg('init', 'Falling back to direct Google tile URL')
           const fallback = L.tileLayer(
             `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
             { attribution: '&copy; Google Maps', maxZoom: 21, subdomains: '0123' },
@@ -1514,6 +1551,7 @@ function MapPage() {
     const map = mapRef.current
     const current = baseLayerRef.current
     if (!map || !current || id === activeBaseMap) return
+    dbg('basemap', `Switching to ${id}`)
 
     try {
       const newLayer = await createBaseLayer(id)
@@ -1532,6 +1570,7 @@ function MapPage() {
     const layer = noiseLayerRef.current as L.GridLayer | null
     const airportLayer = airportLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `noise → ${noiseVisible ? 'OFF' : 'ON'}`)
 
     if (noiseVisible) {
       map.removeLayer(layer)
@@ -1565,6 +1604,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = heliportLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `heliports → ${heliportsVisible ? 'OFF' : 'ON'}`)
 
     if (heliportsVisible) {
       map.removeLayer(layer)
@@ -1600,6 +1640,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = costcoLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `costco → ${costcoVisible ? 'OFF' : 'ON'}`)
 
     if (costcoVisible) {
       map.removeLayer(layer)
@@ -1616,12 +1657,14 @@ function MapPage() {
   }
 
   const loadDataCenters = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    dbg('datacenters', 'Loading data centers…')
     let data = dataCenterDataRef.current
     if (!data) {
       try {
         const res = await fetch('/data/data-centers.json')
         data = (await res.json()) as DataCenter[]
         dataCenterDataRef.current = data
+        dbg('datacenters', `Loaded ${data.length} data centers from JSON`)
       } catch (err) {
         console.warn('Data center fetch failed:', err)
         return
@@ -1679,6 +1722,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = dataCenterLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `datacenters → ${dataCenterVisible ? 'OFF' : 'ON'}`)
     if (dataCenterVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleDataCenterMove)
@@ -1712,16 +1756,17 @@ function MapPage() {
   const loadEmsData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = emsLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) { dbg('ems', 'Skipping — bounds already loaded'); return }
+    dbg('ems', 'Loading EMS data…')
 
     setEmsLoading(true)
     try {
       const padded = bounds.pad(0.5)
       const center = map.getCenter()
-      // At least 10 miles so zoomed-in views still find nearby services
       const minRadiusM = 16093
       const ne = padded.getNorthEast()
       const radiusM = Math.min(Math.max(center.distanceTo(ne), minRadiusM), 50000)
+      dbg('ems', `Search radius=${Math.round(radiusM)}m center=${center.lat.toFixed(4)},${center.lng.toFixed(4)}`)
 
       let subLayers = emsSubLayersRef.current
       if (!subLayers) {
@@ -1808,6 +1853,7 @@ function MapPage() {
       emsLoadedBoundsRef.current = loaded
         ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
         : padded
+      dbg('ems', `Total known EMS places: ${known.size}`)
     } catch (err) {
       console.warn('EMS data fetch failed:', err)
     } finally {
@@ -1825,6 +1871,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = emsLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `ems → ${emsVisible ? 'OFF' : 'ON'}`)
     if (emsVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleEmsMove)
@@ -1861,6 +1908,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = superfundLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `superfund → ${superfundVisible ? 'OFF' : 'ON'}`)
 
     if (superfundVisible) {
       map.removeLayer(layer)
@@ -1886,6 +1934,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = transitLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `transit → ${transitVisible ? 'OFF' : 'ON'}`)
 
     if (transitVisible) {
       map.removeLayer(layer)
@@ -1939,6 +1988,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = schoolLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `schools → ${schoolsVisible ? 'OFF' : 'ON'}`)
 
     if (schoolsVisible) {
       map.removeLayer(layer)
@@ -1954,6 +2004,7 @@ function MapPage() {
     const map = mapRef.current
     const layer = trafficLayerRef.current
     if (!map || !layer) return
+    dbg('toggle', `traffic → ${trafficVisible ? 'OFF' : 'ON'}`)
 
     if (trafficVisible) {
       map.removeLayer(layer)
