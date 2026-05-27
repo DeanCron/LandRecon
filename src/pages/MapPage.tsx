@@ -604,8 +604,7 @@ function dataCenterSeverity(count: number): 'clear' | 'warning' | 'danger' {
 
 function erSeverity(distMi: number | null): 'clear' | 'good' | 'warning' | 'danger' {
   if (distMi === null) return 'danger'
-  if (distMi <= 5) return 'clear'
-  if (distMi <= 10) return 'good'
+  if (distMi <= 10) return 'clear'
   if (distMi <= 15) return 'warning'
   return 'danger'
 }
@@ -3410,8 +3409,7 @@ function MapPage() {
                       <div className="analysis-expand-rec">
                         <strong>Distance bands</strong>
                         <p>
-                          <span className="analysis-band good">≤ 5 mi</span> excellent · {' '}
-                          <span className="analysis-band good">6–10 mi</span> good · {' '}
+                          <span className="analysis-band good">≤ 10 mi</span> good · {' '}
                           <span className="analysis-band warning">11–15 mi</span> caution · {' '}
                           <span className="analysis-band danger">&gt; 15 mi</span> concern
                         </p>
