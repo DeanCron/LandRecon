@@ -1,8 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { execSync } from 'child_process'
 
-const gitHash = execSync('git rev-parse --short HEAD').toString().trim()
+const gitHash = process.env.BUILD_GIT_HASH || 'dev'
 const buildTime = new Date().toISOString()
 
 // https://vite.dev/config/
