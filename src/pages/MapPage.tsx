@@ -2918,7 +2918,7 @@ function MapPage() {
                   <div className="score-breakdown-divider" />
                   {grade.breakdown.map((b) => {
                     const barColor = b.score === 0 ? '#4caf50' : b.score === 1 ? '#ffb300' : '#ef5350'
-                    const statusLabel = b.score === 0 ? 'No penalty' : b.score === 1 ? 'Minor penalty' : 'Major penalty'
+                    const statusLabel = b.score === 0 ? 'No concerns' : b.score === 1 ? 'Minor concern' : 'Notable concern'
                     const explanations: Record<string, Record<number, string>> = {
                       'Airport Noise': {
                         0: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
