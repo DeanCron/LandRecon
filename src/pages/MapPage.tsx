@@ -1860,7 +1860,7 @@ function MapPage() {
                 'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
               },
               body: JSON.stringify({
-                includedTypes: [type],
+                includedPrimaryTypes: [type],
                 locationRestriction: {
                   circle: {
                     center: { latitude: center.lat, longitude: center.lng },
