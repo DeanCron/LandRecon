@@ -977,6 +977,12 @@ function MapPage() {
     setShareError(null)
   }, [])
 
+  const flyToAddress = useCallback(() => {
+    if (targetLocationRef.current && mapRef.current) {
+      mapRef.current.flyTo(targetLocationRef.current, mapRef.current.getZoom(), { duration: 0.5 })
+    }
+  }, [])
+
   const cancelEditingAddress = useCallback(() => {
     setEditingAddress(false)
     setAddressSuggestions([])
@@ -2917,7 +2923,7 @@ function MapPage() {
               <div className={`analysis-card ${analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear'}`}>
                 <div
                   className="analysis-item clickable"
-                  onClick={() => setAnalysisDetail(analysisDetail === 'noise' ? null : 'noise')}
+                  onClick={() => { const closing = analysisDetail === 'noise'; setAnalysisDetail(closing ? null : 'noise'); if (closing) flyToAddress() }}
                 >
                   <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">✈️</div>
@@ -2932,7 +2938,7 @@ function MapPage() {
               <div className={`analysis-card ${superfundSeverity(analysisResults.superfunds)}`}>
                 <div
                   className="analysis-item clickable"
-                  onClick={() => setAnalysisDetail(analysisDetail === 'superfunds' ? null : 'superfunds')}
+                  onClick={() => { const closing = analysisDetail === 'superfunds'; setAnalysisDetail(closing ? null : 'superfunds'); if (closing) flyToAddress() }}
                 >
                   <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">☢️</div>
@@ -2949,7 +2955,7 @@ function MapPage() {
               <div className={`analysis-card ${analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
                 <div
                   className="analysis-item clickable"
-                  onClick={() => setAnalysisDetail(analysisDetail === 'costco' ? null : 'costco')}
+                  onClick={() => { const closing = analysisDetail === 'costco'; setAnalysisDetail(closing ? null : 'costco'); if (closing) flyToAddress() }}
                 >
                   <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">🛒</div>
@@ -2966,7 +2972,7 @@ function MapPage() {
               <div className={`analysis-card ${dataCenterSeverity(analysisResults.dataCenters.length)}`}>
                 <div
                   className="analysis-item clickable"
-                  onClick={() => setAnalysisDetail(analysisDetail === 'datacenters' ? null : 'datacenters')}
+                  onClick={() => { const closing = analysisDetail === 'datacenters'; setAnalysisDetail(closing ? null : 'datacenters'); if (closing) flyToAddress() }}
                 >
                   <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">🏢</div>
@@ -2983,7 +2989,7 @@ function MapPage() {
               <div className={`analysis-card ${analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger'}`}>
                 <div
                   className="analysis-item clickable"
-                  onClick={() => setAnalysisDetail(analysisDetail === 'er' ? null : 'er')}
+                  onClick={() => { const closing = analysisDetail === 'er'; setAnalysisDetail(closing ? null : 'er'); if (closing) flyToAddress() }}
                 >
                   <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">🏥</div>
@@ -3012,7 +3018,11 @@ function MapPage() {
                analysisDetail === 'er' ? '🏥 Emergency Room' :
                '🏢 Data Centers'}
             </strong>
-            <button className="analysis-popout-close" onClick={() => { setAnalysisDetail(null); if (analysisDetail === 'score') setShowScoreBreakdown(false) }}>×</button>
+            <button className="analysis-popout-close" onClick={() => {
+              setAnalysisDetail(null)
+              if (analysisDetail === 'score') setShowScoreBreakdown(false)
+              flyToAddress()
+            }}>×</button>
           </div>
           <div className="analysis-popout-body">
             {analysisDetail === 'score' && (() => {
