@@ -3079,9 +3079,9 @@ function MapPage() {
                         2: 'One or more active Superfund sites are within 5 miles. Active sites may pose environmental or health risks and could affect property values.'
                       },
                       'Nearest Costco': {
-                        0: 'A Costco warehouse is conveniently close. Proximity to Costco is correlated with higher property values and strong community infrastructure.',
-                        1: 'Costco is within moderate driving distance. Access is reasonable but not as convenient as closer locations.',
-                        2: 'No Costco was found within the search radius. While not a direct risk, this may indicate lower commercial density in the area.'
+                        0: 'A Costco is right there. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
+                        1: 'Costco exists, but it\'s a bit of a drive. You\'ll need a playlist, a snack, and the quiet determination of someone who refuses to pay retail for paper towels.',
+                        2: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.'
                       },
                       'Data Centers': {
                         0: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
