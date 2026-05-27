@@ -995,6 +995,8 @@ function MapPage() {
 
       const data = await fetchOverpass(query, { label: 'heliports' })
       if (!data?.elements || data.elements.length === 0) return
+
+      const known = heliportKnownIdsRef.current
       for (const el of data.elements) {
         const id = `${el.type}-${el.id}`
         if (known.has(id)) continue
