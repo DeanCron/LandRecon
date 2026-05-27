@@ -571,6 +571,7 @@ const EMS_QUERIES: Record<EmsType, string[]> = {
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
+const ER_ANALYSIS_RADIUS_MI = 15
 const SCHOOLS_DEFAULT = false
 
 function getExpFlag(key: string, fallback: boolean): boolean {
@@ -601,6 +602,14 @@ function dataCenterSeverity(count: number): 'clear' | 'warning' | 'danger' {
   return 'danger'
 }
 
+function erSeverity(distMi: number | null): 'clear' | 'good' | 'warning' | 'danger' {
+  if (distMi === null) return 'danger'
+  if (distMi <= 5) return 'clear'
+  if (distMi <= 10) return 'good'
+  if (distMi <= 15) return 'warning'
+  return 'danger'
+}
+
 type SeverityLevel = 'clear' | 'good' | 'warning' | 'danger'
 
 function computeLocationGrade(results: {
@@ -609,6 +618,7 @@ function computeLocationGrade(results: {
   costco: { distanceMi: number } | null
   costcoError: boolean
   dataCenters: unknown[]
+  nearestER: { distanceMi: number } | null
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] = []
 
@@ -646,6 +656,13 @@ function computeLocationGrade(results: {
   const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
   const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
   breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail })
+
+  // Emergency Room
+  const erDist = results.nearestER?.distanceMi ?? null
+  const erSev = erSeverity(erDist)
+  const erScore = erSev === 'clear' ? 0 : erSev === 'good' ? 0 : erSev === 'warning' ? 1 : 2
+  const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
+  breakdown.push({ label: 'Emergency Room', icon: '🏥', score: erScore, max: 2, detail: erDetail })
 
   const total = breakdown.reduce((a, b) => a + b.score, 0)
   const max = breakdown.reduce((a, b) => a + b.max, 0)
@@ -779,9 +796,11 @@ function MapPage() {
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+    nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
+    erError: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [], nearestER: null, erError: false })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'score' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -1324,9 +1343,9 @@ function MapPage() {
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [], nearestER: null, erError: false })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -1340,7 +1359,7 @@ function MapPage() {
     const TIMEOUT = 10000
 
     // Run all checks in parallel with timeouts
-    const [noiseResult, superfundResult, costcoResult, dataCenterResult] = await Promise.allSettled([
+    const [noiseResult, superfundResult, costcoResult, dataCenterResult, erResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         try {
@@ -1518,6 +1537,61 @@ function MapPage() {
         return nearby
         } finally { markDone('datacenters') }
       })(),
+
+      // Emergency Room proximity via Google Places
+      (async () => {
+        try {
+        type ERHit = { name: string; address: string; distanceMi: number; lat: number; lng: number }
+        const radiusM = ER_ANALYSIS_RADIUS_MI * milesToMeters
+        const queries = ['emergency room', 'hospital emergency department']
+        const seen = new Set<string>()
+        const hits: ERHit[] = []
+        await Promise.all(queries.map(async (query) => {
+          try {
+            const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+              },
+              body: JSON.stringify({
+                textQuery: query,
+                locationBias: {
+                  circle: {
+                    center: { latitude: lat, longitude: lng },
+                    radius: radiusM,
+                  },
+                },
+                maxResultCount: 10,
+              }),
+              signal: AbortSignal.timeout(TIMEOUT),
+            })
+            if (!res.ok) return
+            const data = await res.json()
+            for (const p of data.places || []) {
+              if (seen.has(p.id)) continue
+              seen.add(p.id)
+              const loc = p.location
+              if (!loc) continue
+              const dist = location.distanceTo(L.latLng(loc.latitude, loc.longitude))
+              const distMi = Math.round(dist / milesToMeters * 10) / 10
+              if (distMi <= ER_ANALYSIS_RADIUS_MI) {
+                hits.push({
+                  name: p.displayName?.text || 'Emergency Room',
+                  address: p.formattedAddress || '',
+                  distanceMi: distMi,
+                  lat: loc.latitude,
+                  lng: loc.longitude,
+                })
+              }
+            }
+          } catch { /* ignore individual query failure */ }
+        }))
+        hits.sort((a, b) => a.distanceMi - b.distanceMi)
+        return hits[0] ?? null
+        } finally { markDone('er') }
+      })(),
     ])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
@@ -1530,14 +1604,17 @@ function MapPage() {
     const costcoNearby = costcoData.nearby
     const costcoError = costcoResult.status === 'rejected'
     const dataCenters = dataCenterResult.status === 'fulfilled' ? dataCenterResult.value : []
+    const nearestER = erResult.status === 'fulfilled' ? erResult.value : null
+    const erError = erResult.status === 'rejected'
 
     dbg('analysis', 'Results:', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
       superfunds: superfunds.length,
       costco: costco ? `${costco.distanceMi.toFixed(1)} mi` : 'none',
       dataCenters: dataCenters.length,
+      nearestER: nearestER ? `${nearestER.distanceMi} mi` : 'none',
     })
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, superfunds, costco, costcoNearby, costcoError, dataCenters })
+    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, superfunds, costco, costcoNearby, costcoError, dataCenters, nearestER, erError })
   }, [])
 
   useEffect(() => {
@@ -2820,6 +2897,7 @@ function MapPage() {
                 { key: 'superfund', icon: '☢️', label: 'Superfund Sites' },
                 { key: 'costco', icon: '🛒', label: 'Costco' },
                 { key: 'datacenters', icon: '🏢', label: 'Data Centers' },
+                { key: 'er', icon: '🏥', label: 'Emergency Room' },
               ].map(({ key, icon, label }) => (
                 <div key={key} className={`analysis-card skeleton ${analysisProgress[key] === 'done' ? 'skeleton-done' : ''}`}>
                   <div className="analysis-item">
@@ -2900,6 +2978,23 @@ function MapPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Emergency Room */}
+              <div className={`analysis-card ${analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger'}`}>
+                <div
+                  className="analysis-item clickable"
+                  onClick={() => setAnalysisDetail(analysisDetail === 'er' ? null : 'er')}
+                >
+                  <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}`}>‹</div>
+                  <div className="analysis-icon">🏥</div>
+                  <div className="analysis-detail">
+                    <strong>Emergency Room</strong>
+                    <p>{analysisResults.nearestER
+                      ? `${analysisResults.nearestER.distanceMi} mi — ${analysisResults.nearestER.name}`
+                      : analysisResults.erError ? 'Search failed' : 'None found nearby'}</p>
+                  </div>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -2914,6 +3009,7 @@ function MapPage() {
                analysisDetail === 'noise' ? '✈️ Airport Noise' :
                analysisDetail === 'superfunds' ? '☢️ Superfund Sites' :
                analysisDetail === 'costco' ? '🛒 Nearest Costco' :
+               analysisDetail === 'er' ? '🏥 Emergency Room' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => { setAnalysisDetail(null); if (analysisDetail === 'score') setShowScoreBreakdown(false) }}>×</button>
@@ -2961,6 +3057,11 @@ function MapPage() {
                         0: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
                         1: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
                         2: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.'
+                      },
+                      'Emergency Room': {
+                        0: 'An emergency room is within close range. Quick access to emergency medical care is a significant safety advantage for this location.',
+                        1: 'An emergency room is at moderate distance. Response times may be longer during peak traffic, but access is still reasonable.',
+                        2: 'No emergency room was found nearby. Longer travel times to emergency care could be a concern, especially for families or elderly residents.'
                       }
                     }
                     return (
@@ -3180,6 +3281,72 @@ function MapPage() {
                   </>
                 ) : (
                   <p className="analysis-expand-level">No data centers found within {DATA_CENTER_ANALYSIS_RADIUS_MI} miles.</p>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'er' && (
+              <>
+                {analysisResults.nearestER ? (() => {
+                  const dist = analysisResults.nearestER.distanceMi
+                  const sev = erSeverity(dist)
+                  return (
+                    <>
+                      <p className="analysis-expand-sub">{analysisResults.nearestER.name}</p>
+                      {analysisResults.nearestER.address && (
+                        <p className="analysis-expand-level" style={{ fontSize: '0.78rem', color: '#888' }}>{analysisResults.nearestER.address}</p>
+                      )}
+                      <p className={`analysis-expand-level ${sev === 'clear' || sev === 'good' ? 'clear' : sev}`}>{dist} miles from this address</p>
+                      <div className="analysis-costco-actions">
+                        <button className="analysis-flyto-link" onClick={() => mapRef.current?.flyTo([analysisResults.nearestER!.lat, analysisResults.nearestER!.lng], 15)}>
+                          📍 Show on map
+                        </button>
+                        <a
+                          className="costco-directions-link"
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.nearestER.lat},${analysisResults.nearestER.lng}&travelmode=driving`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 11l19-9-9 19-2-8-8-2z" />
+                          </svg>
+                          Driving directions →
+                        </a>
+                      </div>
+                      <div className="analysis-expand-rec">
+                        <strong>Why this matters</strong>
+                        <p>
+                          Proximity to an emergency room can be critical in life-threatening situations.
+                          {sev === 'clear' || sev === 'good'
+                            ? ' This location has good access to emergency medical care.'
+                            : sev === 'warning'
+                            ? ' At this distance, travel time to the ER may be a factor during emergencies.'
+                            : ' The nearest ER is far away — consider this carefully if quick emergency access is important to you.'}
+                        </p>
+                      </div>
+                      <div className="analysis-expand-rec">
+                        <strong>Distance bands</strong>
+                        <p>
+                          <span className="analysis-band good">≤ 5 mi</span> excellent · {' '}
+                          <span className="analysis-band warning">6–10 mi</span> good · {' '}
+                          <span className="analysis-band danger">&gt; 10 mi</span> concern
+                        </p>
+                      </div>
+                    </>
+                  )
+                })() : (
+                  <>
+                    <p className="analysis-expand-level danger">
+                      No emergency rooms found within {ER_ANALYSIS_RADIUS_MI} miles.
+                    </p>
+                    <div className="analysis-expand-rec">
+                      <strong>⚠️ Limited emergency access</strong>
+                      <p>
+                        No hospitals or emergency departments were found within the search radius.
+                        This could significantly impact response times in a medical emergency.
+                      </p>
+                    </div>
+                  </>
                 )}
               </>
             )}
