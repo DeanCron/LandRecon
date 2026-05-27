@@ -1616,18 +1616,24 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     position: fixed;
     bottom: 16px;
-    width: 48px;
-    height: 48px;
+    height: 44px;
+    padding: 0 16px;
     border: none;
-    border-radius: 50%;
+    border-radius: 22px;
     background: var(--color-surface);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
     color: var(--color-primary);
-    font-size: 1.25rem;
     cursor: pointer;
     z-index: 1000;
+  }
+
+  .fab-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
   }
 
   .layer-toggle-btn {
@@ -1636,54 +1642,6 @@
 
   .analysis-toggle-btn {
     right: 16px;
-  }
-
-  /* FAB tooltip hints */
-  .fab-hint {
-    position: absolute;
-    bottom: 50%;
-    transform: translateY(50%);
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    font-weight: 500;
-    white-space: nowrap;
-    color: #fff;
-    background: #1a1a2e;
-    border-radius: 6px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    pointer-events: none;
-    animation: fabHintIn 0.3s ease both;
-  }
-
-  .fab-hint-right {
-    left: calc(100% + 10px);
-  }
-  .fab-hint-right::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: -5px;
-    transform: translateY(-50%);
-    border: 5px solid transparent;
-    border-right-color: #1a1a2e;
-  }
-
-  .fab-hint-left {
-    right: calc(100% + 10px);
-  }
-  .fab-hint-left::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    right: -5px;
-    transform: translateY(-50%);
-    border: 5px solid transparent;
-    border-left-color: #1a1a2e;
-  }
-
-  @keyframes fabHintIn {
-    from { opacity: 0; transform: translateY(50%) scale(0.9); }
-    to   { opacity: 1; transform: translateY(50%) scale(1); }
   }
 
   /* Touch-friendlier targets */
