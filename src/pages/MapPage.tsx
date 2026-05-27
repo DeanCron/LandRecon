@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet.gridlayer.googlemutant'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import {
@@ -17,8 +18,6 @@ const NOISE_PMTILES_URL =
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`
 
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
-
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
@@ -27,61 +26,32 @@ type BaseMapId = 'street' | 'satellite'
 
 interface BaseMapConfig {
   label: string
+  type: string
   maxZoom: number
-  url?: string
-  attribution?: string
-  subdomains?: string
-  googleSession?: { mapType: string; styles?: Record<string, unknown>[] }
+  styles?: Array<Record<string, unknown>>
 }
 
 const BASE_MAPS: Record<BaseMapId, BaseMapConfig> = {
   street: {
     label: 'Street',
+    type: 'roadmap',
     maxZoom: 21,
-    googleSession: { mapType: 'roadmap', styles: GOOGLE_NO_POI },
+    styles: GOOGLE_NO_POI,
   },
   satellite: {
     label: 'Satellite',
-    url: `https://mt{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
-    attribution: '&copy; Google Maps',
+    type: 'hybrid',
     maxZoom: 21,
-    subdomains: '0123',
+    styles: GOOGLE_NO_POI,
   },
 }
 
-const googleSessionCache = new Map<string, { token: string; expiry: number }>()
-
-async function getGoogleTileSession(cfg: NonNullable<BaseMapConfig['googleSession']>): Promise<string> {
-  const key = JSON.stringify(cfg)
-  const cached = googleSessionCache.get(key)
-  if (cached && cached.expiry > Date.now() / 1000 + 300) return cached.token
-
-  const body: Record<string, unknown> = { mapType: cfg.mapType, language: 'en-US', region: 'US' }
-  if (cfg.styles) body.styles = cfg.styles
-
-  const res = await fetch(
-    `https://tile.googleapis.com/v1/createSession?key=${GOOGLE_MAPS_KEY}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-  )
-  if (!res.ok) throw new Error(`Google Tiles API: ${res.status}`)
-  const data = await res.json()
-  googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
-  return data.session
-}
-
-async function createBaseLayer(id: BaseMapId): Promise<L.TileLayer> {
+function createBaseLayer(id: BaseMapId): L.GridLayer {
   const cfg = BASE_MAPS[id]
-  if (cfg.googleSession) {
-    const session = await getGoogleTileSession(cfg.googleSession)
-    return L.tileLayer(
-      `https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${session}&key=${GOOGLE_MAPS_KEY}`,
-      { attribution: '&copy; Google Maps', maxZoom: cfg.maxZoom },
-    )
-  }
-  return L.tileLayer(cfg.url!, {
-    attribution: cfg.attribution!,
+  return L.gridLayer.googleMutant({
+    type: cfg.type,
     maxZoom: cfg.maxZoom,
-    subdomains: cfg.subdomains || 'abc',
+    styles: cfg.styles,
   })
 }
 
@@ -665,7 +635,7 @@ function MapPage() {
   const address = searchParams.get('address') || ''
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const baseLayerRef = useRef<L.TileLayer | null>(null)
+  const baseLayerRef = useRef<L.GridLayer | null>(null)
   const noiseLayerRef = useRef<L.Layer | null>(null)
   const airportLayerRef = useRef<L.LayerGroup | null>(null)
   const airportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -1503,16 +1473,9 @@ function MapPage() {
           zoomControl: false,
         })
 
-        createBaseLayer('street').then((baseLayer) => {
-          baseLayer.addTo(map)
-          baseLayerRef.current = baseLayer
-        }).catch(() => {
-          const fallback = L.tileLayer(
-            `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
-            { attribution: '&copy; Google Maps', maxZoom: 21, subdomains: '0123' },
-          ).addTo(map)
-          baseLayerRef.current = fallback
-        })
+        const baseLayer = createBaseLayer('street')
+        baseLayer.addTo(map)
+        baseLayerRef.current = baseLayer
 
         L.control.zoom({ position: 'topright' }).addTo(map)
 
@@ -1610,21 +1573,17 @@ function MapPage() {
     }
   }, [address, navigate])
 
-  const switchBaseMap = async (id: BaseMapId) => {
+  const switchBaseMap = (id: BaseMapId) => {
     const map = mapRef.current
     const current = baseLayerRef.current
     if (!map || !current || id === activeBaseMap) return
 
-    try {
-      const newLayer = await createBaseLayer(id)
-      map.removeLayer(current)
-      newLayer.addTo(map)
-      newLayer.bringToBack()
-      baseLayerRef.current = newLayer
-      setActiveBaseMap(id)
-    } catch (e) {
-      console.error('Failed to switch base map:', e)
-    }
+    const newLayer = createBaseLayer(id)
+    map.removeLayer(current)
+    newLayer.addTo(map)
+    newLayer.bringToBack()
+    baseLayerRef.current = newLayer
+    setActiveBaseMap(id)
   }
 
   const toggleNoise = () => {
