@@ -1,0 +1,128 @@
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.tour-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: all;
+}
+
+.tour-highlight {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6);
+  pointer-events: none;
+  animation: tourPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tourPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6); }
+  50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25); }
+}
+
+.tour-tooltip {
+  position: fixed;
+  width: 320px;
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 12px;
+  padding: 16px;
+  pointer-events: all;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: tourFadeIn 0.25s ease;
+  z-index: 10000;
+}
+
+@keyframes tourFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tour-tooltip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.tour-tooltip-header strong {
+  font-size: 0.92rem;
+  color: var(--color-text, #e0e0e0);
+}
+
+.tour-step-count {
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #888);
+  background: rgba(128, 128, 128, 0.15);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.tour-tooltip-body {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #aaa);
+  line-height: 1.5;
+}
+
+.tour-tooltip-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tour-skip {
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #888);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.tour-skip:hover {
+  color: var(--color-text, #e0e0e0);
+}
+
+.tour-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.tour-prev,
+.tour-next {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.tour-prev {
+  background: rgba(128, 128, 128, 0.2);
+  color: var(--color-text, #e0e0e0);
+}
+
+.tour-prev:hover {
+  background: rgba(128, 128, 128, 0.35);
+}
+
+.tour-next {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.tour-next:hover {
+  background: #2563eb;
+}
+
+.tour-next:active,
+.tour-prev:active {
+  transform: scale(0.97);
+}

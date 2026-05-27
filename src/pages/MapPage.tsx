@@ -7,6 +7,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
+import GuidedTour from '../components/GuidedTour'
 import {
   createNoiseLayer,
   queryNoiseLevelAtPoint,
@@ -3210,6 +3211,51 @@ function MapPage() {
             )}
           </div>
         </div>
+      )}
+
+      {status === 'ready' && (
+        <GuidedTour
+          storageKey="lr_tour_done"
+          delay={2000}
+          steps={[
+            {
+              selector: '.header-address-wrapper',
+              title: '📍 Change Address',
+              content: 'Click here to search a different U.S. address. Start typing and pick from the suggestions to instantly analyze a new location.',
+              position: 'bottom',
+            },
+            {
+              selector: '.layer-panel',
+              title: '🗺️ Map Layers',
+              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more.',
+              position: 'left',
+            },
+            {
+              selector: '.analysis-panel',
+              title: '📊 Location Analysis',
+              content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout.',
+              position: 'left',
+            },
+            {
+              selector: '.analysis-score-bar',
+              title: '🏆 Location Score',
+              content: 'Your overall location grade based on all categories combined. Click it to see a full breakdown explaining how each factor contributed to the score.',
+              position: 'left',
+            },
+            {
+              selector: '.analysis-card',
+              title: '🔍 Category Details',
+              content: 'Click any category card to open a detailed flyout to the left with findings, recommendations, and links. The chevron indicates it\'s expandable.',
+              position: 'left',
+            },
+            {
+              selector: '.map-container',
+              title: '🌍 Interactive Map',
+              content: 'Explore the map freely — zoom, pan, and click on markers for more info. Layer data updates automatically as you navigate.',
+              position: 'top',
+            },
+          ]}
+        />
       )}
     </div>
   )
