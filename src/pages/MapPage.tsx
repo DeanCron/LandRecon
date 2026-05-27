@@ -349,12 +349,6 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
   bus: 'Bus Stop',
 }
 
-interface TransitRoute {
-  type: TransitStop['type']
-  name: string
-  ref: string
-  coords: [number, number][]
-}
 
 interface CatsStop {
   id: string
@@ -389,104 +383,61 @@ async function fetchCatsRoutes(): Promise<CatsRoute[]> {
   return catsRoutesCache!
 }
 
-function classifyRoute(tags: Record<string, string>): TransitStop['type'] {
-  if (tags.route === 'train' || tags.route === 'railway') return 'rail'
-  if (tags.route === 'subway' || tags.route === 'light_rail') return 'subway'
-  if (tags.route === 'tram') return 'tram'
-  return 'bus'
+
+const TRANSIT_QUERIES: Record<TransitStop['type'], string[]> = {
+  rail: ['train stations', 'rail stations'],
+  subway: ['subway stations', 'light rail stations'],
+  tram: ['tram stops', 'streetcar stops'],
+  bus: ['bus stations'],
 }
 
-// @ts-ignore: reserved for future use
-async function fetchTransitRoutes(bounds: L.LatLngBounds): Promise<TransitRoute[]> {
-  const s = bounds.getSouth(), w = bounds.getWest()
-  const n = bounds.getNorth(), e = bounds.getEast()
-  const bbox = `${s},${w},${n},${e}`
-  const query = `[out:json][timeout:25];(
-    relation["route"="tram"](${bbox});
-    relation["route"="subway"](${bbox});
-    relation["route"="light_rail"](${bbox});
-  );out body;way(r);out geom;`
-
-  const data = await fetchOverpass(query)
-  if (!data?.elements) return []
-
-  const ways = new Map<number, [number, number][]>()
-  for (const el of data.elements) {
-    if (el.type === 'way' && el.geometry && el.id != null) {
-      ways.set(el.id, el.geometry.map((g: { lat: number; lon: number }) => [g.lat, g.lon] as [number, number]))
-    }
-  }
-
-  const routes: TransitRoute[] = []
+async function fetchTransitFromGoogle(
+  center: { lat: number; lng: number },
+  radiusM: number,
+  type: TransitStop['type'],
+): Promise<TransitStop[]> {
+  const queries = TRANSIT_QUERIES[type]
+  const allPlaces: TransitStop[] = []
   const seen = new Set<string>()
-  for (const el of data.elements) {
-    if (el.type !== 'relation') continue
-    const tags = el.tags || {}
-    const name = tags.name || tags.ref || ''
-    const ref = tags.ref || ''
-    const routeType = classifyRoute(tags)
-    const key = `${routeType}-${ref || name}`
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    const coords: [number, number][] = []
-    for (const member of el.members || []) {
-      if (member.type === 'way') {
-        const wayCoords = ways.get(member.ref)
-        if (wayCoords) coords.push(...wayCoords)
-      }
-    }
-    if (coords.length > 1) {
-      routes.push({ type: routeType, name, ref, coords })
-    }
-  }
-  return routes
-}
-
-function classifyTransitStop(tags: Record<string, string>): TransitStop['type'] {
-  if (tags.railway === 'station' || tags.railway === 'halt') return 'rail'
-  if (tags.station === 'subway' || tags.railway === 'subway_entrance') return 'subway'
-  if (tags.railway === 'tram_stop') return 'tram'
-  return 'bus'
-}
-
-async function fetchTransitStops(bounds: L.LatLngBounds, zoom: number): Promise<TransitStop[]> {
-  const s = bounds.getSouth()
-  const w = bounds.getWest()
-  const n = bounds.getNorth()
-  const e = bounds.getEast()
-  const bbox = `${s},${w},${n},${e}`
-  const busQueries = zoom >= 12
-    ? `node["highway"="bus_stop"](${bbox});node["amenity"="bus_station"](${bbox});`
-    : `node["amenity"="bus_station"](${bbox});`
-  const query = `[out:json][timeout:15];(
-    node["railway"="station"](${bbox});
-    node["railway"="halt"](${bbox});
-    node["railway"="subway_entrance"](${bbox});
-    node["railway"="tram_stop"](${bbox});
-    ${busQueries}
-    node["public_transport"="station"](${bbox});
-  );out body;`
-
-  const data = await fetchOverpass(query)
-  if (!data?.elements) return []
-
-  // Deduplicate by proximity (some stops have overlapping nodes)
-  const seen = new Set<string>()
-  const stops: TransitStop[] = []
-  for (const el of data.elements) {
-    if (el.lat == null || el.lon == null) continue
-    const key = `${el.lat.toFixed(4)},${el.lon.toFixed(4)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    stops.push({
-      lat: el.lat,
-      lon: el.lon,
-      name: el.tags?.name || el.tags?.description || '',
-      type: classifyTransitStop(el.tags || {}),
+  await Promise.all(
+    queries.map(async (query) => {
+      try {
+        const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
+            'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+          },
+          body: JSON.stringify({
+            textQuery: query,
+            locationBias: {
+              circle: {
+                center: { latitude: center.lat, longitude: center.lng },
+                radius: radiusM,
+              },
+            },
+            maxResultCount: 20,
+          }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        for (const p of data.places || []) {
+          if (seen.has(p.id)) continue
+          seen.add(p.id)
+          const loc = p.location
+          if (!loc) continue
+          allPlaces.push({
+            lat: loc.latitude,
+            lon: loc.longitude,
+            name: p.displayName?.text || '',
+            type,
+          })
+        }
+      } catch { /* ignore */ }
     })
-  }
-  return stops
+  )
+  return allPlaces
 }
 
 function transitPopup(stop: TransitStop): string {
@@ -679,7 +630,6 @@ function MapPage() {
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
-  const transitLastZoomRef = useRef<number>(0)
   const schoolLayerRef = useRef<L.LayerGroup | null>(null)
   const schoolLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const heliportLayerRef = useRef<L.LayerGroup | null>(null)
@@ -1116,21 +1066,24 @@ function MapPage() {
 
   const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
-    const zoom = map.getZoom()
     const loaded = transitLoadedBoundsRef.current
-    const lastZoom = transitLastZoomRef.current
-    const crossedThreshold = (zoom >= 12 && lastZoom < 12) || (zoom < 12 && lastZoom >= 12)
-    if (loaded && loaded.contains(bounds) && !crossedThreshold) return
+    if (loaded && loaded.contains(bounds)) return
 
     setTransitLoading(true)
     try {
-      const padded = bounds.pad(0.3)
+      const padded = bounds.pad(0.5)
+      const center = map.getCenter()
+      const ne = padded.getNorthEast()
+      const minRadiusM = 16093 // 10 miles
+      const radiusM = Math.min(Math.max(center.distanceTo(ne), minRadiusM), 50000)
 
-      // Load CATS GTFS data (cached after first load) + OSM stops in parallel
-      const [catsStops, catsRoutes, osmStops] = await Promise.all([
+      // Load CATS GTFS data (cached) + Google Places transit stops in parallel
+      const [catsStops, catsRoutes, ...googleStops] = await Promise.all([
         fetchCatsStops(),
         fetchCatsRoutes(),
-        fetchTransitStops(padded, zoom).catch(() => [] as TransitStop[]),
+        ...(['rail', 'subway', 'tram', 'bus'] as const).map((t) =>
+          fetchTransitFromGoogle({ lat: center.lat, lng: center.lng }, radiusM, t).catch(() => [] as TransitStop[])
+        ),
       ])
 
       // Clear all sublayers
@@ -1143,7 +1096,6 @@ function MapPage() {
           bus: L.layerGroup(),
         }
         transitSubLayersRef.current = subLayers
-        // Add only currently-visible sublayers to the parent group
         for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
           if (transitSubVisibleRef.current[t]) {
             subLayers[t].addTo(layer)
@@ -1156,7 +1108,6 @@ function MapPage() {
 
       // Draw CATS route lines first (under stops)
       for (const route of catsRoutes) {
-        // Check if any point of route is in view
         const inView = route.coords.some(
           ([lat, lon]) => padded.contains([lat, lon])
         )
@@ -1191,27 +1142,28 @@ function MapPage() {
           .addTo(subLayers.bus)
       }
 
-      // Add OSM stops not already covered by CATS (rail, subway, tram, plus any extra)
-      for (const stop of osmStops) {
-        const key = `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        const color = TRANSIT_COLORS[stop.type]
-        const radius = stop.type === 'bus' ? 5 : 7
-        L.circleMarker([stop.lat, stop.lon], {
-          radius,
-          fillColor: color,
-          color: '#fff',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.85,
-        })
-          .bindPopup(transitPopup(stop), { maxWidth: 260 })
-          .addTo(subLayers[stop.type])
+      // Add Google Places stops not already covered by CATS
+      for (const stops of googleStops) {
+        for (const stop of stops) {
+          const key = `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          const color = TRANSIT_COLORS[stop.type]
+          const radius = stop.type === 'bus' ? 5 : 7
+          L.circleMarker([stop.lat, stop.lon], {
+            radius,
+            fillColor: color,
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.85,
+          })
+            .bindPopup(transitPopup(stop), { maxWidth: 260 })
+            .addTo(subLayers[stop.type])
+        }
       }
 
       transitLoadedBoundsRef.current = padded
-      transitLastZoomRef.current = zoom
     } catch (err) {
       console.error('Failed to load transit data:', err)
     } finally {
