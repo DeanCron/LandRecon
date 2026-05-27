@@ -1113,36 +1113,49 @@
   color: var(--color-text-muted);
 }
 
-/* Score breakdown flyout */
-.score-breakdown {
-  margin: 0 0 8px;
-  padding: 10px 12px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  animation: expandIn 0.2s ease;
+/* Score breakdown (rendered inside analysis-popout) */
+.score-breakdown-grade-summary {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
 }
 
-.score-breakdown-header {
+.score-breakdown-grade-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
 }
 
-.score-breakdown-header strong {
+.score-breakdown-grade-info strong {
+  display: block;
   font-size: 0.85rem;
   color: var(--color-text);
+  margin-bottom: 4px;
 }
 
-.score-breakdown-formula {
-  font-size: 0.7rem;
+.score-breakdown-grade-info p {
+  margin: 0;
+  font-size: 0.76rem;
   color: var(--color-text-muted);
-  font-style: italic;
+  line-height: 1.45;
+}
+
+.score-breakdown-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 12px 0;
 }
 
 .score-breakdown-row {
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 
 .score-breakdown-label {
@@ -1152,7 +1165,13 @@
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--color-text);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
+}
+
+.score-breakdown-status {
+  font-weight: 600;
+  font-size: 0.72rem;
+  margin-left: auto;
 }
 
 .score-breakdown-bar-track {
@@ -1160,7 +1179,7 @@
   background: rgba(128, 128, 128, 0.15);
   border-radius: 3px;
   overflow: hidden;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .score-breakdown-bar-fill {
@@ -1169,27 +1188,18 @@
   transition: width 0.3s ease;
 }
 
-.score-breakdown-info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.72rem;
-}
-
-.score-breakdown-status {
-  font-weight: 600;
-}
-
 .score-breakdown-detail {
-  color: var(--color-text-muted);
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
-.score-breakdown-total {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border);
-  font-size: 0.82rem;
-  color: var(--color-text);
-  text-align: center;
+.score-breakdown-explanation {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 .analysis-drag-handle {

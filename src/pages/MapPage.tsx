@@ -780,7 +780,7 @@ function MapPage() {
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [] })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'score' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -2753,44 +2753,14 @@ function MapPage() {
           const grade = computeLocationGrade(analysisResults)
           return (
             <>
-              <div className="analysis-score-bar" onClick={() => setShowScoreBreakdown(!showScoreBreakdown)} style={{ cursor: 'pointer' }} title="Click for score breakdown">
+              <div className="analysis-score-bar" onClick={() => { setShowScoreBreakdown(!showScoreBreakdown); setAnalysisDetail(showScoreBreakdown ? null : 'score') }} style={{ cursor: 'pointer' }} title="Click for score breakdown">
+                <div className={`analysis-chevron${showScoreBreakdown ? ' expanded' : ''}`}>‹</div>
                 <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
                 <div className="analysis-score-label">
                   <strong>Location Score</strong>
                   <span>{grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'} — {Math.round(grade.pct * 100)}%</span>
                 </div>
-                <div className={`analysis-chevron${showScoreBreakdown ? ' expanded' : ''}`}>›</div>
               </div>
-              {showScoreBreakdown && (
-                <div className="score-breakdown">
-                  <div className="score-breakdown-header">
-                    <strong>Score Breakdown</strong>
-                    <span className="score-breakdown-formula">Lower penalties = higher score</span>
-                  </div>
-                  {grade.breakdown.map((b) => {
-                    const barColor = b.score === 0 ? '#4caf50' : b.score === 1 ? '#ffb300' : '#ef5350'
-                    const statusLabel = b.score === 0 ? 'No penalty' : b.score === 1 ? 'Minor penalty' : 'Major penalty'
-                    return (
-                      <div className="score-breakdown-row" key={b.label}>
-                        <div className="score-breakdown-label">
-                          <span>{b.icon}</span>
-                          <span>{b.label}</span>
-                        </div>
-                        <div className="score-breakdown-bar-track">
-                          <div className="score-breakdown-bar-fill" style={{ width: `${((b.max - b.score) / b.max) * 100}%`, background: barColor }} />
-                        </div>
-                        <div className="score-breakdown-info">
-                          <span className="score-breakdown-status" style={{ color: barColor }}>{statusLabel}</span>
-                          <span className="score-breakdown-detail">{b.detail}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  <div className="score-breakdown-total">
-                    Overall: <strong>{Math.round(grade.pct * 100)}%</strong> → <span style={{ color: grade.color, fontWeight: 700 }}>{grade.letter}</span>
-                  </div>
-                </div>
-              )}
             </>
           )
         })()}
@@ -2849,12 +2819,12 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'noise' ? null : 'noise')}
                 >
+                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">✈️</div>
                   <div className="analysis-detail">
                     <strong>Airport Noise</strong>
                     <p>{analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2864,6 +2834,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'superfunds' ? null : 'superfunds')}
                 >
+                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">☢️</div>
                   <div className="analysis-detail">
                     <strong>Superfund Sites</strong>
@@ -2871,7 +2842,6 @@ function MapPage() {
                       ? `${analysisResults.superfunds.length} within 5 mi`
                       : 'No Superfund sites within 5 miles'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2881,6 +2851,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'costco' ? null : 'costco')}
                 >
+                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">🛒</div>
                   <div className="analysis-detail">
                     <strong>Nearest Costco</strong>
@@ -2888,7 +2859,6 @@ function MapPage() {
                       ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
                       : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
 
@@ -2898,6 +2868,7 @@ function MapPage() {
                   className="analysis-item clickable"
                   onClick={() => setAnalysisDetail(analysisDetail === 'datacenters' ? null : 'datacenters')}
                 >
+                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>‹</div>
                   <div className="analysis-icon">🏢</div>
                   <div className="analysis-detail">
                     <strong>Data Centers</strong>
@@ -2905,7 +2876,6 @@ function MapPage() {
                       ? `${analysisResults.dataCenters.length} within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi`
                       : 'No data centers nearby'}</p>
                   </div>
-                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>‹</div>
                 </div>
               </div>
             </>
@@ -2918,14 +2888,77 @@ function MapPage() {
         <aside className="analysis-popout">
           <div className="analysis-popout-header">
             <strong>
-              {analysisDetail === 'noise' ? '✈️ Airport Noise' :
+              {analysisDetail === 'score' ? '📊 Score Breakdown' :
+               analysisDetail === 'noise' ? '✈️ Airport Noise' :
                analysisDetail === 'superfunds' ? '☢️ Superfund Sites' :
                analysisDetail === 'costco' ? '🛒 Nearest Costco' :
                '🏢 Data Centers'}
             </strong>
-            <button className="analysis-popout-close" onClick={() => setAnalysisDetail(null)}>×</button>
+            <button className="analysis-popout-close" onClick={() => { setAnalysisDetail(null); if (analysisDetail === 'score') setShowScoreBreakdown(false) }}>×</button>
           </div>
           <div className="analysis-popout-body">
+            {analysisDetail === 'score' && (() => {
+              const grade = computeLocationGrade(analysisResults)
+              const gradeDescriptions: Record<string, string> = {
+                A: 'This location has minimal environmental or infrastructure concerns. All categories show favorable conditions, making it well-suited for residential or commercial use without significant risk factors.',
+                B: 'This location is generally favorable with only minor concerns in one or two categories. Any flagged issues are moderate and unlikely to significantly impact quality of life or property value.',
+                C: 'This location has a mix of favorable and concerning factors. One or more categories show moderate issues that warrant further investigation before making a decision.',
+                D: 'This location has notable concerns across multiple categories. Several environmental or infrastructure factors may negatively affect quality of life, property value, or health.',
+                F: 'This location has significant concerns across most categories. Multiple high-severity issues were detected that could substantially impact livability, safety, or long-term value.'
+              }
+              return (
+                <>
+                  <div className="score-breakdown-grade-summary">
+                    <div className="score-breakdown-grade-badge" style={{ background: grade.color }}>{grade.letter}</div>
+                    <div className="score-breakdown-grade-info">
+                      <strong>{Math.round(grade.pct * 100)}% — {grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'}</strong>
+                      <p>{gradeDescriptions[grade.letter]}</p>
+                    </div>
+                  </div>
+                  <div className="score-breakdown-divider" />
+                  {grade.breakdown.map((b) => {
+                    const barColor = b.score === 0 ? '#4caf50' : b.score === 1 ? '#ffb300' : '#ef5350'
+                    const statusLabel = b.score === 0 ? 'No penalty' : b.score === 1 ? 'Minor penalty' : 'Major penalty'
+                    const explanations: Record<string, Record<number, string>> = {
+                      'Airport Noise': {
+                        0: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
+                        1: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
+                        2: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.'
+                      },
+                      'Superfund Sites': {
+                        0: 'No EPA Superfund sites were found within 5 miles. This area is clear of known hazardous waste cleanup activity.',
+                        1: 'Superfund sites exist nearby but most or all are marked as "Deleted" (cleaned up). Residual risk is low, but due diligence is recommended.',
+                        2: 'One or more active Superfund sites are within 5 miles. Active sites may pose environmental or health risks and could affect property values.'
+                      },
+                      'Nearest Costco': {
+                        0: 'A Costco warehouse is conveniently close. Proximity to Costco is correlated with higher property values and strong community infrastructure.',
+                        1: 'Costco is within moderate driving distance. Access is reasonable but not as convenient as closer locations.',
+                        2: 'No Costco was found within the search radius. While not a direct risk, this may indicate lower commercial density in the area.'
+                      },
+                      'Data Centers': {
+                        0: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
+                        1: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
+                        2: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.'
+                      }
+                    }
+                    return (
+                      <div className="score-breakdown-row" key={b.label}>
+                        <div className="score-breakdown-label">
+                          <span>{b.icon}</span>
+                          <span>{b.label}</span>
+                          <span className="score-breakdown-status" style={{ color: barColor }}>{statusLabel}</span>
+                        </div>
+                        <div className="score-breakdown-bar-track">
+                          <div className="score-breakdown-bar-fill" style={{ width: `${((b.max - b.score) / b.max) * 100}%`, background: barColor }} />
+                        </div>
+                        <p className="score-breakdown-detail">{b.detail}</p>
+                        <p className="score-breakdown-explanation">{explanations[b.label]?.[b.score] || ''}</p>
+                      </div>
+                    )
+                  })}
+                </>
+              )
+            })()}
             {analysisDetail === 'noise' && (
               <>
                 {analysisResults.noiseLevel ? (
