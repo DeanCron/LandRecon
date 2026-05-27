@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet.gridlayer.googlemutant'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import {
@@ -18,41 +17,53 @@ const NOISE_PMTILES_URL =
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`
 
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
+
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
 
 type BaseMapId = 'street' | 'satellite'
 
-interface BaseMapConfig {
+const googleSessionCache = new Map<string, { token: string; expiry: number }>()
+
+async function getGoogleTileSession(mapType: string, styles?: Record<string, unknown>[]): Promise<string> {
+  const key = `${mapType}:${JSON.stringify(styles || [])}`
+  const cached = googleSessionCache.get(key)
+  if (cached && cached.expiry > Date.now() / 1000 + 300) return cached.token
+
+  const body: Record<string, unknown> = { mapType, language: 'en-US', region: 'US' }
+  if (styles?.length) body.styles = styles
+
+  const res = await fetch(
+    `https://tile.googleapis.com/v1/createSession?key=${GOOGLE_MAPS_KEY}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+  )
+  if (!res.ok) throw new Error(`Google Tiles API: ${res.status}`)
+  const data = await res.json()
+  googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
+  return data.session
+}
+
+interface BaseMapDef {
   label: string
-  type: string
+  mapType: string
   maxZoom: number
-  styles?: Array<Record<string, unknown>>
+  styles?: Record<string, unknown>[]
 }
 
-const BASE_MAPS: Record<BaseMapId, BaseMapConfig> = {
-  street: {
-    label: 'Street',
-    type: 'roadmap',
-    maxZoom: 21,
-    styles: GOOGLE_NO_POI,
-  },
-  satellite: {
-    label: 'Satellite',
-    type: 'hybrid',
-    maxZoom: 21,
-    styles: GOOGLE_NO_POI,
-  },
+const BASE_MAPS: Record<BaseMapId, BaseMapDef> = {
+  street: { label: 'Street', mapType: 'roadmap', maxZoom: 21, styles: GOOGLE_NO_POI },
+  satellite: { label: 'Satellite', mapType: 'satellite', maxZoom: 21 },
 }
 
-function createBaseLayer(id: BaseMapId): L.GridLayer {
+async function createBaseLayer(id: BaseMapId): Promise<L.TileLayer> {
   const cfg = BASE_MAPS[id]
-  return L.gridLayer.googleMutant({
-    type: cfg.type,
-    maxZoom: cfg.maxZoom,
-    styles: cfg.styles,
-  })
+  const session = await getGoogleTileSession(cfg.mapType, cfg.styles)
+  return L.tileLayer(
+    `https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${session}&key=${GOOGLE_MAPS_KEY}`,
+    { attribution: '&copy; Google Maps', maxZoom: cfg.maxZoom },
+  )
 }
 
 const SUPERFUND_API =
@@ -635,7 +646,7 @@ function MapPage() {
   const address = searchParams.get('address') || ''
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const baseLayerRef = useRef<L.GridLayer | null>(null)
+  const baseLayerRef = useRef<L.TileLayer | null>(null)
   const noiseLayerRef = useRef<L.Layer | null>(null)
   const airportLayerRef = useRef<L.LayerGroup | null>(null)
   const airportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -1473,9 +1484,17 @@ function MapPage() {
           zoomControl: false,
         })
 
-        const baseLayer = createBaseLayer('street')
-        baseLayer.addTo(map)
-        baseLayerRef.current = baseLayer
+        createBaseLayer('street').then((baseLayer) => {
+          baseLayer.addTo(map)
+          baseLayerRef.current = baseLayer
+        }).catch((err) => {
+          console.error('Google Tiles API failed:', err)
+          const fallback = L.tileLayer(
+            `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
+            { attribution: '&copy; Google Maps', maxZoom: 21, subdomains: '0123' },
+          ).addTo(map)
+          baseLayerRef.current = fallback
+        })
 
         L.control.zoom({ position: 'topright' }).addTo(map)
 
@@ -1573,17 +1592,21 @@ function MapPage() {
     }
   }, [address, navigate])
 
-  const switchBaseMap = (id: BaseMapId) => {
+  const switchBaseMap = async (id: BaseMapId) => {
     const map = mapRef.current
     const current = baseLayerRef.current
     if (!map || !current || id === activeBaseMap) return
 
-    const newLayer = createBaseLayer(id)
-    map.removeLayer(current)
-    newLayer.addTo(map)
-    newLayer.bringToBack()
-    baseLayerRef.current = newLayer
-    setActiveBaseMap(id)
+    try {
+      const newLayer = await createBaseLayer(id)
+      map.removeLayer(current)
+      newLayer.addTo(map)
+      newLayer.bringToBack()
+      baseLayerRef.current = newLayer
+      setActiveBaseMap(id)
+    } catch (e) {
+      console.error('Failed to switch base map:', e)
+    }
   }
 
   const toggleNoise = () => {

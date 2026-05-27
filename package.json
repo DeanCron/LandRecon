@@ -12,7 +12,6 @@
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
     "leaflet": "^1.9.4",
-    "leaflet.gridlayer.googlemutant": "^0.16.0",
     "pbf": "^4.0.2",
     "pmtiles": "^4.4.1",
     "protomaps-leaflet": "^5.1.0",
