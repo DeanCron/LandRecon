@@ -1112,7 +1112,7 @@ function MapPage() {
 
     setTransitLoading(true)
     try {
-      const padded = bounds.pad(0.5)
+      const padded = bounds.pad(0.3)
       const center = map.getCenter()
       const ne = padded.getNorthEast()
       const minRadiusM = 16093 // 10 miles
@@ -1157,8 +1157,14 @@ function MapPage() {
         }
       }
 
-      transitLoadedBoundsRef.current = padded
-      dbg('transit', `Rendered ${seen.size} unique transit stops`)
+      // Store the actual coverage area (circle from center, not padded bounds)
+      // so zooming out beyond the searched radius triggers a reload
+      const covDeg = radiusM / 111320
+      transitLoadedBoundsRef.current = L.latLngBounds(
+        [center.lat - covDeg, center.lng - covDeg * 1.3],
+        [center.lat + covDeg, center.lng + covDeg * 1.3],
+      )
+      dbg('transit', `Rendered ${seen.size} unique transit stops (radius=${Math.round(radiusM)}m)`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
     } finally {
