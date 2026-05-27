@@ -350,45 +350,11 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 }
 
 
-interface CatsStop {
-  id: string
-  name: string
-  lat: number
-  lon: number
-}
-
-interface CatsRoute {
-  name: string
-  short: string
-  type: TransitStop['type']
-  coords: [number, number][]
-}
-
-let catsStopsCache: CatsStop[] | null = null
-let catsRoutesCache: CatsRoute[] | null = null
-
-async function fetchCatsStops(): Promise<CatsStop[]> {
-  if (catsStopsCache) return catsStopsCache
-  const res = await fetch('/data/cats-stops.json')
-  if (!res.ok) return []
-  catsStopsCache = await res.json()
-  return catsStopsCache!
-}
-
-async function fetchCatsRoutes(): Promise<CatsRoute[]> {
-  if (catsRoutesCache) return catsRoutesCache
-  const res = await fetch('/data/cats-routes.json')
-  if (!res.ok) return []
-  catsRoutesCache = await res.json()
-  return catsRoutesCache!
-}
-
-
 const TRANSIT_QUERIES: Record<TransitStop['type'], string[]> = {
   rail: ['train stations', 'rail stations'],
   subway: ['subway stations', 'light rail stations'],
   tram: ['tram stops', 'streetcar stops'],
-  bus: ['bus stations'],
+  bus: ['bus stations', 'bus stops'],
 }
 
 async function fetchTransitFromGoogle(
@@ -1077,16 +1043,12 @@ function MapPage() {
       const minRadiusM = 16093 // 10 miles
       const radiusM = Math.min(Math.max(center.distanceTo(ne), minRadiusM), 50000)
 
-      // Load CATS GTFS data (cached) + Google Places transit stops in parallel
-      const [catsStops, catsRoutes, ...googleStops] = await Promise.all([
-        fetchCatsStops(),
-        fetchCatsRoutes(),
-        ...(['rail', 'subway', 'tram', 'bus'] as const).map((t) =>
+      const googleStops = await Promise.all(
+        (['rail', 'subway', 'tram', 'bus'] as const).map((t) =>
           fetchTransitFromGoogle({ lat: center.lat, lng: center.lng }, radiusM, t).catch(() => [] as TransitStop[])
         ),
-      ])
+      )
 
-      // Clear all sublayers
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
         subLayers = {
@@ -1106,43 +1068,7 @@ function MapPage() {
         subLayers[t].clearLayers()
       }
 
-      // Draw CATS route lines first (under stops)
-      for (const route of catsRoutes) {
-        const inView = route.coords.some(
-          ([lat, lon]) => padded.contains([lat, lon])
-        )
-        if (!inView) continue
-        const color = TRANSIT_COLORS[route.type]
-        L.polyline(route.coords, {
-          color,
-          weight: route.type === 'bus' ? 2 : 3,
-          opacity: route.type === 'bus' ? 0.4 : 0.5,
-          smoothFactor: 1,
-        })
-          .bindPopup(`<strong>${route.short ? route.short + ' — ' : ''}${route.name}</strong>`)
-          .addTo(subLayers[route.type])
-      }
-
-      // Add CATS stops in view
-      const catsInView = catsStops.filter((s) => padded.contains([s.lat, s.lon]))
       const seen = new Set<string>()
-      for (const stop of catsInView) {
-        const key = `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        L.circleMarker([stop.lat, stop.lon], {
-          radius: 5,
-          fillColor: TRANSIT_COLORS.bus,
-          color: '#fff',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.85,
-        })
-          .bindPopup(transitPopup({ lat: stop.lat, lon: stop.lon, name: stop.name, type: 'bus' }), { maxWidth: 260 })
-          .addTo(subLayers.bus)
-      }
-
-      // Add Google Places stops not already covered by CATS
       for (const stops of googleStops) {
         for (const stop of stops) {
           const key = `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)}`
