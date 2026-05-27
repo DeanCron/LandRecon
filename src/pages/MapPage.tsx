@@ -3223,6 +3223,9 @@ function MapPage() {
                   return (
                     <>
                       <p className="analysis-expand-sub">{analysisResults.costco.city || 'Costco Wholesale'}</p>
+                      {analysisResults.costco.address && (
+                        <p className="analysis-expand-level" style={{ fontSize: '0.78rem', color: '#888' }}>{analysisResults.costco.address}</p>
+                      )}
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
                         <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
