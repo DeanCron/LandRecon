@@ -612,41 +612,30 @@ const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   D: { label: 'Deleted', desc: 'Removed from NPL after cleanup goals were met' },
 }
 
-function superfundPopup(props: Record<string, string | null>): string {
-  const name = props.SITE_NAME || 'Unknown Site'
+function superfundTooltip(props: Record<string, string | null>): string {
+  const name = props.SITE_NAME || 'Superfund Site'
   const city = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
   const status = props.NPL_STATUS_CODE || ''
   const npl = NPL_STATUS_INFO[status]
   const epaId = props.EPA_ID || ''
   const url = props.URL_ALIAS_TXT
+  const rows: string[] = []
+  if (city) rows.push(`<div class="sf-row"><span class="sf-label">Location</span><span>${city}</span></div>`)
+  if (epaId) rows.push(`<div class="sf-row"><span class="sf-label">EPA ID</span><span class="sf-mono">${epaId}</span></div>`)
+  if (npl) {
+    rows.push(`<div class="sf-row"><span class="sf-label">NPL Status</span><span class="sf-badge">${npl.label}</span></div>`)
+    rows.push(`<div class="sf-desc">${npl.desc}</div>`)
+  } else if (status) {
+    rows.push(`<div class="sf-row"><span class="sf-label">NPL Status</span><span class="sf-badge">${status}</span></div>`)
+  }
   const link = url
-    ? `<a href="${url}" target="_blank" rel="noopener">View EPA Site Profile →</a>`
+    ? `<div class="sf-footer"><a href="${url}" target="_blank" rel="noopener">View EPA Site Profile →</a></div>`
     : ''
-  const statusHtml = npl
-    ? `<div class="popup-row">
-         <span class="popup-label">NPL Status</span>
-         <span class="popup-badge">${npl.label}</span>
-       </div>
-       <div class="popup-npl-desc">${npl.desc}</div>`
-    : status
-      ? `<div class="popup-row"><span class="popup-label">NPL Status</span><span class="popup-badge">${status}</span></div>`
-      : ''
   return `
-    <div class="superfund-popup">
-      <div class="popup-header">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC267F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <strong>${name}</strong>
-      </div>
-      <div class="popup-body">
-        ${city ? `<div class="popup-row"><span class="popup-label">Location</span><span>${city}</span></div>` : ''}
-        ${epaId ? `<div class="popup-row"><span class="popup-label">EPA ID</span><span class="popup-mono">${epaId}</span></div>` : ''}
-        ${statusHtml}
-      </div>
-      ${link ? `<div class="popup-footer">${link}</div>` : ''}
+    <div class="sf-tooltip">
+      <div class="sf-header"><span class="sf-icon" aria-hidden="true">☢️</span><strong>${name}</strong></div>
+      <div class="sf-body">${rows.join('')}</div>
+      ${link}
     </div>
   `
 }
@@ -2491,9 +2480,12 @@ function MapPage() {
           pointToLayer: (_feat, latlng) => L.marker(latlng, { icon: SUPERFUND_ICON, riseOnHover: true }),
           onEachFeature: (_feature, layer) => {
             const props = (_feature as GeoJSON.Feature).properties || {}
-            const name = props.SITE_NAME || 'Superfund Site'
-            layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
-            layer.bindPopup(superfundPopup(props), { maxWidth: 280 })
+            layer.bindTooltip(superfundTooltip(props), {
+              direction: 'top',
+              offset: [0, -16],
+              className: 'superfund-tooltip',
+              interactive: true,
+            })
           },
         })
 

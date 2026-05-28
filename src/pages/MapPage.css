@@ -899,38 +899,44 @@
   letter-spacing: 0.03em;
 }
 
-.superfund-popup {
+.superfund-tooltip {
+  white-space: normal;
+  max-width: 280px;
   min-width: 220px;
-  font-family: inherit;
+  padding: 10px 12px;
+  pointer-events: auto;
 }
 
-.superfund-popup .popup-header {
+.sf-tooltip { font-family: inherit; }
+
+.sf-header {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   margin-bottom: 8px;
 }
 
-.superfund-popup .popup-header svg {
+.sf-icon {
+  font-size: 1rem;
+  line-height: 1;
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
-.superfund-popup .popup-header strong {
+.sf-header strong {
   font-size: 0.9rem;
-  color: #1a1a2e;
   line-height: 1.3;
+  color: #fff;
 }
 
-.superfund-popup .popup-body {
+.sf-body {
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-.superfund-popup .popup-row {
+.sf-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -938,22 +944,23 @@
   font-size: 0.8rem;
 }
 
-.superfund-popup .popup-label {
-  color: #888;
+.sf-label {
+  color: rgba(248, 250, 252, 0.6);
   flex-shrink: 0;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
-.superfund-popup .popup-mono {
+.sf-mono {
   font-family: monospace;
   font-size: 0.78rem;
+  color: #f1f5f9;
 }
 
-.superfund-popup .popup-badge {
-  background: #FCE4EC;
-  color: #A81050;
+.sf-badge {
+  background: rgba(220, 38, 127, 0.22);
+  color: #fbcfe8;
   padding: 1px 8px;
   border-radius: 10px;
   font-size: 0.73rem;
@@ -961,33 +968,33 @@
   white-space: nowrap;
 }
 
-.superfund-popup .popup-npl-desc {
+.sf-desc {
   font-size: 0.73rem;
-  color: #999;
+  color: rgba(248, 250, 252, 0.6);
   font-style: italic;
   margin-top: 2px;
   padding-left: 2px;
   line-height: 1.35;
 }
 
-.superfund-popup .popup-footer {
+.sf-footer {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.superfund-popup .popup-footer a {
+.sf-footer a {
   display: inline-flex;
   align-items: center;
-  color: #DC267F;
+  color: #f9a8d4;
   text-decoration: none;
   font-size: 0.8rem;
   font-weight: 500;
   transition: color 0.15s;
 }
 
-.superfund-popup .popup-footer a:hover {
-  color: #A81050;
+.sf-footer a:hover {
+  color: #fbcfe8;
   text-decoration: underline;
 }
 
@@ -2476,9 +2483,12 @@
   }
 
   /* Popups — cap min-widths */
-  .transit-popup,
-  .superfund-popup {
+  .transit-popup {
     min-width: 0;
+    max-width: calc(100vw - 40px);
+  }
+
+  .superfund-tooltip {
     max-width: calc(100vw - 40px);
   }
 
