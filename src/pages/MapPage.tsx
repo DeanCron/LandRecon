@@ -1039,7 +1039,6 @@ function MapPage() {
   const expMenuRef = useRef<HTMLDivElement>(null)
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
-  const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
   const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
@@ -2873,10 +2872,6 @@ function MapPage() {
                 <span>Base Map Selector</span>
               </label>
               <label className="exp-menu-item">
-                <input type="checkbox" checked={tourEnabled} onChange={() => { toggleExpFlag('lr_exp_tour', tourEnabled, setTourEnabled) }} />
-                <span>Guided Tour</span>
-              </label>
-              <label className="exp-menu-item">
                 <input type="checkbox" checked={compareEnabled} onChange={() => { toggleExpFlag('lr_exp_compare', compareEnabled, setCompareEnabled) }} />
                 <span>Compare Locations</span>
               </label>
@@ -4006,7 +4001,7 @@ function MapPage() {
         <GuidedTour
           key={tourReplayKey}
           storageKey="lr_tour_done"
-          forceShow={tourEnabled || tourReplayKey > 0}
+          forceShow={tourReplayKey > 0}
           delay={tourReplayKey > 0 ? 100 : 2000}
           steps={[
             {
