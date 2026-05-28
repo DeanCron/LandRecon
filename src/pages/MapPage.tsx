@@ -2354,7 +2354,7 @@ function MapPage() {
         )
         const env = `${constrainedBounds.getWest()},${constrainedBounds.getSouth()},${constrainedBounds.getEast()},${constrainedBounds.getNorth()}`
         const params = new URLSearchParams({
-          where: '1=1',
+          where: "NPL_STATUS_CODE <> 'D'",
           outFields: SUPERFUND_FIELDS,
           geometry: env,
           geometryType: 'esriGeometryEnvelope',
@@ -3148,7 +3148,7 @@ function MapPage() {
                       },
                       'Superfund Sites': {
                         0: 'No EPA Superfund sites were found within 5 miles. This area is clear of known hazardous waste cleanup activity.',
-                        1: 'Superfund sites exist nearby but most or all are marked as "Deleted" (cleaned up). Residual risk is low, but due diligence is recommended.',
+                        1: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
                         2: 'One or more active Superfund sites are within 5 miles. Active sites may pose environmental or health risks and could affect property values.'
                       },
                       'Nearest Costco': {
@@ -3238,11 +3238,7 @@ function MapPage() {
                       <strong>Why this matters</strong>
                       <p>
                         EPA Superfund sites are locations contaminated with hazardous waste that pose risks to human health and the environment.
-                        {analysisResults.superfunds.every(s => s.status === 'Deleted')
-                          ? ' All nearby sites have been cleaned up and removed from the National Priorities List — a reassuring sign.'
-                          : analysisResults.superfunds.some(s => s.status !== 'Deleted')
-                          ? ' Active sites may have ongoing contamination of soil, groundwater, or air, which can affect property values and health.'
-                          : ''}
+                        Active sites may have ongoing contamination of soil, groundwater, or air, which can affect property values and health.
                       </p>
                     </div>
                     <ul className="analysis-expand-list">
@@ -3282,8 +3278,8 @@ function MapPage() {
                     <div className="analysis-expand-rec">
                       <strong>Recommendation</strong>
                       <p>
-                        Sites marked "Deleted" have been cleaned up and removed from the NPL.
-                        For active sites, research using the EPA links above.
+                        Research these sites using the EPA links above to understand the contamination history,
+                        current cleanup status, and any health advisories.
                       </p>
                     </div>
                   </>
