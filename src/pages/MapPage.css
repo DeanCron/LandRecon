@@ -1127,6 +1127,80 @@
   margin: 4px 0 8px 24px;
 }
 
+.district-legend {
+  margin: 8px 0 4px 24px;
+  font-size: 0.72rem;
+}
+
+.district-legend-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #ccc);
+}
+
+.district-legend-bar .legend-segment {
+  flex: 1;
+}
+
+.district-legend .legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--color-text-muted, #666);
+}
+
+.district-attribution {
+  margin-top: 6px;
+  font-size: 0.65rem;
+  color: var(--color-text-muted, #888);
+  opacity: 0.8;
+}
+
+.district-tooltip {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  padding: 4px 8px;
+}
+
+.district-popup {
+  font-size: 0.82rem;
+  min-width: 180px;
+}
+
+.district-popup-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.district-popup-margin {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.district-popup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.district-popup-table td {
+  padding: 2px 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.district-popup-table td:first-child {
+  font-weight: 600;
+  width: 4ch;
+}
+
+.district-popup-table td:nth-child(3) {
+  text-align: right;
+  color: #555;
+}
+
 .dc-legend .legend-swatch {
   display: inline-block;
   width: 12px;

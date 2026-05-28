@@ -11,6 +11,8 @@ import GuidedTour from '../components/GuidedTour'
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
 import { LEGEND_BANDS } from '../noise/legend'
+import type { DistrictLayerId } from '../utils/districtsLayer'
+import { DISTRICT_LAYER_LABELS, marginToColor, loadDistrictLayer } from '../utils/districtsLayer'
 
 // The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
 // dynamic-imported on first use so it stays out of the initial MapPage chunk.
@@ -1121,6 +1123,20 @@ function MapPage() {
   const [emsLoading, setEmsLoading] = useState(false)
   const [crowdVisible, setCrowdVisible] = useState(false)
   const [crowdLoading, setCrowdLoading] = useState(false)
+  // Voting districts — experimental layer set; each chamber loads lazily on
+  // first toggle and is cached on the L.Map afterward.
+  const districtLayerRefs = useRef<Record<DistrictLayerId, L.GeoJSON | null>>({
+    cd118: null, sldu: null, sldl: null,
+  })
+  const [districtVisible, setDistrictVisible] = useState<Record<DistrictLayerId, boolean>>({
+    cd118: false, sldu: false, sldl: false,
+  })
+  const [districtLoading, setDistrictLoading] = useState<Record<DistrictLayerId, boolean>>({
+    cd118: false, sldu: false, sldl: false,
+  })
+  const [districtAvailable, setDistrictAvailable] = useState<Record<DistrictLayerId, boolean | null>>({
+    cd118: null, sldu: null, sldl: null,
+  })
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
     loading: boolean
@@ -1327,6 +1343,7 @@ function MapPage() {
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
   const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
+  const [votingDistrictsEnabled, setVotingDistrictsEnabled] = useState(() => getExpFlag('lr_exp_districts', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
   const [tourReplayKey, setTourReplayKey] = useState(0)
 
@@ -2898,6 +2915,40 @@ function MapPage() {
     }
   }
 
+  const toggleDistrict = async (id: DistrictLayerId) => {
+    const map = mapRef.current
+    if (!map) return
+    const isOn = districtVisible[id]
+    dbg('toggle', `district[${id}] → ${isOn ? 'OFF' : 'ON'}`)
+
+    if (isOn) {
+      const layer = districtLayerRefs.current[id]
+      if (layer) map.removeLayer(layer)
+      setDistrictVisible((v) => ({ ...v, [id]: false }))
+      return
+    }
+
+    // Optimistic: flip the visible state on so the checkbox reflects intent.
+    setDistrictVisible((v) => ({ ...v, [id]: true }))
+    setDistrictLoading((v) => ({ ...v, [id]: true }))
+    try {
+      const cached = districtLayerRefs.current[id]
+      if (cached) {
+        cached.addTo(map)
+      } else {
+        const { layer, resultsCount } = await loadDistrictLayer(id)
+        districtLayerRefs.current[id] = layer
+        setDistrictAvailable((v) => ({ ...v, [id]: resultsCount > 0 }))
+        layer.addTo(map)
+      }
+    } catch (err) {
+      console.warn(`Failed to load ${id} district layer:`, err)
+      setDistrictVisible((v) => ({ ...v, [id]: false }))
+    } finally {
+      setDistrictLoading((v) => ({ ...v, [id]: false }))
+    }
+  }
+
   const toggleSuperfund = () => {
     const map = mapRef.current
     const layer = superfundLayerRef.current
@@ -3319,6 +3370,10 @@ function MapPage() {
                 <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
                 <span>Layer Presets</span>
               </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={votingDistrictsEnabled} onChange={() => { toggleExpFlag('lr_exp_districts', votingDistrictsEnabled, setVotingDistrictsEnabled) }} />
+                <span>Voting Districts</span>
+              </label>
               <button type="button" className="exp-menu-action" onClick={replayTour}>
                 ▶ Replay guided tour
               </button>
@@ -3665,6 +3720,52 @@ function MapPage() {
             )}
           </div>
         </details>
+
+        {/* ── Voting districts (experimental) ── */}
+        {votingDistrictsEnabled && (
+          <details className="layer-group" open>
+            <summary className="layer-group-heading">🗳️ Voting districts</summary>
+            <div className="layer-group-body">
+              {(['cd118', 'sldu', 'sldl'] as DistrictLayerId[]).map((id) => (
+                <label key={id} className="layer-toggle">
+                  <input
+                    type="checkbox"
+                    checked={districtVisible[id]}
+                    onChange={() => toggleDistrict(id)}
+                    disabled={status !== 'ready' || districtLoading[id]}
+                  />
+                  <span className="layer-label">
+                    {DISTRICT_LAYER_LABELS[id]}
+                    {districtLoading[id] && <span className="layer-loading"> ⏳</span>}
+                    {districtAvailable[id] === false && (
+                      <span className="layer-loading" title="Boundary loaded but no result data on file"> · outline only</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+              {(districtVisible.cd118 || districtVisible.sldu || districtVisible.sldl) && (
+                <div className="district-legend">
+                  <div className="district-legend-bar">
+                    {[-40, -25, -15, -5, 0, 5, 15, 25, 40].map((m) => (
+                      <div
+                        key={m}
+                        className="legend-segment"
+                        style={{ background: marginToColor(m) }}
+                      />
+                    ))}
+                  </div>
+                  <div className="legend-labels">
+                    <span>R +40</span>
+                    <span>D +40</span>
+                  </div>
+                  <div className="district-attribution">
+                    Data: MIT Election Lab · U.S. Census
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
       </aside>
 
       {/* Neighborhood Report Panel */}
