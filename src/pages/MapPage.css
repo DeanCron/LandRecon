@@ -430,6 +430,51 @@
   color: var(--color-text);
 }
 
+.layer-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.layer-preset-btn {
+  flex: 1 1 0;
+  min-width: 56px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.layer-preset-btn:hover:not(:disabled):not(.active) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.layer-preset-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.layer-preset-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.layer-preset-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .layer-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;

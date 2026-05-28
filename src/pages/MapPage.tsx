@@ -560,6 +560,56 @@ function superfundPopup(props: Record<string, string | null>): string {
 
 const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'traffic', 'costco', 'datacenters', 'ems'] as const
 
+type LayerStateSnapshot = {
+  noise: boolean
+  superfund: boolean
+  transit: boolean
+  traffic: boolean
+  costco: boolean
+  datacenters: boolean
+  ems: boolean
+  schools: boolean
+}
+
+const LAYER_OFF: LayerStateSnapshot = {
+  noise: false, superfund: false, transit: false, traffic: false,
+  costco: false, datacenters: false, ems: false, schools: false,
+}
+
+interface LayerPreset {
+  id: 'family' | 'quiet' | 'commute' | 'clear'
+  label: string
+  desc: string
+  state: LayerStateSnapshot
+}
+
+const LAYER_PRESETS: readonly LayerPreset[] = [
+  {
+    id: 'family',
+    label: 'Family',
+    desc: 'Transit, emergency services, Costco, and schools',
+    state: { ...LAYER_OFF, transit: true, ems: true, costco: true, schools: true },
+  },
+  {
+    id: 'quiet',
+    label: 'Quiet',
+    desc: 'Airport noise, live traffic, and data centers (avoid noisy areas)',
+    state: { ...LAYER_OFF, noise: true, traffic: true, datacenters: true },
+  },
+  {
+    id: 'commute',
+    label: 'Commute',
+    desc: 'Public transit + live traffic',
+    state: { ...LAYER_OFF, transit: true, traffic: true },
+  },
+  {
+    id: 'clear',
+    label: 'Clear',
+    desc: 'Turn off every overlay',
+    state: { ...LAYER_OFF },
+  },
+] as const
+
 interface DataCenter {
   name: string
   address: string
@@ -2276,6 +2326,46 @@ function MapPage() {
     setTrafficVisible(!trafficVisible)
   }
 
+  const currentLayerSnapshot: LayerStateSnapshot = {
+    noise: noiseVisible,
+    superfund: superfundVisible,
+    transit: transitVisible,
+    traffic: trafficVisible,
+    costco: costcoVisible,
+    datacenters: dataCenterVisible,
+    ems: emsVisible,
+    schools: schoolsVisible,
+  }
+
+  const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
+    const s = preset.state
+    return s.noise === currentLayerSnapshot.noise
+      && s.superfund === currentLayerSnapshot.superfund
+      && s.transit === currentLayerSnapshot.transit
+      && s.traffic === currentLayerSnapshot.traffic
+      && s.costco === currentLayerSnapshot.costco
+      && s.datacenters === currentLayerSnapshot.datacenters
+      && s.ems === currentLayerSnapshot.ems
+      && (!SCHOOLS_ENABLED || s.schools === currentLayerSnapshot.schools)
+  })?.id ?? null
+
+  const applyLayerPreset = (presetId: LayerPreset['id']) => {
+    const preset = LAYER_PRESETS.find((p) => p.id === presetId)
+    if (!preset) return
+    dbg('preset', `applying "${preset.label}"`)
+    const setLayer = (current: boolean, toggle: () => void, desired: boolean) => {
+      if (current !== desired) toggle()
+    }
+    setLayer(noiseVisible, toggleNoise, preset.state.noise)
+    setLayer(superfundVisible, toggleSuperfund, preset.state.superfund)
+    setLayer(transitVisible, toggleTransit, preset.state.transit)
+    setLayer(trafficVisible, toggleTraffic, preset.state.traffic)
+    setLayer(costcoVisible, toggleCostco, preset.state.costco)
+    setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
+    setLayer(emsVisible, toggleEms, preset.state.ems)
+    if (SCHOOLS_ENABLED) setLayer(schoolsVisible, toggleSchools, preset.state.schools)
+  }
+
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
   useEffect(() => {
     if (status !== 'ready') return
@@ -2619,6 +2709,22 @@ function MapPage() {
         )}
 
         <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Map Layers</h2>
+
+        <div className="layer-presets" role="group" aria-label="Layer presets">
+          {LAYER_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={`layer-preset-btn${activeLayerPresetId === preset.id ? ' active' : ''}`}
+              onClick={() => applyLayerPreset(preset.id)}
+              disabled={status !== 'ready'}
+              title={preset.desc}
+              aria-pressed={activeLayerPresetId === preset.id}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
 
         {/* ── Transportation ── */}
         <details className="layer-group">
