@@ -1239,6 +1239,33 @@ function MapPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [expMenuOpen])
 
+  // Global Escape: close topmost open overlay (modal > popout > expansion > panels > exp menu)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (shareModalOpen) {
+        setShareModalOpen(false)
+        return
+      }
+      if (analysisDetail) {
+        const wasScore = analysisDetail === 'score'
+        setAnalysisDetail(null)
+        if (wasScore) setShowScoreBreakdown(false)
+        return
+      }
+      if (expMenuOpen) {
+        setExpMenuOpen(false)
+        return
+      }
+      if (layerPanelOpen) {
+        setLayerPanelOpen(false)
+        return
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [shareModalOpen, analysisDetail, expMenuOpen, layerPanelOpen])
+
   // Show FAB tooltip hints once on mobile, dismiss on first tap
   const buildShareUrl = useCallback((): string => {
     const params = new URLSearchParams()
@@ -3559,7 +3586,7 @@ function MapPage() {
                 <div className="compare-card-header">
                   <span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span>
                   <span className="compare-card-addr" title={sa.address}>{sa.address}</span>
-                  <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove">×</button>
+                  <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove" aria-label={`Remove ${sa.address} from comparison`}>×</button>
                 </div>
                 <div className="compare-card-stats">
                   <span>✈️ {sa.noiseLevel != null ? `${sa.noiseLevel} dB` : 'None'}</span>
@@ -3723,7 +3750,7 @@ function MapPage() {
 
       {/* Detail popout — positioned to the left of analysis panel */}
       {analysisDetail && !analysisResults.loading && (
-        <aside className="analysis-popout">
+        <aside className="analysis-popout" role="dialog" aria-modal="false" aria-label="Analysis detail">
           <div className="analysis-popout-header">
             <strong>
               {analysisDetail === 'score' ? '📊 Score Breakdown' :
@@ -3737,7 +3764,7 @@ function MapPage() {
               setAnalysisDetail(null)
               if (analysisDetail === 'score') setShowScoreBreakdown(false)
               flyToAddress()
-            }}>×</button>
+            }} aria-label="Close detail">×</button>
           </div>
           <div className="analysis-popout-body">
             {analysisDetail === 'score' && (() => {
@@ -4204,9 +4231,9 @@ function MapPage() {
 
       {shareModalOpen && (
         <div className="analysis-detail-overlay" onClick={closeShareModal}>
-          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()}>
+          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
             <button className="analysis-detail-close" onClick={closeShareModal} aria-label="Close">×</button>
-            <h3>Share Results</h3>
+            <h3 id="share-modal-title">Share Results</h3>
             {shareLoading ? (
               <div className="share-loading"><div className="spinner" /><p>Creating short link…</p></div>
             ) : (

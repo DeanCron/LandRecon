@@ -104,6 +104,15 @@ function HomePage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!showAbout) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowAbout(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showAbout])
+
   const fetchSuggestions = (query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (query.length < 3 || !TOMTOM_API_KEY) {
@@ -412,10 +421,10 @@ function HomePage() {
 
       {showAbout && (
         <div className="about-overlay" onClick={() => setShowAbout(false)}>
-          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
             <div className="about-header">
-              <h2>About LandRecon</h2>
-              <button className="about-close" onClick={() => setShowAbout(false)}>×</button>
+              <h2 id="about-modal-title">About LandRecon</h2>
+              <button className="about-close" onClick={() => setShowAbout(false)} aria-label="Close About">×</button>
             </div>
             <div className="about-body">
               <p>
