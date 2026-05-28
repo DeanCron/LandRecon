@@ -3228,7 +3228,21 @@ function MapPage() {
                                 {s.status}
                               </span>
                             </div>
-                            <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)} title="Fly to location">📍</button>
+                            <button
+                              className="analysis-flyto-btn"
+                              onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)}
+                              title="Fly to location"
+                              aria-label={`Fly to ${s.name}`}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <line x1="22" y1="12" x2="18" y2="12" />
+                                <line x1="6" y1="12" x2="2" y2="12" />
+                                <line x1="12" y1="6" x2="12" y2="2" />
+                                <line x1="12" y1="22" x2="12" y2="18" />
+                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                              </svg>
+                            </button>
                           </div>
                           {s.url && (
                             <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
@@ -3275,7 +3289,11 @@ function MapPage() {
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
                         <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
-                          📍 Show on map
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                            <circle cx="12" cy="10" r="3" />
+                          </svg>
+                          Show on map
                         </button>
                         <a
                           className="costco-directions-link"
@@ -3385,7 +3403,21 @@ function MapPage() {
                             <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
                             <strong>{dc.name || 'Unknown Facility'}</strong>
                             <span className="dc-distance">{dc.distanceMi} mi</span>
-                            <button className="analysis-flyto-btn" onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)} title="Fly to location">📍</button>
+                            <button
+                              className="analysis-flyto-btn"
+                              onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)}
+                              title="Fly to location"
+                              aria-label={`Fly to ${dc.name || 'data center'}`}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <line x1="22" y1="12" x2="18" y2="12" />
+                                <line x1="6" y1="12" x2="2" y2="12" />
+                                <line x1="12" y1="6" x2="12" y2="2" />
+                                <line x1="12" y1="22" x2="12" y2="18" />
+                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                              </svg>
+                            </button>
                           </div>
                           <div className="dc-analysis-meta">
                             {dc.operator && <span>{dc.operator}</span>}
@@ -3428,7 +3460,11 @@ function MapPage() {
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
                         <button className="analysis-flyto-link" onClick={() => showHighlightPin(analysisResults.nearestER!.lat, analysisResults.nearestER!.lng, analysisResults.nearestER!.name)}>
-                          📍 Show on map
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                            <circle cx="12" cy="10" r="3" />
+                          </svg>
+                          Show on map
                         </button>
                         <a
                           className="costco-directions-link"
