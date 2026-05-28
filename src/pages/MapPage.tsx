@@ -725,7 +725,7 @@ const CROWD_LABEL_SINGULAR: Record<CrowdType, string> = {
   raceway: 'Racetrack',
   themepark: 'Theme Park',
 }
-const CROWD_ANALYSIS_RADIUS_MI = 5
+const CROWD_ANALYSIS_RADIUS_MI = 3
 
 interface CrowdMagnet {
   id: string
