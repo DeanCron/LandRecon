@@ -3318,14 +3318,23 @@ function MapPage() {
       }
     }
 
-    // Zoom out to show the farthest issue
+    // Zoom out to show the farthest issue — but only if the issue bounds
+    // aren't already contained within the current map view. Otherwise we'd
+    // pointlessly zoom the user out from their chosen zoom (e.g. dense urban
+    // areas where the issue is well within the visible viewport).
     if (maxRadiusMeters > 0) {
       const degOffset = maxRadiusMeters / 111320
       const bounds = L.latLngBounds(
         [center.lat - degOffset, center.lng - degOffset * 1.3],
         [center.lat + degOffset, center.lng + degOffset * 1.3]
       )
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
+      const currentBounds = map.getBounds()
+      if (!currentBounds.contains(bounds)) {
+        dbg('analysis', `Issue bounds extend beyond view — fitting to ${(maxRadiusMeters / 1609.34).toFixed(1)} mi radius`)
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
+      } else {
+        dbg('analysis', `Issue bounds already within view — keeping current zoom ${map.getZoom()}`)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisResults.loading])
