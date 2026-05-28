@@ -2337,7 +2337,7 @@ function MapPage() {
           emsKnownIdsRef.current.clear()
           crowdLoadedBoundsRef.current = null
           crowdKnownIdsRef.current.clear()
-          map.flyTo([lat, lng], 12, { duration: 0.5 })
+          map.flyTo([lat, lng], 13, { duration: 0.5 })
           setStatus('ready')
           runLocationAnalysis(lat, lng)
           setTimeout(() => map.invalidateSize(), 0)
@@ -2346,7 +2346,7 @@ function MapPage() {
 
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
-          zoom: 12,
+          zoom: 13,
           zoomControl: false,
           preferCanvas: true,
         })
