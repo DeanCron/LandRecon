@@ -3251,37 +3251,10 @@ function MapPage() {
           </div>
         )}
 
-        {/* ── Transportation ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">Transportation</summary>
+        {/* ── Getting around ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">🚦 Getting around</summary>
           <div className="layer-group-body">
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={noiseVisible}
-                onChange={toggleNoise}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">Airport Noise</span>
-            </label>
-            {noiseVisible && (
-              <div className="noise-legend">
-                <div className="legend-bar">
-                  {LEGEND_STOPS.map((stop, i) => (
-                    <div
-                      key={i}
-                      className="legend-segment"
-                      style={{ background: stop.color }}
-                    />
-                  ))}
-                </div>
-                <div className="legend-labels">
-                  <span>{LEGEND_STOPS[0].dbMin} dB</span>
-                  <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
-                </div>
-              </div>
-            )}
-
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -3338,9 +3311,9 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Services ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">Services</summary>
+        {/* ── Nearby & daily ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">🛒 Nearby & daily</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -3409,10 +3382,37 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Environmental ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">Environmental</summary>
+        {/* ── Things to know ── */}
+        <details className="layer-group" open>
+          <summary className="layer-group-heading">🤔 Things to know</summary>
           <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={noiseVisible}
+                onChange={toggleNoise}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Airport Noise</span>
+            </label>
+            {noiseVisible && (
+              <div className="noise-legend">
+                <div className="legend-bar">
+                  {LEGEND_STOPS.map((stop, i) => (
+                    <div
+                      key={i}
+                      className="legend-segment"
+                      style={{ background: stop.color }}
+                    />
+                  ))}
+                </div>
+                <div className="legend-labels">
+                  <span>{LEGEND_STOPS[0].dbMin} dB</span>
+                  <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
+                </div>
+              </div>
+            )}
+
             <label className="layer-toggle">
               <input
                 type="checkbox"
