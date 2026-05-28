@@ -375,12 +375,6 @@
   letter-spacing: 0.02em;
 }
 
-.home-recent-time {
-  flex-shrink: 0;
-  font-size: 0.68rem;
-  color: var(--color-text-muted);
-}
-
 .home-recent-remove {
   background: none;
   border: none;
@@ -406,10 +400,6 @@
   .home-recent-go {
     padding: 9px 10px;
     font-size: 0.9rem;
-  }
-
-  .home-recent-time {
-    display: none;
   }
 }
 

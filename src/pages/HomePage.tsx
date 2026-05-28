@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.webp'
 import {
   clearRecentSearches,
-  formatRelativeTime,
   loadRecentSearches,
   loadSavedAnalysisSnippets,
   pushRecentSearch,
@@ -390,9 +389,6 @@ function HomePage() {
                           {grade.grade}
                         </span>
                       )}
-                      <span className="home-recent-time">
-                        {formatRelativeTime(item.timestamp)}
-                      </span>
                     </button>
                     <button
                       type="button"
