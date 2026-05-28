@@ -1448,6 +1448,46 @@ function MapPage() {
 
   const savedMapViewRef = useRef<{ center: L.LatLng; zoom: number } | null>(null)
 
+  // Compute fitBounds padding that accounts for the report panel / detail
+  // popout overlaying the right (or bottom on mobile) edge of the map.
+  // Without this the requested address or the item can land behind a panel.
+  const computeFitPadding = useCallback((): { topLeft: L.PointTuple; bottomRight: L.PointTuple } => {
+    const map = mapRef.current
+    const base = 60
+    if (!map) return { topLeft: [base, base], bottomRight: [base, base] }
+    const mapRect = map.getContainer().getBoundingClientRect()
+    let padTop = base, padLeft = base, padBottom = base, padRight = base
+    const panels: Element[] = [
+      ...Array.from(document.querySelectorAll('.analysis-popout')),
+      ...Array.from(document.querySelectorAll('.analysis-panel')),
+    ]
+    for (const el of panels) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      const overlapLeft = Math.max(r.left, mapRect.left)
+      const overlapRight = Math.min(r.right, mapRect.right)
+      const overlapTop = Math.max(r.top, mapRect.top)
+      const overlapBottom = Math.min(r.bottom, mapRect.bottom)
+      if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) continue
+      if (overlapRight >= mapRect.right - 1) {
+        padRight = Math.max(padRight, mapRect.right - overlapLeft + 16)
+      }
+      if (overlapBottom >= mapRect.bottom - 1) {
+        padBottom = Math.max(padBottom, mapRect.bottom - overlapTop + 16)
+      }
+      if (overlapLeft <= mapRect.left + 1) {
+        padLeft = Math.max(padLeft, overlapRight - mapRect.left + 16)
+      }
+      if (overlapTop <= mapRect.top + 1) {
+        padTop = Math.max(padTop, overlapBottom - mapRect.top + 16)
+      }
+    }
+    // Guard against padding so large it can't fit anything.
+    padRight = Math.min(padRight, Math.max(base, mapRect.width - 80))
+    padBottom = Math.min(padBottom, Math.max(base, mapRect.height - 80))
+    return { topLeft: [padLeft, padTop], bottomRight: [padRight, padBottom] }
+  }, [])
+
   const flyToWithAddress = useCallback((lat: number, lng: number) => {
     const map = mapRef.current
     if (!map) return
@@ -1457,11 +1497,17 @@ function MapPage() {
     }
     if (home) {
       const bounds = L.latLngBounds([[home.lat, home.lng], [lat, lng]])
-      map.flyToBounds(bounds, { padding: [60, 60], maxZoom: 15, duration: 0.5 })
+      const { topLeft, bottomRight } = computeFitPadding()
+      map.flyToBounds(bounds, {
+        paddingTopLeft: topLeft,
+        paddingBottomRight: bottomRight,
+        maxZoom: 15,
+        duration: 0.5,
+      })
     } else {
       map.flyTo([lat, lng], 15, { duration: 0.5 })
     }
-  }, [])
+  }, [computeFitPadding])
 
   // When the detail flyout closes, restore the pre-flyout view (saved on
   // the first "show on map" click inside the flyout) and tear down any
