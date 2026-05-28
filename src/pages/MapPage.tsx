@@ -3318,7 +3318,7 @@ function MapPage() {
                 className="exp-menu-action"
                 onClick={() => { setExpMenuOpen(false); setDevTodosOpen(true) }}
               >
-                📋 Dev todos{remainingDevTodos > 0 ? ` (${remainingDevTodos})` : ''}
+                📋 To Do{remainingDevTodos > 0 ? ` (${remainingDevTodos})` : ''}
               </button>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
@@ -4541,7 +4541,7 @@ function MapPage() {
         <div className="analysis-detail-overlay" onClick={() => setDevTodosOpen(false)}>
           <div className="analysis-detail-popup dev-todos-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="dev-todos-title">
             <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
-            <h3 id="dev-todos-title">📋 Dev todos</h3>
+            <h3 id="dev-todos-title">📋 To Do</h3>
             <p className="dev-todos-summary">
               {devTodoItems.length === 0
                 ? 'No items yet — add one below.'
