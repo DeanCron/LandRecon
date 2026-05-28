@@ -2125,6 +2125,29 @@ function MapPage() {
         const queries = ['emergency room', 'hospital emergency department']
         const seen = new Set<string>()
         const hits: ERHit[] = []
+        // Filter out urgent cares, walk-in clinics, and other non-ER facilities
+        // that Google sometimes returns for these queries.
+        const NON_ER_NAME_PATTERNS = [
+          /urgent\s*care/i,
+          /walk[-\s]*in/i,
+          /minute\s*clinic/i,
+          /immediate\s*care/i,
+          /express\s*care/i,
+          /quick\s*care/i,
+          /minor\s*emergency/i,
+          /family\s*practice/i,
+          /pediatric\s*urgent/i,
+          /redimed|fastmed|carenow|nextcare|patient\s*first|medexpress/i,
+        ]
+        const ER_NAME_HINTS = [/emergency/i, /\bER\b/, /hospital/i, /medical\s*center/i, /trauma/i]
+        const isLikelyER = (name: string, types: string[], primaryType?: string) => {
+          if (NON_ER_NAME_PATTERNS.some((re) => re.test(name))) return false
+          if (types.includes('hospital') || primaryType === 'hospital') return true
+          if (types.includes('emergency_room') || primaryType === 'emergency_room') return true
+          // Some real ERs don't carry the hospital type but include "emergency"
+          // or "hospital" in their name — accept those too.
+          return ER_NAME_HINTS.some((re) => re.test(name))
+        }
         await Promise.all(queries.map(async (query) => {
           try {
             const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
@@ -2132,7 +2155,7 @@ function MapPage() {
               headers: {
                 'Content-Type': 'application/json',
                 'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.types,places.primaryType',
               },
               body: JSON.stringify({
                 textQuery: query,
@@ -2153,11 +2176,14 @@ function MapPage() {
               seen.add(p.id)
               const loc = p.location
               if (!loc) continue
+              const name = p.displayName?.text || 'Emergency Room'
+              const types: string[] = Array.isArray(p.types) ? p.types : []
+              if (!isLikelyER(name, types, p.primaryType)) continue
               const dist = location.distanceTo(L.latLng(loc.latitude, loc.longitude))
               const distMi = Math.round(dist / milesToMeters * 10) / 10
               if (distMi <= ER_ANALYSIS_RADIUS_MI) {
                 hits.push({
-                  name: p.displayName?.text || 'Emergency Room',
+                  name,
                   address: p.formattedAddress || '',
                   distanceMi: distMi,
                   lat: loc.latitude,
@@ -2168,6 +2194,7 @@ function MapPage() {
           } catch { /* ignore individual query failure */ }
         }))
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
+        dbg('er', `${hits.length} ER hits after filter; nearest=${hits[0]?.name ?? 'none'}`)
         return hits[0] ?? null
         } finally { markDone('er') }
       })(),
