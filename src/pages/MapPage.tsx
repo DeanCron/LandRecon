@@ -658,33 +658,11 @@ function homeTooltipHtml(address: string): string {
   return `<strong>${escapeHtml(nickname)}</strong><br/>${addr}`
 }
 
-function superfundTooltip(props: Record<string, string | null>): string {
-  const name = props.SITE_NAME || 'Superfund Site'
-  const city = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
-  const status = props.NPL_STATUS_CODE || ''
-  const npl = NPL_STATUS_INFO[status]
-  const epaId = props.EPA_ID || ''
-  const url = props.URL_ALIAS_TXT
-  const rows: string[] = []
-  if (city) rows.push(`<div class="sf-row"><span class="sf-label">Location</span><span>${city}</span></div>`)
-  if (epaId) rows.push(`<div class="sf-row"><span class="sf-label">EPA ID</span><span class="sf-mono">${epaId}</span></div>`)
-  if (npl) {
-    rows.push(`<div class="sf-row"><span class="sf-label">NPL Status</span><span class="sf-badge">${npl.label}</span></div>`)
-    rows.push(`<div class="sf-desc">${npl.desc}</div>`)
-  } else if (status) {
-    rows.push(`<div class="sf-row"><span class="sf-label">NPL Status</span><span class="sf-badge">${status}</span></div>`)
-  }
-  const link = url
-    ? `<div class="sf-footer"><a href="${url}" target="_blank" rel="noopener">View EPA Site Profile →</a></div>`
-    : ''
-  return `
-    <div class="sf-tooltip">
-      <div class="sf-header"><span class="sf-icon" aria-hidden="true">☢️</span><strong>${name}</strong></div>
-      <div class="sf-body">${rows.join('')}</div>
-      ${link}
-    </div>
-  `
-}
+// Superfund details are now rendered in the analysis flyout
+// (analysisDetail === 'superfunds'), not in the map hover tooltip.
+// The map tooltip is just the site name.
+
+
 
 const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd'] as const
 
@@ -1178,7 +1156,7 @@ function MapPage() {
     noiseLevel: number | null
     noiseAirport: string | null
     noiseAirportCode: string | null
-    superfunds: { name: string; distanceMi: number; status: string; url: string; lat: number; lng: number }[]
+    superfunds: { name: string; distanceMi: number; status: string; statusCode: string; city: string; epaId: string; url: string; lat: number; lng: number }[]
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoNearestBeyond: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
@@ -2076,7 +2054,7 @@ function MapPage() {
         const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
         const params = new URLSearchParams({
           where: "NPL_STATUS_CODE <> 'D'",
-          outFields: 'SITE_NAME,NPL_STATUS_CODE,URL_ALIAS_TXT',
+          outFields: 'SITE_NAME,NPL_STATUS_CODE,URL_ALIAS_TXT,CITY_NAME,STATE_CODE,EPA_ID',
           geometry: env,
           geometryType: 'esriGeometryEnvelope',
           spatialRel: 'esriSpatialRelIntersects',
@@ -2091,7 +2069,7 @@ function MapPage() {
         })
         if (!res.ok) return []
         const data = await res.json()
-        const results: { name: string; distanceMi: number; status: string; url: string; lat: number; lng: number }[] = []
+        const results: { name: string; distanceMi: number; status: string; statusCode: string; city: string; epaId: string; url: string; lat: number; lng: number }[] = []
         for (const feat of data.features || []) {
           const centroid = feat.centroid || feat.geometry
           if (!centroid) continue
@@ -2102,12 +2080,18 @@ function MapPage() {
           const distMi = dist / milesToMeters
           if (distMi <= 5) {
             const statusCode = feat.attributes?.NPL_STATUS_CODE || ''
-            const statusLabel = statusCode === 'F' ? 'Final' : statusCode === 'P' ? 'Proposed' : statusCode === 'D' ? 'Deleted' : statusCode
+            const statusLabel = NPL_STATUS_INFO[statusCode]?.label || statusCode
             const urlAlias = feat.attributes?.URL_ALIAS_TXT || ''
+            const cityName = feat.attributes?.CITY_NAME || ''
+            const stateCode = feat.attributes?.STATE_CODE || ''
+            const city = [cityName, stateCode].filter(Boolean).join(', ')
             results.push({
               name: feat.attributes?.SITE_NAME || 'Unknown',
               distanceMi: Math.round(distMi * 10) / 10,
               status: statusLabel,
+              statusCode,
+              city,
+              epaId: feat.attributes?.EPA_ID || '',
               url: urlAlias,
               lat: cLat,
               lng: cLon,
@@ -2526,12 +2510,8 @@ function MapPage() {
           pointToLayer: (_feat, latlng) => L.marker(latlng, { icon: SUPERFUND_ICON, riseOnHover: true }),
           onEachFeature: (_feature, layer) => {
             const props = (_feature as GeoJSON.Feature).properties || {}
-            layer.bindTooltip(superfundTooltip(props), {
-              direction: 'top',
-              offset: [0, -16],
-              className: 'superfund-tooltip',
-              interactive: true,
-            })
+            const name = (props.SITE_NAME as string | undefined) || 'Superfund Site'
+            layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
           },
         })
 
@@ -4438,38 +4418,60 @@ function MapPage() {
                       </p>
                     </div>
                     <ul className="analysis-expand-list">
-                      {analysisResults.superfunds.map((s, i) => (
-                        <li key={i}>
-                          <div className="analysis-flyto-row">
-                            <div>
-                              <strong>{s.name}</strong> — {s.distanceMi} mi
-                              <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
-                                {s.status}
-                              </span>
+                      {analysisResults.superfunds.map((s, i) => {
+                        const npl = NPL_STATUS_INFO[s.statusCode]
+                        return (
+                          <li key={i}>
+                            <div className="analysis-flyto-row">
+                              <div>
+                                <strong>{s.name}</strong> — {s.distanceMi} mi
+                                <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
+                                  {s.status}
+                                </span>
+                              </div>
+                              <button
+                                className="analysis-flyto-btn"
+                                onClick={() => flyToWithAddress(s.lat, s.lng)}
+                                title="Fly to location"
+                                aria-label={`Fly to ${s.name}`}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="9" />
+                                  <line x1="22" y1="12" x2="18" y2="12" />
+                                  <line x1="6" y1="12" x2="2" y2="12" />
+                                  <line x1="12" y1="6" x2="12" y2="2" />
+                                  <line x1="12" y1="22" x2="12" y2="18" />
+                                  <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                                </svg>
+                              </button>
                             </div>
-                            <button
-                              className="analysis-flyto-btn"
-                              onClick={() => flyToWithAddress(s.lat, s.lng)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${s.name}`}
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" />
-                                <line x1="22" y1="12" x2="18" y2="12" />
-                                <line x1="6" y1="12" x2="2" y2="12" />
-                                <line x1="12" y1="6" x2="12" y2="2" />
-                                <line x1="12" y1="22" x2="12" y2="18" />
-                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                              </svg>
-                            </button>
-                          </div>
-                          {s.url && (
-                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
-                              EPA Site Profile →
-                            </a>
-                          )}
-                        </li>
-                      ))}
+                            {(s.city || s.epaId) && (
+                              <dl className="analysis-superfund-meta">
+                                {s.city && (
+                                  <>
+                                    <dt>Location</dt>
+                                    <dd>{s.city}</dd>
+                                  </>
+                                )}
+                                {s.epaId && (
+                                  <>
+                                    <dt>EPA ID</dt>
+                                    <dd className="mono">{s.epaId}</dd>
+                                  </>
+                                )}
+                              </dl>
+                            )}
+                            {npl && (
+                              <p className="analysis-superfund-npl-desc">{npl.desc}</p>
+                            )}
+                            {s.url && (
+                              <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
+                                EPA Site Profile →
+                              </a>
+                            )}
+                          </li>
+                        )
+                      })}
                     </ul>
                     <div className="analysis-expand-rec">
                       <strong>Recommendation</strong>
