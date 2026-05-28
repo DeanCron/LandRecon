@@ -8,7 +8,9 @@ import {
   loadSavedAnalysisSnippets,
   pushRecentSearch,
   removeRecentSearch,
+  removeSavedAnalysisSnippet,
   type RecentSearch,
+  type SavedAnalysisSnippet,
 } from '../utils/recentSearches'
 import './HomePage.css'
 
@@ -51,7 +53,9 @@ function HomePage() {
   const [activeIndex, setActiveIndex] = useState(-1)
   const [showAbout, setShowAbout] = useState(false)
   const [recent, setRecent] = useState<RecentSearch[]>(() => loadRecentSearches())
-  const [savedSnippets] = useState(() => loadSavedAnalysisSnippets())
+  const [savedSnippets, setSavedSnippets] = useState<SavedAnalysisSnippet[]>(() => loadSavedAnalysisSnippets())
+  const [locating, setLocating] = useState(false)
+  const [locateError, setLocateError] = useState<string | null>(null)
   const navigate = useNavigate()
 
   const gradeByAddress = useMemo(() => {
@@ -61,6 +65,11 @@ function HomePage() {
     }
     return m
   }, [savedSnippets])
+
+  const visibleRecent = useMemo(() => {
+    const savedSet = new Set(savedSnippets.map((s) => s.address.toLowerCase()))
+    return recent.filter((r) => !savedSet.has(r.address.toLowerCase()))
+  }, [recent, savedSnippets])
 
   const goToAddress = (value: string) => {
     const trimmed = value.trim()
@@ -155,6 +164,47 @@ function HomePage() {
     goToAddress(address)
   }
 
+  const handleUseMyLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setLocateError('Your browser does not support geolocation.')
+      return
+    }
+    setLocateError(null)
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords
+          if (TOMTOM_API_KEY) {
+            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100`
+            const res = await fetch(url)
+            const data = await res.json()
+            const addr = data?.addresses?.[0]?.address?.freeformAddress
+            if (addr) {
+              setLocating(false)
+              goToAddress(addr)
+              return
+            }
+          }
+          setLocating(false)
+          goToAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+        } catch {
+          setLocating(false)
+          setLocateError('Could not look up your address. Try entering it manually.')
+        }
+      },
+      (err) => {
+        setLocating(false)
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocateError('Location access was blocked. Enable it in your browser to use this feature.')
+        } else {
+          setLocateError('Could not get your location. Try entering an address manually.')
+        }
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+    )
+  }
+
   return (
     <div className="home">
       <div className="home-content">
@@ -173,18 +223,29 @@ function HomePage() {
             <input
               type="text"
               className="home-input"
-              placeholder="e.g. 6001 S Stony Island Ave, Chicago, IL 60637"
+              placeholder="Street address, city, state"
               value={address}
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               autoComplete="off"
+              aria-label="U.S. address to analyze"
+              aria-autocomplete="list"
+              aria-expanded={showSuggestions}
+              aria-controls="home-suggestions"
             />
+            {address.length > 0 && address.length < 3 && !showSuggestions && (
+              <div className="home-input-hint" role="status">
+                Keep typing — we'll suggest matches after 3 characters.
+              </div>
+            )}
             {showSuggestions && (
-              <ul className="suggestions-list">
+              <ul className="suggestions-list" id="home-suggestions" role="listbox">
                 {suggestions.map((s, i) => (
                   <li
                     key={s.id}
+                    role="option"
+                    aria-selected={i === activeIndex}
                     className={`suggestion-item ${i === activeIndex ? 'active' : ''}`}
                     onMouseDown={() => selectSuggestion(s)}
                     onMouseEnter={() => setActiveIndex(i)}
@@ -201,13 +262,83 @@ function HomePage() {
           </div>
           <button type="submit" className="home-button" disabled={!address.trim()}>
             Explore
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="5" y1="12" x2="19" y2="12" />
               <polyline points="12 5 19 12 12 19" />
             </svg>
           </button>
         </form>
-        {recent.length > 0 && (
+        <button
+          type="button"
+          className="home-locate-button"
+          onClick={handleUseMyLocation}
+          disabled={locating}
+          aria-label="Use my current location"
+        >
+          {locating ? (
+            <>
+              <span className="home-locate-spinner" aria-hidden="true" />
+              Finding you…
+            </>
+          ) : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="3" />
+                <line x1="12" y1="2" x2="12" y2="5" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+                <line x1="2" y1="12" x2="5" y2="12" />
+                <line x1="19" y1="12" x2="22" y2="12" />
+              </svg>
+              Use my location
+            </>
+          )}
+        </button>
+        {locateError && (
+          <p className="home-locate-error" role="alert">{locateError}</p>
+        )}
+        {savedSnippets.length > 0 && (
+          <section className="home-saved" aria-label="Saved analyses">
+            <header className="home-recent-header">
+              <span className="home-recent-title">Saved</span>
+            </header>
+            <ul className="home-saved-list">
+              {savedSnippets.map((s) => (
+                <li key={s.address} className="home-saved-item">
+                  <button
+                    type="button"
+                    className="home-saved-go"
+                    onClick={() => goToAddress(s.address)}
+                    title={s.address}
+                  >
+                    <span
+                      className="home-saved-grade"
+                      style={{ background: s.gradeColor }}
+                      aria-label={`Grade ${s.grade}`}
+                    >
+                      {s.grade}
+                    </span>
+                    <span className="home-saved-address">{s.address}</span>
+                    {s.date && <span className="home-saved-date">{s.date}</span>}
+                  </button>
+                  <button
+                    type="button"
+                    className="home-recent-remove"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSavedSnippets(removeSavedAnalysisSnippet(s.address))
+                    }}
+                    aria-label={`Remove ${s.address} from saved analyses`}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {visibleRecent.length > 0 && (
           <section className="home-recent" aria-label="Recent searches">
             <header className="home-recent-header">
               <span className="home-recent-title">Recent</span>
@@ -220,7 +351,7 @@ function HomePage() {
               </button>
             </header>
             <ul className="home-recent-list">
-              {recent.slice(0, 5).map((item) => {
+              {visibleRecent.slice(0, 5).map((item) => {
                 const grade = gradeByAddress.get(item.address.toLowerCase())
                 return (
                   <li key={item.address} className="home-recent-item">

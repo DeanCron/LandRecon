@@ -89,6 +89,30 @@ export function loadSavedAnalysisSnippets(): SavedAnalysisSnippet[] {
   }
 }
 
+export function removeSavedAnalysisSnippet(address: string): SavedAnalysisSnippet[] {
+  try {
+    const raw = localStorage.getItem(SAVED_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const next = parsed.filter(
+      (r) =>
+        r &&
+        typeof r.address === 'string' &&
+        r.address.toLowerCase() !== address.toLowerCase(),
+    )
+    localStorage.setItem(SAVED_KEY, JSON.stringify(next))
+    return next.map((r) => ({
+      address: r.address,
+      grade: r.grade,
+      gradeColor: r.gradeColor,
+      date: typeof r.date === 'string' ? r.date : undefined,
+    }))
+  } catch {
+    return []
+  }
+}
+
 export function formatRelativeTime(ts: number, now: number = Date.now()): string {
   const diffSec = Math.max(0, Math.floor((now - ts) / 1000))
   if (diffSec < 45) return 'just now'
