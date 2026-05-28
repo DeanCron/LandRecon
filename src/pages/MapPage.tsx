@@ -233,9 +233,11 @@ function parseCostcoAddress(addr: string): { street: string; locality: string } 
 const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v2:'
 const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
-// Developer todo list, shown via the hidden Experimental menu. Edit this
-// array to update the list; checkbox state for each id is persisted in
-// localStorage under DEV_TODOS_KEY, so existing checks stick across deploys.
+// Developer todo list, shown via the hidden Experimental menu. DEV_TODOS
+// below is the initial seed used the first time the modal is opened; after
+// that the canonical list lives in localStorage (under DEV_TODOS_ITEMS_KEY)
+// so add/delete from the UI persists across sessions. Per-item checkbox
+// state is stored separately under DEV_TODOS_CHECKS_KEY.
 interface DevTodo { id: string; label: string; note?: string }
 const DEV_TODOS: DevTodo[] = [
   { id: 'crowd-tune', label: 'Tune Crowd Magnets filters once we see more sample addresses' },
@@ -244,16 +246,29 @@ const DEV_TODOS: DevTodo[] = [
   { id: 'mobile-polish', label: 'Mobile: verify analysis panel + layer panel ergonomics on small screens' },
   { id: 'grade-rebalance', label: 'Revisit Location Grade weights now that Crowd Magnets is included' },
 ]
-const DEV_TODOS_KEY = 'lr_dev_todos'
+const DEV_TODOS_ITEMS_KEY = 'lr_dev_todos_items'
+const DEV_TODOS_CHECKS_KEY = 'lr_dev_todos'
 
+function readDevTodoItems(): DevTodo[] {
+  try {
+    const raw = localStorage.getItem(DEV_TODOS_ITEMS_KEY)
+    if (!raw) return DEV_TODOS
+    const parsed = JSON.parse(raw) as DevTodo[]
+    if (!Array.isArray(parsed)) return DEV_TODOS
+    return parsed.filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string')
+  } catch { return DEV_TODOS }
+}
+function writeDevTodoItems(items: DevTodo[]) {
+  try { localStorage.setItem(DEV_TODOS_ITEMS_KEY, JSON.stringify(items)) } catch { /* ignore */ }
+}
 function readDevTodoChecks(): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(DEV_TODOS_KEY)
+    const raw = localStorage.getItem(DEV_TODOS_CHECKS_KEY)
     return raw ? JSON.parse(raw) as Record<string, boolean> : {}
   } catch { return {} }
 }
 function writeDevTodoChecks(state: Record<string, boolean>) {
-  try { localStorage.setItem(DEV_TODOS_KEY, JSON.stringify(state)) } catch { /* ignore */ }
+  try { localStorage.setItem(DEV_TODOS_CHECKS_KEY, JSON.stringify(state)) } catch { /* ignore */ }
 }
 
 interface CachedAnalysisPayload {
@@ -1209,7 +1224,9 @@ function MapPage() {
   const [expMenuOpen, setExpMenuOpen] = useState(false)
   const expMenuRef = useRef<HTMLDivElement>(null)
   const [devTodosOpen, setDevTodosOpen] = useState(false)
+  const [devTodoItems, setDevTodoItems] = useState<DevTodo[]>(() => readDevTodoItems())
   const [devTodoChecks, setDevTodoChecks] = useState<Record<string, boolean>>(() => readDevTodoChecks())
+  const [newDevTodoText, setNewDevTodoText] = useState('')
 
   const toggleDevTodo = (id: string) => {
     setDevTodoChecks((prev) => {
@@ -1218,7 +1235,32 @@ function MapPage() {
       return next
     })
   }
-  const remainingDevTodos = DEV_TODOS.filter((t) => !devTodoChecks[t.id]).length
+  const addDevTodo = () => {
+    const label = newDevTodoText.trim()
+    if (!label) return
+    const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    setDevTodoItems((prev) => {
+      const next = [...prev, { id, label }]
+      writeDevTodoItems(next)
+      return next
+    })
+    setNewDevTodoText('')
+  }
+  const deleteDevTodo = (id: string) => {
+    setDevTodoItems((prev) => {
+      const next = prev.filter((t) => t.id !== id)
+      writeDevTodoItems(next)
+      return next
+    })
+    setDevTodoChecks((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      writeDevTodoChecks(next)
+      return next
+    })
+  }
+  const remainingDevTodos = devTodoItems.filter((t) => !devTodoChecks[t.id]).length
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
@@ -4438,12 +4480,14 @@ function MapPage() {
             <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
             <h3 id="dev-todos-title">📋 Dev todos</h3>
             <p className="dev-todos-summary">
-              {remainingDevTodos === 0
+              {devTodoItems.length === 0
+                ? 'No items yet — add one below.'
+                : remainingDevTodos === 0
                 ? 'All caught up — nice.'
-                : `${remainingDevTodos} of ${DEV_TODOS.length} remaining`}
+                : `${remainingDevTodos} of ${devTodoItems.length} remaining`}
             </p>
             <ul className="dev-todos-list">
-              {DEV_TODOS.map((t) => {
+              {devTodoItems.map((t) => {
                 const done = !!devTodoChecks[t.id]
                 return (
                   <li key={t.id} className={`dev-todo-item${done ? ' done' : ''}`}>
@@ -4452,12 +4496,35 @@ function MapPage() {
                       <span className="dev-todo-label">{t.label}</span>
                     </label>
                     {t.note && <div className="dev-todo-note">{t.note}</div>}
+                    <button
+                      type="button"
+                      className="dev-todo-delete"
+                      onClick={() => deleteDevTodo(t.id)}
+                      aria-label={`Delete "${t.label}"`}
+                      title="Delete"
+                    >
+                      ×
+                    </button>
                   </li>
                 )
               })}
             </ul>
+            <form
+              className="dev-todos-add"
+              onSubmit={(e) => { e.preventDefault(); addDevTodo() }}
+            >
+              <input
+                type="text"
+                value={newDevTodoText}
+                onChange={(e) => setNewDevTodoText(e.target.value)}
+                placeholder="Add a new todo…"
+                aria-label="New todo text"
+                maxLength={200}
+              />
+              <button type="submit" disabled={!newDevTodoText.trim()}>Add</button>
+            </form>
             <div className="dev-todos-hint">
-              Checks are saved in this browser ({DEV_TODOS_KEY}). Items live in source.
+              Stored in this browser ({DEV_TODOS_ITEMS_KEY}). Clearing site data resets to the seeded list.
             </div>
           </div>
         </div>
