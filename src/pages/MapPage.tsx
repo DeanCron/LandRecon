@@ -2638,8 +2638,12 @@ function MapPage() {
     setCostcoVisible(!costcoVisible)
   }
 
-  const loadDataCenters = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    dbg('datacenters', 'Loading data centers…')
+  const loadDataCenters = useCallback(async (
+    map: L.Map,
+    layer: L.LayerGroup,
+    restrict?: { center: L.LatLng; radiusMi: number },
+  ) => {
+    dbg('datacenters', restrict ? `Loading data centers within ${restrict.radiusMi} mi…` : 'Loading data centers…')
     let data = dataCenterDataRef.current
     if (!data) {
       try {
@@ -2669,9 +2673,16 @@ function MapPage() {
 
     for (const s of DC_STATUSES) subLayers[s].clearLayers()
 
-    const bounds = map.getBounds().pad(0.3)
+    let inRange: (dc: DataCenter) => boolean
+    if (restrict) {
+      const radiusM = restrict.radiusMi * 1609.34
+      inRange = (dc) => restrict.center.distanceTo(L.latLng(dc.lat, dc.lng)) <= radiusM
+    } else {
+      const bounds = map.getBounds().pad(0.3)
+      inRange = (dc) => bounds.contains([dc.lat, dc.lng])
+    }
     for (const dc of data) {
-      if (!bounds.contains([dc.lat, dc.lng])) continue
+      if (!inRange(dc)) continue
       const sub = subLayers[dc.status]
       if (!sub) continue
       const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
@@ -3298,8 +3309,11 @@ function MapPage() {
       const layer = dataCenterLayerRef.current
       if (layer) {
         layer.addTo(map)
-        loadDataCenters(map, layer)
-        map.on('moveend', handleDataCenterMove)
+        loadDataCenters(map, layer, { center, radiusMi: DATA_CENTER_ANALYSIS_RADIUS_MI })
+        // Don't attach moveend — keep constrained to the analysis radius so the
+        // initial view matches the report (which only counts data centers within
+        // DATA_CENTER_ANALYSIS_RADIUS_MI mi). If the user wants viewport-based
+        // behavior they can toggle the layer off and back on.
         setDataCenterVisible(true)
       }
     }
