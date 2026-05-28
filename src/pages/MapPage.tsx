@@ -3344,9 +3344,39 @@ function MapPage() {
       }
     }
 
-    // Auto-enable the Costco layer whenever any Costco was found in the
-    // Costco results are stored but the layer is NOT auto-enabled.
-    // The user can toggle it on manually from the layers panel.
+    // Auto-enable the Costco layer when analysis found at least one Costco
+    // (in-radius or the closest beyond range). Seeded directly from analysis
+    // results to avoid a second Places round-trip. Skip moveend so the view
+    // stays scoped to the analysis area like the other auto-enabled layers.
+    const costcoAutoMarkers = analysisResults.costcoNearby.length > 0
+      ? analysisResults.costcoNearby
+      : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
+    if (costcoAutoMarkers.length > 0 && !costcoVisible) {
+      const layer = costcoLayerRef.current
+      if (layer) {
+        layer.addTo(map)
+        const known = costcoKnownIdsRef.current
+        for (const c of costcoAutoMarkers) {
+          if (known.has(c.osmId)) continue
+          const tooltipParts = ['Costco']
+          if (c.city) tooltipParts[0] = `Costco — ${c.city}`
+          if (c.address) tooltipParts.push(c.address)
+          const tooltip = tooltipParts.join('<br/>')
+          const icon = L.divIcon({
+            className: 'costco-label',
+            html: `<div class="costco-pin">C</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+          })
+          L.marker([c.lat, c.lng], { icon })
+            .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
+            .addTo(layer)
+          known.add(c.osmId)
+        }
+        dbg('costco', `Seeded ${costcoAutoMarkers.length} Costco pin(s) from analysis`)
+        setCostcoVisible(true)
+      }
+    }
 
     if (analysisResults.dataCenters.length > 0 && !dataCenterVisible) {
       const layer = dataCenterLayerRef.current
@@ -3410,6 +3440,10 @@ function MapPage() {
     for (const s of analysisResults.superfunds) targetBounds.extend([s.lat, s.lng])
     for (const dc of analysisResults.dataCenters) targetBounds.extend([dc.lat, dc.lng])
     for (const m of analysisResults.crowdMagnets) targetBounds.extend([m.lat, m.lng])
+    // Include the closest Costco (in-radius or nearest-beyond) so the
+    // auto-enabled Costco pin is actually visible after the fit.
+    const closestCostco = analysisResults.costco ?? analysisResults.costcoNearestBeyond
+    if (closestCostco) targetBounds.extend([closestCostco.lat, closestCostco.lng])
     // Noise has no specific pin — extend by 5 mi from address so the
     // corridor heatmap area is visible.
     if (noiseDetected) {
