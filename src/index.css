@@ -4,6 +4,17 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+[role="button"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="submit"],
+input[type="button"],
+a {
+  touch-action: manipulation;
 }
 
 :root {
@@ -22,9 +33,21 @@ body {
   color: var(--color-text);
   min-height: 100vh;
   min-height: 100dvh;
+  -webkit-text-size-adjust: 100%;
 }
 
 #root {
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

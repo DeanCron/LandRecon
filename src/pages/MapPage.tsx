@@ -2331,6 +2331,7 @@ function MapPage() {
           center: [lat, lng],
           zoom: 14,
           zoomControl: false,
+          preferCanvas: true,
         })
 
         createBaseLayer('street').then((baseLayer) => {

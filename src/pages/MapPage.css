@@ -2389,6 +2389,80 @@
   .share-popup {
     max-width: calc(100vw - 40px);
   }
+
+  /* Prevent iOS auto-zoom on focus — inputs must be ≥16px */
+  .header-address-input,
+  .header-address-edit input,
+  .dev-todos-add input,
+  .home-input,
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"] {
+    font-size: 16px;
+  }
+
+  /* Bottom-sheet panels: keep scroll contained, hint GPU compositing */
+  .layer-panel,
+  .analysis-panel,
+  .analysis-popout,
+  .analysis-detail-popup,
+  .dev-todos-list {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .layer-panel,
+  .analysis-panel,
+  .analysis-popout {
+    will-change: transform;
+  }
+
+  /* Larger touch targets on small screens (Apple HIG ≥44px) */
+  .analysis-detail-close,
+  .analysis-popout-close {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dev-todo-delete {
+    width: 36px;
+    height: 36px;
+    top: 2px;
+    right: 2px;
+    font-size: 1.25rem;
+  }
+
+  .dev-todo-item label {
+    padding-right: 38px;
+    min-height: 32px;
+  }
+
+  .dev-todos-add button {
+    min-height: 40px;
+    padding: 8px 16px;
+  }
+
+  /* Disable expensive blur on mobile (battery + GPU savings) */
+  .analysis-progress-strip {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(15, 23, 42, 0.95);
+  }
+
+  /* Respect notches / home indicator on iOS */
+  .layer-toggle-btn,
+  .analysis-toggle-btn {
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  }
+
+  /* Tighter overlay padding so popups have more usable width */
+  .analysis-detail-overlay {
+    padding: 12px;
+  }
 }
 
 /* Print-only header (hidden on screen) */
