@@ -22,7 +22,13 @@ const NOISE_PMTILES_URL =
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 const TRAFFIC_TILE_URL = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`
 
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || 'AIzaSyCO9_Y8RuzXOHw6C87_Gbh-ZOUroIUQ3Io'
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || ''
+if (!GOOGLE_MAPS_KEY && typeof window !== 'undefined') {
+  console.warn(
+    '[LandRecon] VITE_GOOGLE_MAPS_KEY is not set — basemaps, transit, ER, and Costco lookups will fail. ' +
+    'Add it to .env for local dev or to the GOOGLE_MAPS_KEY GitHub Secret for deploys.',
+  )
+}
 
 // Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
 declare const __BUILD_VERSION__: string

@@ -31,7 +31,10 @@ serves static files. All "live" map data is fetched from third-party APIs
 
 ```bash
 # Build
-docker build --build-arg VITE_TOMTOM_API_KEY=your-key -t landrecon .
+docker build \
+  --build-arg VITE_TOMTOM_API_KEY=your-tomtom-key \
+  --build-arg VITE_GOOGLE_MAPS_KEY=your-google-key \
+  -t landrecon .
 
 # Run
 docker run --rm -p 8000:8000 landrecon
@@ -101,6 +104,7 @@ In GitHub repo → Settings → Secrets and variables → Actions:
 |------|-------|
 | `AZURE_CREDENTIALS` | Service principal JSON (`az ad sp create-for-rbac --sdk-auth`) |
 | `TOMTOM_API_KEY` | Your TomTom API key |
+| `GOOGLE_MAPS_KEY` | Your Google Maps Platform API key (Map Tiles + Places APIs enabled) |
 
 **Variables:**
 | Name | Value |

@@ -37,6 +37,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}
           build-args: |
             VITE_TOMTOM_API_KEY=${{ secrets.TOMTOM_API_KEY }}
+            VITE_GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
             VITE_NOISE_PMTILES_URL=${{ vars.NOISE_PMTILES_URL }}
             BUILD_GIT_HASH=${{ github.sha }}
 

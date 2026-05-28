@@ -13,9 +13,11 @@ npm run dev
 
 - **React 19** with TypeScript
 - **Vite** for dev server and bundling
-- **Leaflet** for interactive maps
+- **Leaflet** for interactive maps, with **Google Maps Tiles** (street + satellite basemaps) and **PMTiles** for offline-friendly airport-noise contours
 - **React Router** for client-side routing
-- **Nominatim** (OpenStreetMap) for geocoding and address autocomplete
+- **TomTom** Search API for geocoding, address autocomplete, and live traffic-flow tiles
+- **Google Places API** for transit stops, hospital/ER, and Costco lookups
+- **EPA ArcGIS** services for Superfund site boundaries
 
 ## Project Structure
 
