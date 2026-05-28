@@ -100,6 +100,92 @@ async function createBaseLayer(id: BaseMapId): Promise<L.TileLayer> {
   )
 }
 
+// Fetch nearby Costco Wholesale warehouses via Google Places Text Search.
+// We previously queried Overpass/OSM but OSM coverage of Costco brand tags
+// is uneven — many real warehouses are missing the brand or shop tags and
+// were silently excluded, producing results like "nearest is 24mi away"
+// when there's actually one much closer. Google Places matches what users
+// see when they search "costco" on maps.google.com.
+type CostcoPlace = { id: string; name: string; addr: string; lat: number; lng: number }
+async function fetchCostcosViaPlaces(opts: {
+  circle?: { lat: number; lng: number; radiusM: number }
+  rectangle?: { south: number; west: number; north: number; east: number }
+  signal?: AbortSignal
+}): Promise<CostcoPlace[]> {
+  if (!GOOGLE_MAPS_KEY) return []
+  const body: Record<string, unknown> = {
+    textQuery: 'Costco Wholesale',
+    maxResultCount: 20,
+  }
+  if (opts.circle) {
+    body.locationBias = {
+      circle: {
+        center: { latitude: opts.circle.lat, longitude: opts.circle.lng },
+        radius: Math.min(opts.circle.radiusM, 50000),
+      },
+    }
+  } else if (opts.rectangle) {
+    body.locationRestriction = {
+      rectangle: {
+        low: { latitude: opts.rectangle.south, longitude: opts.rectangle.west },
+        high: { latitude: opts.rectangle.north, longitude: opts.rectangle.east },
+      },
+    }
+  }
+
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+    },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  })
+  if (!res.ok) throw new Error(`Places searchText: ${res.status}`)
+  const data = await res.json()
+  const out: CostcoPlace[] = []
+  for (const p of data.places || []) {
+    const loc = p.location
+    if (!loc) continue
+    const name = (p.displayName?.text || 'Costco').trim()
+    // The store warehouse always matches /costco/. Filter out adjacent
+    // Costco Gas, Costco Tire Center, Costco Pharmacy, etc. so they don't
+    // count as separate locations.
+    if (!/costco/i.test(name)) continue
+    if (/\b(gas|fuel|tire|pharmacy|optical|food court|hearing|liquor)\b/i.test(name)) continue
+    out.push({
+      id: p.id,
+      name,
+      addr: p.formattedAddress || '',
+      lat: loc.latitude,
+      lng: loc.longitude,
+    })
+  }
+  return out
+}
+
+// Split "123 Main St, Springfield, IL 62701, USA" into street + locality.
+function parseCostcoAddress(addr: string): { street: string; locality: string } {
+  if (!addr) return { street: '', locality: '' }
+  const parts = addr.split(',').map((s) => s.trim()).filter(Boolean)
+  // Drop trailing "USA"
+  if (parts.length && /^USA?$/i.test(parts[parts.length - 1])) parts.pop()
+  const street = parts[0] || ''
+  let city = ''
+  let state = ''
+  if (parts.length >= 3) {
+    city = parts[1]
+    state = (parts[2].split(/\s+/)[0] || '')
+  } else if (parts.length === 2) {
+    city = parts[1]
+  }
+  const locality = [city, state].filter(Boolean).join(', ')
+  return { street, locality }
+}
+
+
 const SUPERFUND_API =
   'https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/FAC_Superfund_Site_Boundaries_EPA_Public/FeatureServer/0/query'
 
@@ -1296,38 +1382,25 @@ function MapPage() {
 
     try {
       const padded = bounds.pad(1.0)
-      const s = padded.getSouth(), w = padded.getWest()
-      const n = padded.getNorth(), e = padded.getEast()
-      const bbox = `${s},${w},${n},${e}`
-      const query = `[out:json][timeout:15];(
-        node["brand"="Costco"]["shop"](${bbox});
-        way["brand"="Costco"]["shop"](${bbox});
-        relation["brand"="Costco"]["shop"](${bbox});
-        node["brand:wikidata"="Q715583"]["shop"](${bbox});
-        way["brand:wikidata"="Q715583"]["shop"](${bbox});
-        relation["brand:wikidata"="Q715583"]["shop"](${bbox});
-      );out body center;`
-
-      const data = await fetchOverpass(query, { label: 'costco' })
-      if (!data?.elements || data.elements.length === 0) {
+      const places = await fetchCostcosViaPlaces({
+        rectangle: {
+          south: padded.getSouth(),
+          west: padded.getWest(),
+          north: padded.getNorth(),
+          east: padded.getEast(),
+        },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (places.length === 0) {
         costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
         return
       }
 
       const known = costcoKnownIdsRef.current
-      for (const el of data.elements) {
-        const id = `${el.type}-${el.id}`
-        if (known.has(id)) continue
+      for (const p of places) {
+        if (known.has(p.id)) continue
 
-        const elLat = el.lat ?? el.center?.lat
-        const elLon = el.lon ?? el.center?.lon
-        if (elLat == null || elLon == null) continue
-        const tags = el.tags || {}
-        const city = tags['addr:city'] || ''
-        const state = tags['addr:state'] || ''
-        const branch = tags.branch || ''
-        const locality = branch || [city, state].filter(Boolean).join(', ')
-        const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
+        const { street, locality } = parseCostcoAddress(p.addr)
         const tooltipParts = ['Costco']
         if (locality) tooltipParts[0] = `Costco — ${locality}`
         if (street) tooltipParts.push(street)
@@ -1339,8 +1412,8 @@ function MapPage() {
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         })
-        L.marker([elLat, elLon], { icon }).bindTooltip(tooltip, { direction: 'top', offset: [0, -16] }).addTo(layer)
-        known.add(id)
+        L.marker([p.lat, p.lng], { icon }).bindTooltip(tooltip, { direction: 'top', offset: [0, -16] }).addTo(layer)
+        known.add(p.id)
       }
 
       costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
@@ -1498,50 +1571,35 @@ function MapPage() {
     const milesToMeters = 1609.34
     const TIMEOUT = 10000
 
-    // Costco runs independently from the other categories. The Overpass server
-    // is often the slow one, so we let it complete in the background and merge
-    // its result in via a second setAnalysisResults once it lands.
+    // Costco runs independently from the other categories. The Google Places
+    // lookup is usually quick but the report shouldn't wait on it: we let it
+    // complete in the background and merge its result in via a second
+    // setAnalysisResults once it lands.
     type CostcoHit = { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }
     const costcoPromise = (async () => {
       try {
-        const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
-        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
-        const query = `[out:json][timeout:30];(
-          node["brand"="Costco"]["shop"](${bbox});
-          way["brand"="Costco"]["shop"](${bbox});
-          relation["brand"="Costco"]["shop"](${bbox});
-          node["brand:wikidata"="Q715583"]["shop"](${bbox});
-          way["brand:wikidata"="Q715583"]["shop"](${bbox});
-          relation["brand:wikidata"="Q715583"]["shop"](${bbox});
-        );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000), label: 'analysis-costco' })
-        if (!data?.elements) return { nearest: null as CostcoHit | null, nearby: [] as CostcoHit[] }
+        const radiusM = COSTCO_ANALYSIS_RADIUS_MI * milesToMeters
+        const places = await fetchCostcosViaPlaces({
+          circle: { lat, lng, radiusM },
+          signal: AbortSignal.timeout(15000),
+        })
         const seen = new Set<string>()
         const hits: CostcoHit[] = []
-        for (const el of data.elements) {
-          const id = `${el.type}-${el.id}`
-          if (seen.has(id)) continue
-          seen.add(id)
-          const elLat = el.lat ?? el.center?.lat
-          const elLon = el.lon ?? el.center?.lon
-          if (elLat == null || elLon == null) continue
-          const dist = location.distanceTo(L.latLng(elLat, elLon))
+        for (const p of places) {
+          if (seen.has(p.id)) continue
+          seen.add(p.id)
+          const dist = location.distanceTo(L.latLng(p.lat, p.lng))
           const distMi = dist / milesToMeters
           if (distMi > COSTCO_ANALYSIS_RADIUS_MI) continue
-          const tags = el.tags || {}
-          const city = tags['addr:city'] || ''
-          const state = tags['addr:state'] || ''
-          const branch = tags.branch || ''
-          const locality = branch || [city, state].filter(Boolean).join(', ')
-          const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
+          const { street, locality } = parseCostcoAddress(p.addr)
           hits.push({
-            osmId: id,
-            name: tags.name || 'Costco',
+            osmId: p.id,
+            name: p.name,
             city: locality,
             address: street,
             distanceMi: Math.round(distMi * 10) / 10,
-            lat: elLat,
-            lng: elLon,
+            lat: p.lat,
+            lng: p.lng,
           })
         }
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
