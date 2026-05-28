@@ -725,7 +725,7 @@ const CROWD_LABEL_SINGULAR: Record<CrowdType, string> = {
   raceway: 'Racetrack',
   themepark: 'Theme Park',
 }
-const CROWD_ANALYSIS_RADIUS_MI = 3
+const CROWD_ANALYSIS_RADIUS_MI = 2
 
 interface CrowdMagnet {
   id: string
@@ -733,6 +733,24 @@ interface CrowdMagnet {
   type: CrowdType
   lat: number
   lng: number
+}
+
+const SCHOOL_NAME_RE = /\b(elementary|middle school|high school|junior high|preparatory|prep school|academy|charter|catholic school|christian school|christian academy|day school|public schools?)\b/i
+const COMMUNITY_NAME_RE = /\b(community (center|centre|park)|recreation (center|centre)|rec center|rec centre|ymca|ywca|civic center|civic centre)\b/i
+
+function isSchoolVenue(tags: Record<string, string>, name: string): boolean {
+  if (SCHOOL_NAME_RE.test(name)) return true
+  if (tags.school) return true
+  if (tags.amenity === 'school') return true
+  const op = (tags.operator || '').toLowerCase()
+  if (op.includes('school') || op.includes('academy') || op.includes('isd')) return true
+  return false
+}
+
+function isCommunityVenue(tags: Record<string, string>, name: string): boolean {
+  if (COMMUNITY_NAME_RE.test(name)) return true
+  if (tags.amenity === 'community_centre') return true
+  return false
 }
 
 function classifyCrowdElement(tags: Record<string, string>): CrowdType | null {
@@ -775,6 +793,10 @@ async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): 
     if (!type) continue
     const rawName = tags.name || tags['name:en'] || tags.short_name
     if (!rawName) continue
+    // Skip school stadiums/fields and community/rec centers — too many in
+    // residential areas, and they don't really qualify as crowd magnets
+    // compared to pro/college venues.
+    if ((type === 'stadium' || type === 'concert') && (isSchoolVenue(tags, rawName) || isCommunityVenue(tags, rawName))) continue
     const id = `${el.type}-${el.id}`
     if (seen.has(id)) continue
     seen.add(id)
