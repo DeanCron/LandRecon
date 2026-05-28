@@ -92,19 +92,64 @@ const SUPERFUND_FIELDS = [
 
 const LEGEND_STOPS = LEGEND_BANDS
 
-const SUPERFUND_STYLE: L.PathOptions = {
-  color: '#DC267F',
-  weight: 3,
-  opacity: 1,
-  fillColor: '#DC267F',
-  fillOpacity: 0.25,
-  dashArray: '6, 4',
+const SUPERFUND_ICON = L.divIcon({
+  className: 'superfund-marker',
+  html: `<svg viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#DC267F" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="6" fill="#fff"/>
+    <text x="12" y="15.5" text-anchor="middle" font-size="10" font-weight="700" fill="#DC267F" font-family="system-ui, sans-serif">!</text>
+  </svg>`,
+  iconSize: [26, 34],
+  iconAnchor: [13, 34],
+  popupAnchor: [0, -30],
+})
+
+type GeoJSONCoord = number[]
+type GeoJSONRing = GeoJSONCoord[]
+
+function superfundFeatureToPoint(
+  feat: GeoJSON.Feature,
+): GeoJSON.Feature<GeoJSON.Point> | null {
+  const geom = feat.geometry
+  if (!geom) return null
+  let lat: number | undefined
+  let lon: number | undefined
+  if (geom.type === 'Point') {
+    const [x, y] = geom.coordinates
+    lon = x
+    lat = y
+  } else if (geom.type === 'Polygon') {
+    const ring = geom.coordinates[0] as GeoJSONRing | undefined
+    if (ring && ring.length) {
+      lon = ring.reduce((s, c) => s + c[0], 0) / ring.length
+      lat = ring.reduce((s, c) => s + c[1], 0) / ring.length
+    }
+  } else if (geom.type === 'MultiPolygon') {
+    const ring = geom.coordinates[0]?.[0] as GeoJSONRing | undefined
+    if (ring && ring.length) {
+      lon = ring.reduce((s, c) => s + c[0], 0) / ring.length
+      lat = ring.reduce((s, c) => s + c[1], 0) / ring.length
+    }
+  }
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null
+  }
+  return {
+    type: 'Feature',
+    properties: feat.properties || {},
+    geometry: { type: 'Point', coordinates: [lon, lat] },
+  }
 }
 
-const SUPERFUND_HOVER_STYLE: L.PathOptions = {
-  weight: 5,
-  fillOpacity: 0.45,
-  color: '#E8559A',
+function superfundFeaturesToPoints(
+  fc: GeoJSON.FeatureCollection,
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const f of fc.features || []) {
+    const pt = superfundFeatureToPoint(f)
+    if (pt) features.push(pt)
+  }
+  return { type: 'FeatureCollection', features }
 }
 
 // Schools API endpoints (NCES)
@@ -1247,7 +1292,7 @@ function MapPage() {
       const geojson = await fetchSuperfundFeatures(padded)
       dbg('superfund', `Got ${geojson.features?.length || 0} features`)
       layer.clearLayers()
-      layer.addData(geojson)
+      layer.addData(superfundFeaturesToPoints(geojson))
       superfundLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load Superfund data:', err)
@@ -1718,16 +1763,10 @@ function MapPage() {
 
         // Create Superfund layer (not added to map until toggled on)
         superfundLayerRef.current = L.geoJSON(undefined, {
-          style: () => SUPERFUND_STYLE,
+          pointToLayer: (_feat, latlng) => L.marker(latlng, { icon: SUPERFUND_ICON, riseOnHover: true }),
           onEachFeature: (_feature, layer) => {
             const props = (_feature as GeoJSON.Feature).properties || {}
             layer.bindPopup(superfundPopup(props), { maxWidth: 280 })
-            layer.on('mouseover', (e) => {
-              (e.target as L.Path).setStyle(SUPERFUND_HOVER_STYLE)
-            })
-            layer.on('mouseout', (e) => {
-              superfundLayerRef.current?.resetStyle(e.target as L.Path)
-            })
           },
         })
 
@@ -2327,35 +2366,18 @@ function MapPage() {
         })
         fetch(`${SUPERFUND_API}?${params}`)
           .then(res => res.ok ? res.json() : null)
-          .then(geojson => {
+          .then((geojson: GeoJSON.FeatureCollection | null) => {
             if (!geojson?.features) return
-            // Filter features to 5mi radius
-            const filtered = {
-              ...geojson,
-              features: geojson.features.filter((feat: any) => {
-                const coords = feat.geometry?.coordinates
-                if (!coords) return false
-                // For polygons, use centroid approximation (first ring avg)
-                let fLat: number, fLon: number
-                if (feat.geometry.type === 'Point') {
-                  fLon = coords[0]; fLat = coords[1]
-                } else if (feat.geometry.type === 'Polygon') {
-                  const ring = coords[0]
-                  fLon = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length
-                  fLat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length
-                } else if (feat.geometry.type === 'MultiPolygon') {
-                  const ring = coords[0][0]
-                  fLon = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length
-                  fLat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length
-                } else {
-                  return true
-                }
-                const dist = center.distanceTo(L.latLng(fLat, fLon))
-                return dist <= 5 * milesToMeters
-              }),
+            const points = superfundFeaturesToPoints(geojson)
+            const within: GeoJSON.Feature<GeoJSON.Point>[] = []
+            for (const pt of points.features) {
+              const [lon, lat] = pt.geometry.coordinates
+              if (center.distanceTo(L.latLng(lat, lon)) <= 5 * milesToMeters) {
+                within.push(pt)
+              }
             }
             layer.clearLayers()
-            layer.addData(filtered)
+            layer.addData({ type: 'FeatureCollection', features: within } as GeoJSON.FeatureCollection)
             superfundLoadedBoundsRef.current = constrainedBounds
           })
           .catch(() => {})
@@ -2773,8 +2795,13 @@ function MapPage() {
             {superfundVisible && (
               <div className="superfund-legend">
                 <div className="legend-swatch-row">
-                  <span className="legend-swatch" />
-                  <span>NPL Site Boundary</span>
+                  <span className="legend-pin" aria-hidden="true">
+                    <svg width="14" height="18" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#DC267F" stroke="#fff" strokeWidth="1.5"/>
+                      <circle cx="12" cy="12" r="6" fill="#fff"/>
+                    </svg>
+                  </span>
+                  <span>NPL Superfund Site</span>
                 </div>
               </div>
             )}
