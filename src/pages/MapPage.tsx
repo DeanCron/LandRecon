@@ -346,171 +346,6 @@ function superfundFeaturesToPoints(
   return { type: 'FeatureCollection', features }
 }
 
-// Schools API endpoints (NCES)
-const SCHOOLS_PUBLIC_API =
-  'https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/School_Characteristics_Current/FeatureServer/0/query'
-
-const SCHOOLS_PRIVATE_API =
-  'https://services1.arcgis.com/Ua5sjt3LWTPigjyD/arcgis/rest/services/Private_School_Locations_Current/FeatureServer/0/query'
-
-type SchoolCategory = 'public' | 'charter' | 'private-religious' | 'private-other'
-
-interface SchoolPoint {
-  lat: number
-  lon: number
-  name: string
-  category: SchoolCategory
-  city?: string
-  state?: string
-  grades?: string
-  enrollment?: number
-}
-
-const SCHOOL_COLORS: Record<SchoolCategory, string> = {
-  public: '#0072B2',
-  charter: '#009E73',
-  'private-religious': '#CC79A7',
-  'private-other': '#E69F00',
-}
-
-const SCHOOL_LABELS: Record<SchoolCategory, string> = {
-  public: 'Public School',
-  charter: 'Charter School',
-  'private-religious': 'Private (Religious)',
-  'private-other': 'Private (Other)',
-}
-
-const RELIGIOUS_KEYWORDS = [
-  'catholic', 'christian', 'baptist', 'lutheran', 'methodist',
-  'episcopal', 'presbyterian', 'adventist', 'pentecostal',
-  'church', 'parish', 'parochial', 'diocese', 'apostolic',
-  'assembly of god', 'nazarene', 'covenant', 'evangel',
-  'holy', 'sacred heart', 'st.', 'saint', 'our lady',
-  'blessed', 'trinity', 'calvary', 'grace', 'faith',
-  'bible', 'gospel', 'redeemer', 'salvation', 'resurrection',
-  'jewish', 'hebrew', 'yeshiva', 'torah', 'shalom',
-  'synagogue', 'talmud', 'chabad',
-]
-
-function isReligiousSchool(name: string): boolean {
-  const lower = name.toLowerCase()
-  return RELIGIOUS_KEYWORDS.some((kw) => lower.includes(kw))
-}
-
-async function fetchSchools(bounds: L.LatLngBounds): Promise<SchoolPoint[]> {
-  const env = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-
-  const publicParams = new URLSearchParams({
-    where: "STATUS=1",
-    outFields: 'SCH_NAME,CHARTER_TEXT,SCHOOL_TYPE_TEXT,LCITY,LSTATE,GSLO,GSHI,MEMBER',
-    geometry: env,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'json',
-    resultRecordCount: '2000',
-  })
-
-  const privateParams = new URLSearchParams({
-    where: '1=1',
-    outFields: 'NAME,CITY,STATE',
-    geometry: env,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'json',
-    resultRecordCount: '2000',
-  })
-
-  // OSM Overpass query for schools
-  const s = bounds.getSouth(), w = bounds.getWest()
-  const n = bounds.getNorth(), e = bounds.getEast()
-  const bbox = `${s},${w},${n},${e}`
-  const osmQuery = `[out:json][timeout:15];(
-    node["amenity"="school"](${bbox});
-    way["amenity"="school"](${bbox});
-    relation["amenity"="school"](${bbox});
-  );out body center;`
-
-  const [pubRes, privRes, osmRes] = await Promise.all([
-    fetch(`${SCHOOLS_PUBLIC_API}?${publicParams}`).then((r) => r.json()).catch((err) => {
-      console.warn('Public school fetch failed:', err)
-      return { features: [] }
-    }),
-    fetch(`${SCHOOLS_PRIVATE_API}?${privateParams}`).then((r) => r.json()).catch((err) => {
-      console.warn('Private school fetch failed:', err)
-      return { features: [] }
-    }),
-    fetchOverpass(osmQuery, { label: 'schools' }).then((d) => d ?? { elements: [] }),
-  ])
-
-  const schools: SchoolPoint[] = []
-  // Track locations to deduplicate OSM against NCES
-  const knownLocations = new Set<string>()
-
-  for (const feat of pubRes.features || []) {
-    const a = feat.attributes
-    const g = feat.geometry
-    if (!g) continue
-    const isCharter = a.CHARTER_TEXT === 'Yes'
-    knownLocations.add(`${g.y.toFixed(4)},${g.x.toFixed(4)}`)
-    schools.push({
-      lat: g.y,
-      lon: g.x,
-      name: a.SCH_NAME || 'Unknown',
-      category: isCharter ? 'charter' : 'public',
-      city: a.LCITY,
-      state: a.LSTATE,
-      grades: a.GSLO && a.GSHI ? `${a.GSLO}–${a.GSHI}` : undefined,
-      enrollment: a.MEMBER > 0 ? a.MEMBER : undefined,
-    })
-  }
-
-  for (const feat of privRes.features || []) {
-    const a = feat.attributes
-    const g = feat.geometry
-    if (!g) continue
-    const name = a.NAME || 'Unknown'
-    knownLocations.add(`${g.y.toFixed(4)},${g.x.toFixed(4)}`)
-    schools.push({
-      lat: g.y,
-      lon: g.x,
-      name,
-      category: isReligiousSchool(name) ? 'private-religious' : 'private-other',
-      city: a.CITY,
-      state: a.STATE,
-    })
-  }
-
-  // Add OSM schools not already in NCES data
-  for (const el of osmRes.elements || []) {
-    const lat = el.lat ?? el.center?.lat
-    const lon = el.lon ?? el.center?.lon
-    if (!lat || !lon) continue
-    const name = el.tags?.name
-    if (!name) continue
-    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
-    if (knownLocations.has(key)) continue
-    knownLocations.add(key)
-    const opType = (el.tags?.['operator:type'] || '').toLowerCase()
-    let category: SchoolCategory
-    if (opType === 'public' || opType === 'government') {
-      category = 'public'
-    } else if (isReligiousSchool(name) || el.tags?.religion) {
-      category = 'private-religious'
-    } else if (opType === 'private') {
-      category = 'private-other'
-    } else {
-      category = 'private-other'
-    }
-    schools.push({ lat, lon, name, category })
-  }
-
-  return schools
-}
-
 // Overpass requests are routed through a same-origin nginx proxy (see
 // nginx.conf and vite.config.ts) that injects a non-Mozilla User-Agent.
 // overpass-api.de returns 406 to generic browser UAs, and the browser's
@@ -750,7 +585,7 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'schools', 'traffic', 'costco', 'datacenters', 'ems'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -760,12 +595,11 @@ type LayerStateSnapshot = {
   costco: boolean
   datacenters: boolean
   ems: boolean
-  schools: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, transit: false, traffic: false,
-  costco: false, datacenters: false, ems: false, schools: false,
+  costco: false, datacenters: false, ems: false,
 }
 
 interface LayerPreset {
@@ -779,8 +613,8 @@ const LAYER_PRESETS: readonly LayerPreset[] = [
   {
     id: 'family',
     label: 'Family',
-    desc: 'Transit, emergency services, Costco, and schools',
-    state: { ...LAYER_OFF, transit: true, ems: true, costco: true, schools: true },
+    desc: 'Transit, emergency services, and Costco',
+    state: { ...LAYER_OFF, transit: true, ems: true, costco: true },
   },
   {
     id: 'quiet',
@@ -862,7 +696,6 @@ const EMS_QUERIES: Record<EmsType, string[]> = {
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
 const ER_ANALYSIS_RADIUS_MI = 15
-const SCHOOLS_DEFAULT = false
 
 function getExpFlag(key: string, fallback: boolean): boolean {
   const v = localStorage.getItem(key)
@@ -1035,8 +868,6 @@ function MapPage() {
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
-  const schoolLayerRef = useRef<L.LayerGroup | null>(null)
-  const schoolLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
   const costcoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoKnownIdsRef = useRef<Set<string>>(new Set())
@@ -1075,8 +906,6 @@ function MapPage() {
     rail: true, subway: true, tram: true, bus: true,
   })
   const transitSubVisibleRef = useRef(transitSubVisible)
-  const [schoolsVisible, setSchoolsVisible] = useState(false)
-  const [schoolsLoading, setSchoolsLoading] = useState(false)
   const [costcoVisible, setCostcoVisible] = useState(false)
   const [trafficVisible, setTrafficVisible] = useState(false)
   const [dataCenterVisible, setDataCenterVisible] = useState(false)
@@ -1208,7 +1037,6 @@ function MapPage() {
   // Experimental feature flags (persisted in localStorage)
   const [expMenuOpen, setExpMenuOpen] = useState(false)
   const expMenuRef = useRef<HTMLDivElement>(null)
-  const [SCHOOLS_ENABLED, setSchoolsEnabled] = useState(() => getExpFlag('lr_exp_schools', SCHOOLS_DEFAULT))
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
@@ -1274,7 +1102,6 @@ function MapPage() {
     if (noiseVisible) active.push('noise')
     if (superfundVisible) active.push('superfund')
     if (transitVisible) active.push('transit')
-    if (schoolsVisible) active.push('schools')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
     if (dataCenterVisible) active.push('datacenters')
@@ -1282,7 +1109,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, schoolsVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1677,41 +1504,6 @@ function MapPage() {
       console.error('Failed to load transit data:', err)
     } finally {
       setTransitLoading(false)
-    }
-  }, [])
-
-  const loadSchoolData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    const center = map.getCenter()
-    const radiusDeg = 5 / 69
-    const bounds = L.latLngBounds(
-      [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
-      [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
-    )
-    const loaded = schoolLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('schools', 'Skipping — bounds already loaded'); return }
-    dbg('schools', 'Loading school data…')
-
-    setSchoolsLoading(true)
-    try {
-      const schools = await fetchSchools(bounds)
-      dbg('schools', `Got ${schools.length} schools`)
-      // Build all markers before touching the layer to avoid flicker
-      const newMarkers: L.Marker[] = []
-      for (const school of schools) {
-        const color = SCHOOL_COLORS[school.category]
-        const marker = L.marker([school.lat, school.lon], {
-          icon: makeDotIcon(color, 12),
-        }).bindTooltip(school.name, { direction: 'top', offset: [0, -6], className: 'location-tooltip' })
-        newMarkers.push(marker)
-      }
-      // Swap: clear old, add new in one batch
-      layer.clearLayers()
-      for (const m of newMarkers) m.addTo(layer)
-      schoolLoadedBoundsRef.current = bounds
-    } catch (err) {
-      console.error('Failed to load school data:', err)
-    } finally {
-      setSchoolsLoading(false)
     }
   }, [])
 
@@ -2202,7 +1994,6 @@ function MapPage() {
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
           transitLoadedBoundsRef.current = null
-          schoolLoadedBoundsRef.current = null
           costcoLoadedBoundsRef.current = null
           costcoKnownIdsRef.current.clear()
           emsLoadedBoundsRef.current = null
@@ -2266,9 +2057,6 @@ function MapPage() {
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
-        // Create schools layer (not added to map until toggled on)
-        schoolLayerRef.current = createClusterGroup()
-
         // Create Costco label layer (not added to map until toggled on)
         costcoLayerRef.current = L.layerGroup()
 
@@ -2318,8 +2106,6 @@ function MapPage() {
       transitLayerRef.current = null
       transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
-      schoolLayerRef.current = null
-      schoolLoadedBoundsRef.current = null
       costcoLayerRef.current = null
       costcoLoadedBoundsRef.current = null
       costcoKnownIdsRef.current.clear()
@@ -2772,22 +2558,6 @@ function MapPage() {
     [loadTransitData],
   )
 
-  const toggleSchools = () => {
-    const map = mapRef.current
-    const layer = schoolLayerRef.current
-    if (!map || !layer) return
-    dbg('toggle', `schools → ${schoolsVisible ? 'OFF' : 'ON'}`)
-
-    if (schoolsVisible) {
-      map.removeLayer(layer)
-    } else {
-      layer.addTo(map)
-      schoolLoadedBoundsRef.current = null
-      loadSchoolData(map, layer)
-    }
-    setSchoolsVisible(!schoolsVisible)
-  }
-
   const toggleTraffic = () => {
     const map = mapRef.current
     const layer = trafficLayerRef.current
@@ -2810,7 +2580,6 @@ function MapPage() {
     costco: costcoVisible,
     datacenters: dataCenterVisible,
     ems: emsVisible,
-    schools: schoolsVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -2822,7 +2591,6 @@ function MapPage() {
       && s.costco === currentLayerSnapshot.costco
       && s.datacenters === currentLayerSnapshot.datacenters
       && s.ems === currentLayerSnapshot.ems
-      && (!SCHOOLS_ENABLED || s.schools === currentLayerSnapshot.schools)
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -2839,7 +2607,6 @@ function MapPage() {
     setLayer(costcoVisible, toggleCostco, preset.state.costco)
     setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
     setLayer(emsVisible, toggleEms, preset.state.ems)
-    if (SCHOOLS_ENABLED) setLayer(schoolsVisible, toggleSchools, preset.state.schools)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -2859,7 +2626,6 @@ function MapPage() {
     if (requested.has('noise')) toggleNoise()
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('transit')) toggleTransit()
-    if (requested.has('schools') && SCHOOLS_ENABLED) toggleSchools()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
     if (requested.has('datacenters')) toggleDataCenters()
@@ -3098,10 +2864,6 @@ function MapPage() {
           {expMenuOpen && (
             <div className="exp-menu">
               <div className="exp-menu-title">Experimental</div>
-              <label className="exp-menu-item">
-                <input type="checkbox" checked={SCHOOLS_ENABLED} onChange={() => { toggleExpFlag('lr_exp_schools', SCHOOLS_ENABLED, setSchoolsEnabled) }} />
-                <span>Schools</span>
-              </label>
               <label className="exp-menu-item">
                 <input type="checkbox" checked={debugEnabled} onChange={() => { toggleExpFlag('LR_DEBUG', debugEnabled, setDebugEnabled) }} />
                 <span>Debug Logging</span>
@@ -3352,33 +3114,6 @@ function MapPage() {
               />
               <span className="layer-label">Costco</span>
             </label>
-
-            {SCHOOLS_ENABLED && (
-              <>
-                <label className="layer-toggle">
-                  <input
-                    type="checkbox"
-                    checked={schoolsVisible}
-                    onChange={toggleSchools}
-                    disabled={status !== 'ready'}
-                  />
-                  <span className="layer-label">
-                    Schools
-                    {schoolsLoading && <span className="layer-loading"> ⏳</span>}
-                  </span>
-                </label>
-                {schoolsVisible && (
-                  <div className="school-legend">
-                    {(Object.entries(SCHOOL_COLORS) as [SchoolCategory, string][]).map(([cat, color]) => (
-                      <div key={cat} className="legend-swatch-row">
-                        <span className="legend-dot" style={{ background: color }} />
-                        <span>{SCHOOL_LABELS[cat]}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
           </div>
         </details>
 
