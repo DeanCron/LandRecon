@@ -249,7 +249,7 @@ function HomePage() {
               onClick={handleUseMyLocation}
               disabled={locating}
               aria-label="Use my current location"
-              title={locating ? 'Finding you…' : 'Use my current location'}
+              data-tooltip={locating ? 'Finding you…' : 'Use my current location'}
             >
               {locating ? (
                 <span className="home-locate-spinner" aria-hidden="true" />
