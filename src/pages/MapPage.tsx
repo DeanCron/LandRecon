@@ -3238,7 +3238,7 @@ function MapPage() {
 
     const center = map.getCenter()
     const milesToMeters = 1609.34
-    let maxRadiusMeters = 0
+    let noiseDetected = false
 
     if (analysisResults.noiseLevel && !noiseVisible) {
       const airportLayer = airportLayerRef.current
@@ -3275,8 +3275,7 @@ function MapPage() {
         setNoiseVisible(true)
       }
       void enableNoise()
-      // Noise corridors typically extend ~3-5 miles from airport
-      maxRadiusMeters = Math.max(maxRadiusMeters, 5 * milesToMeters)
+      noiseDetected = true
     }
 
     if (analysisResults.superfunds.length > 0 && !superfundVisible) {
@@ -3321,10 +3320,6 @@ function MapPage() {
           .catch(() => {})
         // Don't attach moveend — keep constrained to 5mi
         setSuperfundVisible(true)
-      }
-      const farthest = analysisResults.superfunds[analysisResults.superfunds.length - 1]
-      if (farthest) {
-        maxRadiusMeters = Math.max(maxRadiusMeters, farthest.distanceMi * milesToMeters * 1.2)
       }
     }
 
@@ -3384,24 +3379,38 @@ function MapPage() {
       }
     }
 
-    // Zoom out to show the farthest issue — but only if the issue bounds
-    // aren't already contained within the current map view. Otherwise we'd
-    // pointlessly zoom the user out from their chosen zoom (e.g. dense urban
-    // areas where the issue is well within the visible viewport).
-    if (maxRadiusMeters > 0) {
-      const degOffset = maxRadiusMeters / 111320
-      const bounds = L.latLngBounds(
-        [center.lat - degOffset, center.lng - degOffset * 1.3],
-        [center.lat + degOffset, center.lng + degOffset * 1.3]
-      )
-      const currentBounds = map.getBounds()
-      if (!currentBounds.contains(bounds)) {
-        dbg('analysis', `Issue bounds extend beyond view — fitting to ${(maxRadiusMeters / 1609.34).toFixed(1)} mi radius`)
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
-      } else {
-        dbg('analysis', `Issue bounds already within view — keeping current zoom ${map.getZoom()}`)
-      }
+    // Pan/zoom to encompass the address plus all visible analysis pins.
+    // Strategy: build asymmetric bounds from actual pin positions and call
+    // fitBounds with maxZoom = currentZoom. That gives us:
+    //   - never zoom IN  → user's chosen zoom is preserved when pins fit
+    //   - zoom OUT only as far as needed if pins don't fit at current zoom
+    //   - re-centers as needed so the address and all pins are visible
+    const targetBounds = L.latLngBounds([center, center])
+    for (const s of analysisResults.superfunds) targetBounds.extend([s.lat, s.lng])
+    for (const dc of analysisResults.dataCenters) targetBounds.extend([dc.lat, dc.lng])
+    for (const m of analysisResults.crowdMagnets) targetBounds.extend([m.lat, m.lng])
+    // Noise has no specific pin — extend by 5 mi from address so the
+    // corridor heatmap area is visible.
+    if (noiseDetected) {
+      const noiseDeg = (5 * milesToMeters) / 111320
+      targetBounds.extend([center.lat - noiseDeg, center.lng - noiseDeg * 1.3])
+      targetBounds.extend([center.lat + noiseDeg, center.lng + noiseDeg * 1.3])
     }
+
+    // Bail if no analysis pins/areas to fit (just the address).
+    const sw = targetBounds.getSouthWest()
+    const ne = targetBounds.getNorthEast()
+    if (sw.equals(ne)) return
+
+    const { topLeft, bottomRight } = computeFitPadding()
+    const currentZoom = map.getZoom()
+    map.fitBounds(targetBounds, {
+      paddingTopLeft: topLeft,
+      paddingBottomRight: bottomRight,
+      maxZoom: currentZoom,
+    })
+    const newZoom = map.getZoom()
+    dbg('analysis', `fit analysis pins; zoom ${currentZoom} → ${newZoom}${newZoom === currentZoom ? ' (preserved)' : ''}`)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisResults.loading])
 
