@@ -4189,6 +4189,7 @@ function MapPage() {
                analysisDetail === 'superfunds' ? '☢️ Superfund Sites' :
                analysisDetail === 'costco' ? '🛒 Nearest Costco' :
                analysisDetail === 'er' ? '🏥 Emergency Room' :
+               analysisDetail === 'crowd' ? '🎟️ Crowd Magnets' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
