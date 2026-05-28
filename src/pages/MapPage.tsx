@@ -2934,14 +2934,18 @@ function MapPage() {
     try {
       const cached = districtLayerRefs.current[id]
       if (cached) {
+        dbg('districts', `Re-attaching cached ${id} layer`)
         cached.addTo(map)
       } else {
-        const { layer, resultsCount } = await loadDistrictLayer(id)
+        dbg('districts', `Loading ${id} boundary + results…`)
+        const { layer, resultsCount, featureCount } = await loadDistrictLayer(id)
+        dbg('districts', `Loaded ${id}: ${featureCount} features, ${resultsCount} results`)
         districtLayerRefs.current[id] = layer
         setDistrictAvailable((v) => ({ ...v, [id]: resultsCount > 0 }))
         layer.addTo(map)
       }
     } catch (err) {
+      dbg('districts', `Failed to load ${id}:`, err)
       console.warn(`Failed to load ${id} district layer:`, err)
       setDistrictVisible((v) => ({ ...v, [id]: false }))
     } finally {
