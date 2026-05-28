@@ -247,6 +247,7 @@ interface CachedAnalysisPayload {
     dataCenters: unknown[]
     nearestER: unknown
     erError: boolean
+    crowdMagnets: unknown[]
   }
 }
 
@@ -585,7 +586,7 @@ function superfundPopup(props: Record<string, string | null>): string {
   `
 }
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -595,11 +596,12 @@ type LayerStateSnapshot = {
   costco: boolean
   datacenters: boolean
   ems: boolean
+  crowd: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, transit: false, traffic: false,
-  costco: false, datacenters: false, ems: false,
+  costco: false, datacenters: false, ems: false, crowd: false,
 }
 
 interface LayerPreset {
@@ -693,6 +695,95 @@ const EMS_QUERIES: Record<EmsType, string[]> = {
   police: ['police stations'],
 }
 
+const CROWD_TYPES = ['stadium', 'concert', 'park', 'raceway', 'themepark'] as const
+type CrowdType = typeof CROWD_TYPES[number]
+const CROWD_COLORS: Record<CrowdType, string> = {
+  stadium: '#D55E00',
+  concert: '#CC79A7',
+  park: '#009E73',
+  raceway: '#332288',
+  themepark: '#E69F00',
+}
+const CROWD_LABELS: Record<CrowdType, string> = {
+  stadium: 'Stadiums',
+  concert: 'Concert Venues',
+  park: 'National Parks',
+  raceway: 'Racetracks',
+  themepark: 'Theme Parks',
+}
+const CROWD_ICONS: Record<CrowdType, string> = {
+  stadium: '🏟️',
+  concert: '🎵',
+  park: '🌲',
+  raceway: '🏁',
+  themepark: '🎢',
+}
+const CROWD_LABEL_SINGULAR: Record<CrowdType, string> = {
+  stadium: 'Stadium',
+  concert: 'Concert Venue',
+  park: 'National Park',
+  raceway: 'Racetrack',
+  themepark: 'Theme Park',
+}
+const CROWD_ANALYSIS_RADIUS_MI = 5
+
+interface CrowdMagnet {
+  id: string
+  name: string
+  type: CrowdType
+  lat: number
+  lng: number
+}
+
+function classifyCrowdElement(tags: Record<string, string>): CrowdType | null {
+  if (tags.boundary === 'national_park') return 'park'
+  if (tags.tourism === 'theme_park') return 'themepark'
+  if (tags.leisure === 'stadium') return 'stadium'
+  if (tags.amenity === 'amphitheatre' || tags.amenity === 'events_venue' || tags.leisure === 'bandstand') return 'concert'
+  if (tags.highway === 'raceway') return 'raceway'
+  if (tags.leisure === 'track') {
+    const sport = (tags.sport || '').toLowerCase()
+    if (/motor|drag|karting|horse_racing/.test(sport)) return 'raceway'
+  }
+  return null
+}
+
+async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): Promise<CrowdMagnet[]> {
+  const s = bounds.getSouth(), w = bounds.getWest()
+  const n = bounds.getNorth(), e = bounds.getEast()
+  const bbox = `${s},${w},${n},${e}`
+  const q = `[out:json][timeout:25];(
+    nwr["leisure"="stadium"](${bbox});
+    nwr["tourism"="theme_park"](${bbox});
+    nwr["amenity"="amphitheatre"](${bbox});
+    nwr["amenity"="events_venue"](${bbox});
+    nwr["leisure"="bandstand"](${bbox});
+    nwr["highway"="raceway"](${bbox});
+    way["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"](${bbox});
+    relation["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"](${bbox});
+    way["boundary"="national_park"](${bbox});
+    relation["boundary"="national_park"](${bbox});
+  );out body center;`
+  const data = await fetchOverpass(q, { label: 'crowd', signal })
+  if (!data?.elements) return []
+  const seen = new Set<string>()
+  const out: CrowdMagnet[] = []
+  for (const el of data.elements) {
+    const lat = el.lat ?? el.center?.lat
+    const lon = el.lon ?? el.center?.lon
+    if (lat == null || lon == null) continue
+    const tags = el.tags || {}
+    const type = classifyCrowdElement(tags)
+    if (!type) continue
+    const name = tags.name || tags['name:en'] || tags.short_name || CROWD_LABEL_SINGULAR[type]
+    const id = `${el.type}-${el.id}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, name, type, lat, lng: lon })
+  }
+  return out
+}
+
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
 const ER_ANALYSIS_RADIUS_MI = 15
@@ -720,6 +811,12 @@ function superfundSeverity(sites: { status: string }[]): 'clear' | 'warning' | '
 }
 
 function dataCenterSeverity(count: number): 'clear' | 'warning' | 'danger' {
+  if (count === 0) return 'clear'
+  if (count <= 2) return 'warning'
+  return 'danger'
+}
+
+function crowdMagnetsSeverity(count: number): 'clear' | 'warning' | 'danger' {
   if (count === 0) return 'clear'
   if (count <= 2) return 'warning'
   return 'danger'
@@ -887,6 +984,14 @@ function MapPage() {
     fire_station: true, hospital: true, police: true,
   })
   const emsSubVisibleRef = useRef(emsSubVisible)
+  const crowdLayerRef = useRef<L.LayerGroup | null>(null)
+  const crowdSubLayersRef = useRef<Record<CrowdType, L.LayerGroup> | null>(null)
+  const crowdLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const crowdKnownIdsRef = useRef<Set<string>>(new Set())
+  const [crowdSubVisible, setCrowdSubVisible] = useState<Record<CrowdType, boolean>>({
+    stadium: true, concert: true, park: true, raceway: true, themepark: true,
+  })
+  const crowdSubVisibleRef = useRef(crowdSubVisible)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
   const highlightMarkerRef = useRef<L.Marker | null>(null)
@@ -911,6 +1016,8 @@ function MapPage() {
   const [dataCenterVisible, setDataCenterVisible] = useState(false)
   const [emsVisible, setEmsVisible] = useState(false)
   const [emsLoading, setEmsLoading] = useState(false)
+  const [crowdVisible, setCrowdVisible] = useState(false)
+  const [crowdLoading, setCrowdLoading] = useState(false)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
     loading: boolean
@@ -926,9 +1033,10 @@ function MapPage() {
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
+    crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [] })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -1105,10 +1213,11 @@ function MapPage() {
     if (costcoVisible) active.push('costco')
     if (dataCenterVisible) active.push('datacenters')
     if (emsVisible) active.push('ems')
+    if (crowdVisible) active.push('crowd')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1517,7 +1626,7 @@ function MapPage() {
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
-      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er']) allDone[c] = 'done'
+      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd']) allDone[c] = 'done'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -1539,13 +1648,15 @@ function MapPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         nearestER: cached.nearestER as any,
         erError: cached.erError,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        crowdMagnets: (cached.crowdMagnets ?? []) as any,
       })
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [] })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -1602,7 +1713,7 @@ function MapPage() {
 
     // Run the other checks in parallel with timeouts. We *don't* await Costco
     // here so the report can render as soon as these four resolve.
-    const [noiseResult, superfundResult, dataCenterResult, erResult] = await Promise.allSettled([
+    const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         try {
@@ -1787,6 +1898,30 @@ function MapPage() {
         return hits[0] ?? null
         } finally { markDone('er') }
       })(),
+
+      // Crowd magnets within 5mi (OSM Overpass)
+      (async () => {
+        try {
+          const radiusDeg = (CROWD_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
+          const bbox = L.latLngBounds(
+            [lat - radiusDeg, lng - radiusDeg * 1.5],
+            [lat + radiusDeg, lng + radiusDeg * 1.5],
+          )
+          const items = await fetchCrowdMagnets(bbox, AbortSignal.timeout(TIMEOUT))
+          const hits: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[] = []
+          for (const m of items) {
+            const dist = location.distanceTo(L.latLng(m.lat, m.lng))
+            const distMi = Math.round(dist / milesToMeters * 10) / 10
+            if (distMi <= CROWD_ANALYSIS_RADIUS_MI) {
+              hits.push({ id: m.id, name: m.name, type: m.type, distanceMi: distMi, lat: m.lat, lng: m.lng })
+            }
+          }
+          hits.sort((a, b) => a.distanceMi - b.distanceMi)
+          return hits
+        } catch {
+          return []
+        } finally { markDone('crowd') }
+      })(),
     ])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
@@ -1797,12 +1932,14 @@ function MapPage() {
     const dataCenters = dataCenterResult.status === 'fulfilled' ? dataCenterResult.value : []
     const nearestER = erResult.status === 'fulfilled' ? erResult.value : null
     const erError = erResult.status === 'rejected'
+    const crowdMagnets = crowdResult.status === 'fulfilled' ? crowdResult.value : []
 
     dbg('analysis', 'Primary results in (Costco still in-flight):', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
       superfunds: superfunds.length,
       dataCenters: dataCenters.length,
       nearestER: nearestER ? `${nearestER.distanceMi} mi` : 'none',
+      crowdMagnets: crowdMagnets.length,
     })
     if (!isLatestRun()) {
       dbg('analysis', 'Stale run — discarding primary results')
@@ -1815,6 +1952,7 @@ function MapPage() {
       costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true,
       dataCenters,
       nearestER, erError,
+      crowdMagnets,
     })
 
     costcoPromise.then((data) => {
@@ -1840,6 +1978,7 @@ function MapPage() {
         costcoError: false,
         dataCenters,
         nearestER, erError,
+        crowdMagnets,
       })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
@@ -1997,6 +2136,8 @@ function MapPage() {
           costcoKnownIdsRef.current.clear()
           emsLoadedBoundsRef.current = null
           emsKnownIdsRef.current.clear()
+          crowdLoadedBoundsRef.current = null
+          crowdKnownIdsRef.current.clear()
           map.flyTo([lat, lng], 14, { duration: 0.5 })
           setStatus('ready')
           runLocationAnalysis(lat, lng)
@@ -2063,6 +2204,8 @@ function MapPage() {
 
         emsLayerRef.current = L.layerGroup()
 
+        crowdLayerRef.current = L.layerGroup()
+
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
           opacity: 0.7,
@@ -2116,6 +2259,10 @@ function MapPage() {
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
       emsKnownIdsRef.current.clear()
+      crowdLayerRef.current = null
+      crowdSubLayersRef.current = null
+      crowdLoadedBoundsRef.current = null
+      crowdKnownIdsRef.current.clear()
       homeMarkerRef.current = null
       highlightMarkerRef.current = null
       mapRef.current?.remove()
@@ -2471,6 +2618,103 @@ function MapPage() {
     }
   }
 
+  const loadCrowdData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    const bounds = map.getBounds()
+    const loaded = crowdLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('crowd', 'Skipping — bounds already loaded'); return }
+    dbg('crowd', 'Loading crowd magnet data…')
+
+    setCrowdLoading(true)
+    try {
+      const padded = bounds.pad(0.5)
+
+      let subLayers = crowdSubLayersRef.current
+      if (!subLayers) {
+        subLayers = {} as Record<CrowdType, L.LayerGroup>
+        for (const t of CROWD_TYPES) subLayers[t] = L.layerGroup()
+        crowdSubLayersRef.current = subLayers
+        for (const t of CROWD_TYPES) {
+          if (crowdSubVisibleRef.current[t]) subLayers[t].addTo(layer)
+        }
+      }
+
+      const known = crowdKnownIdsRef.current
+      const items = await fetchCrowdMagnets(padded)
+      for (const m of items) {
+        if (known.has(m.id)) continue
+        const sub = subLayers[m.type]
+        if (!sub) continue
+        const color = CROWD_COLORS[m.type]
+        const emoji = CROWD_ICONS[m.type]
+        const icon = L.divIcon({
+          className: 'crowd-label',
+          html: `<div class="crowd-pin" style="background:${color}">${emoji}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        })
+        L.marker([m.lat, m.lng], { icon })
+          .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
+          .addTo(sub)
+        known.add(m.id)
+      }
+
+      crowdLoadedBoundsRef.current = loaded
+        ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
+        : padded
+      dbg('crowd', `Total known crowd magnets: ${known.size}`)
+    } catch (err) {
+      console.warn('Crowd magnet fetch failed:', err)
+    } finally {
+      setCrowdLoading(false)
+    }
+  }, [])
+
+  const handleCrowdMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = crowdLayerRef.current
+      if (map && layer) loadCrowdData(map, layer)
+    }, 250),
+    [loadCrowdData],
+  )
+
+  const toggleCrowd = () => {
+    const map = mapRef.current
+    const layer = crowdLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `crowd → ${crowdVisible ? 'OFF' : 'ON'}`)
+    if (crowdVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleCrowdMove)
+      layer.clearLayers()
+      crowdSubLayersRef.current = null
+      crowdLoadedBoundsRef.current = null
+      crowdKnownIdsRef.current.clear()
+    } else {
+      layer.addTo(map)
+      loadCrowdData(map, layer)
+      map.on('moveend', handleCrowdMove)
+    }
+    setCrowdVisible(!crowdVisible)
+  }
+
+  const toggleCrowdSub = (type: CrowdType) => {
+    const parentLayer = crowdLayerRef.current
+    const subLayers = crowdSubLayersRef.current
+    if (!parentLayer || !subLayers) return
+
+    const nowVisible = !crowdSubVisible[type]
+    const next = { ...crowdSubVisible, [type]: nowVisible }
+    setCrowdSubVisible(next)
+    crowdSubVisibleRef.current = next
+
+    if (nowVisible) {
+      subLayers[type].addTo(parentLayer)
+    } else {
+      parentLayer.removeLayer(subLayers[type])
+    }
+  }
+
   const toggleSuperfund = () => {
     const map = mapRef.current
     const layer = superfundLayerRef.current
@@ -2579,6 +2823,7 @@ function MapPage() {
     costco: costcoVisible,
     datacenters: dataCenterVisible,
     ems: emsVisible,
+    crowd: crowdVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -2590,6 +2835,7 @@ function MapPage() {
       && s.costco === currentLayerSnapshot.costco
       && s.datacenters === currentLayerSnapshot.datacenters
       && s.ems === currentLayerSnapshot.ems
+      && s.crowd === currentLayerSnapshot.crowd
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -2606,6 +2852,7 @@ function MapPage() {
     setLayer(costcoVisible, toggleCostco, preset.state.costco)
     setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
     setLayer(emsVisible, toggleEms, preset.state.ems)
+    setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -2629,6 +2876,7 @@ function MapPage() {
     if (requested.has('costco')) toggleCostco()
     if (requested.has('datacenters')) toggleDataCenters()
     if (requested.has('ems')) toggleEms()
+    if (requested.has('crowd')) toggleCrowd()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -3188,6 +3436,34 @@ function MapPage() {
                 ))}
               </div>
             )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={crowdVisible}
+                onChange={toggleCrowd}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Crowd Magnets
+                {crowdLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {crowdVisible && (
+              <div className="dc-legend">
+                {CROWD_TYPES.map((t) => (
+                  <label key={t} className="transit-sub-toggle">
+                    <input
+                      type="checkbox"
+                      checked={crowdSubVisible[t]}
+                      onChange={() => toggleCrowdSub(t)}
+                    />
+                    <span className="legend-dot" style={{ background: CROWD_COLORS[t], opacity: crowdSubVisible[t] ? 1 : 0.35 }} />
+                    <span style={{ opacity: crowdSubVisible[t] ? 1 : 0.5 }}>{CROWD_ICONS[t]} {CROWD_LABELS[t]}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         </details>
       </aside>
@@ -3415,6 +3691,23 @@ function MapPage() {
                     <p>{analysisResults.dataCenters.length > 0
                       ? `${analysisResults.dataCenters.length} within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi`
                       : 'No data centers nearby'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Crowd Magnets */}
+              <div className={`analysis-card ${crowdMagnetsSeverity(analysisResults.crowdMagnets.length)}`}>
+                <div
+                  className="analysis-item clickable"
+                  onClick={() => { const closing = analysisDetail === 'crowd'; setAnalysisDetail(closing ? null : 'crowd'); if (closing) flyToAddress() }}
+                >
+                  <div className={`analysis-chevron${analysisDetail === 'crowd' ? ' expanded' : ''}`}>‹</div>
+                  <div className="analysis-icon">🎟️</div>
+                  <div className="analysis-detail">
+                    <strong>Crowd Magnets</strong>
+                    <p>{analysisResults.crowdMagnets.length > 0
+                      ? `${analysisResults.crowdMagnets.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
+                      : `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`}</p>
                   </div>
                 </div>
               </div>
@@ -3877,6 +4170,63 @@ function MapPage() {
                       <p>
                         Data centers can impact surrounding areas through increased traffic,
                         noise from cooling systems, and strain on local power and water resources.
+                        The absence of any nearby is a positive indicator for this location.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'crowd' && (
+              <>
+                {analysisResults.crowdMagnets.length > 0 ? (
+                  <>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Stadiums, concert venues, parks, theme parks, and racetracks can
+                        generate significant crowd noise and event-day traffic surges nearby.
+                      </p>
+                    </div>
+                    <ul className="analysis-expand-list">
+                      {analysisResults.crowdMagnets.map((m) => (
+                        <li key={m.id} className="dc-analysis-item">
+                          <div className="dc-analysis-header">
+                            <span className="dc-status-dot" style={{ background: CROWD_COLORS[m.type] }} />
+                            <strong>{CROWD_ICONS[m.type]} {m.name}</strong>
+                            <span className="dc-distance">{m.distanceMi} mi</span>
+                            <button
+                              className="analysis-flyto-btn"
+                              onClick={() => mapRef.current?.flyTo([m.lat, m.lng], 15)}
+                              title="Fly to location"
+                              aria-label={`Fly to ${m.name}`}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <line x1="22" y1="12" x2="18" y2="12" />
+                                <line x1="6" y1="12" x2="2" y2="12" />
+                                <line x1="12" y1="6" x2="12" y2="2" />
+                                <line x1="12" y1="22" x2="12" y2="18" />
+                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="dc-analysis-meta">
+                            <span>{CROWD_LABEL_SINGULAR[m.type]}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="analysis-expand-level clear">No crowd magnets found within {CROWD_ANALYSIS_RADIUS_MI} miles.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Stadiums, concert venues, parks, theme parks, and racetracks can
+                        generate significant crowd noise and event-day traffic surges nearby.
                         The absence of any nearby is a positive indicator for this location.
                       </p>
                     </div>

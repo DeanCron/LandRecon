@@ -987,7 +987,26 @@
   box-shadow: none !important;
 }
 
+.crowd-label {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 .ems-pin {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 28px;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 2px #fff;
+  cursor: pointer;
+}
+
+.crowd-pin {
   font-size: 15px;
   font-weight: 700;
   text-align: center;
