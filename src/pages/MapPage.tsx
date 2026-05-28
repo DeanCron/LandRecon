@@ -8,6 +8,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import GuidedTour from '../components/GuidedTour'
+import { pushRecentSearch } from '../utils/recentSearches'
 import {
   createNoiseLayer,
   queryNoiseLevelAtPoint,
@@ -1671,6 +1672,7 @@ function MapPage() {
         const lat = results[0].position.lat
         const lng = results[0].position.lon
         dbg('init', `Geocoded to ${lat}, ${lng}`)
+        pushRecentSearch(address)
         targetLocationRef.current = L.latLng(lat, lng)
 
         const map = L.map(mapContainer.current!, {

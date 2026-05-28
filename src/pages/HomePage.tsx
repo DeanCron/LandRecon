@@ -1,6 +1,15 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react'
+import { useState, useEffect, useRef, useMemo, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.webp'
+import {
+  clearRecentSearches,
+  formatRelativeTime,
+  loadRecentSearches,
+  loadSavedAnalysisSnippets,
+  pushRecentSearch,
+  removeRecentSearch,
+  type RecentSearch,
+} from '../utils/recentSearches'
 import './HomePage.css'
 
 declare const __BUILD_VERSION__: string
@@ -41,7 +50,35 @@ function HomePage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [showAbout, setShowAbout] = useState(false)
+  const [recent, setRecent] = useState<RecentSearch[]>(() => loadRecentSearches())
+  const [savedSnippets] = useState(() => loadSavedAnalysisSnippets())
   const navigate = useNavigate()
+
+  const gradeByAddress = useMemo(() => {
+    const m = new Map<string, { grade: string; gradeColor: string }>()
+    for (const s of savedSnippets) {
+      m.set(s.address.toLowerCase(), { grade: s.grade, gradeColor: s.gradeColor })
+    }
+    return m
+  }, [savedSnippets])
+
+  const goToAddress = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    setShowSuggestions(false)
+    setRecent(pushRecentSearch(trimmed))
+    navigate(`/map?address=${encodeURIComponent(trimmed)}`)
+  }
+
+  const handleRemoveRecent = (e: React.MouseEvent, value: string) => {
+    e.stopPropagation()
+    setRecent(removeRecentSearch(value))
+  }
+
+  const handleClearRecent = () => {
+    clearRecentSearches()
+    setRecent([])
+  }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -115,10 +152,7 @@ function HomePage() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
-    const trimmed = address.trim()
-    if (!trimmed) return
-    setShowSuggestions(false)
-    navigate(`/map?address=${encodeURIComponent(trimmed)}`)
+    goToAddress(address)
   }
 
   return (
@@ -173,6 +207,73 @@ function HomePage() {
             </svg>
           </button>
         </form>
+        {recent.length > 0 && (
+          <section className="home-recent" aria-label="Recent searches">
+            <header className="home-recent-header">
+              <span className="home-recent-title">Recent</span>
+              <button
+                type="button"
+                className="home-recent-clear"
+                onClick={handleClearRecent}
+              >
+                Clear all
+              </button>
+            </header>
+            <ul className="home-recent-list">
+              {recent.slice(0, 5).map((item) => {
+                const grade = gradeByAddress.get(item.address.toLowerCase())
+                return (
+                  <li key={item.address} className="home-recent-item">
+                    <button
+                      type="button"
+                      className="home-recent-go"
+                      onClick={() => goToAddress(item.address)}
+                      title={item.address}
+                    >
+                      <svg
+                        className="home-recent-icon"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <polyline points="12 7 12 12 15 14" />
+                      </svg>
+                      <span className="home-recent-address">{item.address}</span>
+                      {grade && (
+                        <span
+                          className="home-recent-grade"
+                          style={{ background: grade.gradeColor }}
+                          aria-label={`Saved grade ${grade.grade}`}
+                        >
+                          {grade.grade}
+                        </span>
+                      )}
+                      <span className="home-recent-time">
+                        {formatRelativeTime(item.timestamp)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="home-recent-remove"
+                      onClick={(e) => handleRemoveRecent(e, item.address)}
+                      aria-label={`Remove ${item.address} from recent searches`}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
         <footer className="home-footer">
           <button className="home-about-link" onClick={() => setShowAbout(true)}>What is LandRecon?</button>
         </footer>
