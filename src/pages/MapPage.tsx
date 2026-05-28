@@ -3014,7 +3014,7 @@ function MapPage() {
         )}
 
         {/* ── Getting around ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">🚦 Getting around</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
@@ -3074,8 +3074,24 @@ function MapPage() {
         </details>
 
         {/* ── Nearby & daily ── */}
-        <details className="layer-group" open>
+        <details className="layer-group">
           <summary className="layer-group-heading">🛒 Nearby & daily</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={costcoVisible}
+                onChange={toggleCostco}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Costco</span>
+            </label>
+          </div>
+        </details>
+
+        {/* ── Things to know ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🤔 Things to know</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -3105,22 +3121,6 @@ function MapPage() {
               </div>
             )}
 
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={costcoVisible}
-                onChange={toggleCostco}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">Costco</span>
-            </label>
-          </div>
-        </details>
-
-        {/* ── Things to know ── */}
-        <details className="layer-group" open>
-          <summary className="layer-group-heading">🤔 Things to know</summary>
-          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
