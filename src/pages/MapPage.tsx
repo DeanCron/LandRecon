@@ -1012,6 +1012,7 @@ function MapPage() {
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
+  const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
 
   const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
     const next = !current
@@ -2613,6 +2614,10 @@ function MapPage() {
                 <input type="checkbox" checked={compareEnabled} onChange={() => { toggleExpFlag('lr_exp_compare', compareEnabled, setCompareEnabled) }} />
                 <span>Compare Locations</span>
               </label>
+              <label className="exp-menu-item">
+                <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
+                <span>Layer Presets</span>
+              </label>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -2660,10 +2665,10 @@ function MapPage() {
       <button
         className="layer-toggle-btn"
         onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) }}
-        aria-label="Open layers"
+        aria-label="Open Show on Map panel"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
-        <span className="fab-label">Map Layers</span>
+        <span className="fab-label">Show on Map</span>
       </button>
       <button
         className="analysis-toggle-btn"
@@ -2689,7 +2694,7 @@ function MapPage() {
       )}
 
       <aside className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
-        <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close layers">×</button>
+        <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close Show on Map panel">×</button>
         {baseMapSwitcherEnabled && (
           <>
             <h2 className="panel-title">Base Map</h2>
@@ -2708,23 +2713,25 @@ function MapPage() {
           </>
         )}
 
-        <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Map Layers</h2>
+        <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Show on Map</h2>
 
-        <div className="layer-presets" role="group" aria-label="Layer presets">
-          {LAYER_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className={`layer-preset-btn${activeLayerPresetId === preset.id ? ' active' : ''}`}
-              onClick={() => applyLayerPreset(preset.id)}
-              disabled={status !== 'ready'}
-              title={preset.desc}
-              aria-pressed={activeLayerPresetId === preset.id}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+        {presetsEnabled && (
+          <div className="layer-presets" role="group" aria-label="Layer presets">
+            {LAYER_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`layer-preset-btn${activeLayerPresetId === preset.id ? ' active' : ''}`}
+                onClick={() => applyLayerPreset(preset.id)}
+                disabled={status !== 'ready'}
+                title={preset.desc}
+                aria-pressed={activeLayerPresetId === preset.id}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── Transportation ── */}
         <details className="layer-group">
@@ -3698,7 +3705,7 @@ function MapPage() {
             },
             {
               selector: '.layer-panel',
-              title: '🗺️ Map Layers',
+              title: '🗺️ Show on Map',
               content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more.',
               position: 'right',
             },
