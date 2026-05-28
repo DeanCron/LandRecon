@@ -1,14 +1,8 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 
 const MapPage = lazy(() => import('./pages/MapPage'))
-
-function KeyedMapPage() {
-  const [searchParams] = useSearchParams()
-  const address = searchParams.get('address') || ''
-  return <MapPage key={address} />
-}
 
 function App() {
   return (
@@ -18,7 +12,7 @@ function App() {
         path="/map"
         element={
           <Suspense fallback={<div style={{ color: 'var(--color-text)', padding: '2rem' }}>Loading map…</div>}>
-            <KeyedMapPage />
+            <MapPage />
           </Suspense>
         }
       />

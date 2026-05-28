@@ -242,6 +242,7 @@ interface CachedAnalysisPayload {
     superfunds: unknown[]
     costco: unknown
     costcoNearby: unknown[]
+    costcoNearestBeyond: unknown
     costcoError: boolean
     dataCenters: unknown[]
     nearestER: unknown
@@ -1056,6 +1057,7 @@ function MapPage() {
   })
   const emsSubVisibleRef = useRef(emsSubVisible)
   const targetLocationRef = useRef<L.LatLng | null>(null)
+  const homeMarkerRef = useRef<L.Marker | null>(null)
   const highlightMarkerRef = useRef<L.Marker | null>(null)
   const transitPreloadedRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
@@ -1089,12 +1091,13 @@ function MapPage() {
     superfunds: { name: string; distanceMi: number; status: string; url: string; lat: number; lng: number }[]
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
+    costcoNearestBeyond: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoError: boolean
     costcoLoading: boolean
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | null>(null)
 
@@ -1211,6 +1214,14 @@ function MapPage() {
   const [tourEnabled, setTourEnabled] = useState(() => getExpFlag('lr_exp_tour', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
   const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
+  // Bumped to remount the GuidedTour and replay it from step 1.
+  const [tourReplayKey, setTourReplayKey] = useState(0)
+
+  const replayTour = () => {
+    try { localStorage.removeItem('lr_tour_done') } catch { /* ignore */ }
+    setExpMenuOpen(false)
+    setTourReplayKey((k) => k + 1)
+  }
 
   const toggleExpFlag = (key: string, current: boolean, setter: (v: boolean) => void) => {
     const next = !current
@@ -1389,6 +1400,33 @@ function MapPage() {
       cancelEditingAddress()
     }
   }, [showAddressSuggestions, addressSuggestions, activeSuggestionIndex, addressInputValue, selectAddressSuggestion, submitAddressChange, cancelEditingAddress])
+
+  const [locating, setLocating] = useState(false)
+
+  const useMyLocation = useCallback(() => {
+    if (!('geolocation' in navigator)) return
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords
+          let resolved: string | null = null
+          if (TOMTOM_API_KEY) {
+            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100`
+            const res = await fetch(url)
+            const data = await res.json()
+            resolved = data?.addresses?.[0]?.address?.freeformAddress ?? null
+          }
+          setLocating(false)
+          submitAddressChange(resolved || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+        } catch {
+          setLocating(false)
+        }
+      },
+      () => setLocating(false),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+    )
+  }, [submitAddressChange])
 
   useEffect(() => {
     if (!editingAddress) return
@@ -1674,6 +1712,8 @@ function MapPage() {
         costco: cached.costco as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         costcoNearby: cached.costcoNearby as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        costcoNearestBeyond: (cached.costcoNearestBeyond ?? null) as any,
         costcoError: cached.costcoError,
         costcoLoading: false,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1685,7 +1725,7 @@ function MapPage() {
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
@@ -1715,14 +1755,14 @@ function MapPage() {
         })
         const seen = new Set<string>()
         const hits: CostcoHit[] = []
+        let nearestBeyond: CostcoHit | null = null
         for (const p of places) {
           if (seen.has(p.id)) continue
           seen.add(p.id)
           const dist = location.distanceTo(L.latLng(p.lat, p.lng))
           const distMi = dist / milesToMeters
-          if (distMi > COSTCO_ANALYSIS_RADIUS_MI) continue
           const { street, locality } = parseCostcoAddress(p.addr)
-          hits.push({
+          const hit: CostcoHit = {
             osmId: p.id,
             name: p.name,
             city: locality,
@@ -1730,10 +1770,15 @@ function MapPage() {
             distanceMi: Math.round(distMi * 10) / 10,
             lat: p.lat,
             lng: p.lng,
-          })
+          }
+          if (distMi <= COSTCO_ANALYSIS_RADIUS_MI) {
+            hits.push(hit)
+          } else if (!nearestBeyond || distMi < nearestBeyond.distanceMi) {
+            nearestBeyond = hit
+          }
         }
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
-        return { nearest: hits[0] ?? null, nearby: hits }
+        return { nearest: hits[0] ?? null, nearby: hits, nearestBeyond }
       } finally { markDone('costco') }
     })()
 
@@ -1949,7 +1994,7 @@ function MapPage() {
       loading: false,
       noiseLevel, noiseAirport, noiseAirportCode,
       superfunds,
-      costco: null, costcoNearby: [], costcoError: false, costcoLoading: true,
+      costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true,
       dataCenters,
       nearestER, erError,
     })
@@ -1964,6 +2009,7 @@ function MapPage() {
         ...prev,
         costco: data.nearest,
         costcoNearby: data.nearby,
+        costcoNearestBeyond: data.nearestBeyond,
         costcoError: false,
         costcoLoading: false,
       }))
@@ -1972,6 +2018,7 @@ function MapPage() {
         superfunds,
         costco: data.nearest,
         costcoNearby: data.nearby,
+        costcoNearestBeyond: data.nearestBeyond,
         costcoError: false,
         dataCenters,
         nearestER, erError,
@@ -1983,11 +2030,90 @@ function MapPage() {
         ...prev,
         costco: null,
         costcoNearby: [],
+        costcoNearestBeyond: null,
         costcoError: true,
         costcoLoading: false,
       }))
     })
   }, [])
+
+  const retryCostco = useCallback(async () => {
+    const target = targetLocationRef.current
+    if (!target) return
+    setAnalysisResults((prev) => ({
+      ...prev,
+      costcoError: false,
+      costcoLoading: true,
+    }))
+    const lat = target.lat
+    const lng = target.lng
+    const milesToMeters = 1609.34
+    try {
+      const places = await fetchCostcosViaPlaces({
+        circle: { lat, lng, radiusM: COSTCO_ANALYSIS_RADIUS_MI * milesToMeters },
+        signal: AbortSignal.timeout(15000),
+      })
+      const seen = new Set<string>()
+      const hits: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[] = []
+      let nearestBeyond: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null = null
+      for (const p of places) {
+        if (seen.has(p.id)) continue
+        seen.add(p.id)
+        const dist = target.distanceTo(L.latLng(p.lat, p.lng))
+        const distMi = dist / milesToMeters
+        const { street, locality } = parseCostcoAddress(p.addr)
+        const hit = {
+          osmId: p.id,
+          name: p.name,
+          city: locality,
+          address: street,
+          distanceMi: Math.round(distMi * 10) / 10,
+          lat: p.lat,
+          lng: p.lng,
+        }
+        if (distMi <= COSTCO_ANALYSIS_RADIUS_MI) {
+          hits.push(hit)
+        } else if (!nearestBeyond || distMi < nearestBeyond.distanceMi) {
+          nearestBeyond = hit
+        }
+      }
+      hits.sort((a, b) => a.distanceMi - b.distanceMi)
+      setAnalysisResults((prev) => ({
+        ...prev,
+        costco: hits[0] ?? null,
+        costcoNearby: hits,
+        costcoNearestBeyond: nearestBeyond,
+        costcoError: false,
+        costcoLoading: false,
+      }))
+    } catch (err) {
+      dbg('analysis', 'Costco retry failed:', err)
+      setAnalysisResults((prev) => ({
+        ...prev,
+        costco: null,
+        costcoNearby: [],
+        costcoNearestBeyond: null,
+        costcoError: true,
+        costcoLoading: false,
+      }))
+    }
+  }, [])
+
+  // Retry the full location analysis (used by the inline error overlay).
+  const retryAnalysis = useCallback(() => {
+    const target = targetLocationRef.current
+    if (target) {
+      setStatus('ready')
+      setErrorMsg('')
+      runLocationAnalysis(target.lat, target.lng)
+    } else {
+      // No geocoded location yet — re-trigger the address effect by setting
+      // status back to loading; the geocode will retry via React's normal
+      // effect re-run on remount of the error overlay state.
+      setStatus('loading')
+      setErrorMsg('')
+    }
+  }, [runLocationAnalysis])
 
   useEffect(() => {
     if (!address) {
@@ -2021,6 +2147,46 @@ function MapPage() {
         pushRecentSearch(address)
         targetLocationRef.current = L.latLng(lat, lng)
 
+        const houseIcon = L.divIcon({
+          className: 'location-pin',
+          html: `<div class="location-pin-icon">🏠</div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        })
+
+        if (mapRef.current) {
+          // Map already exists — just update the home marker, fly to the new
+          // location, and clear loaded-bounds refs so layer move handlers
+          // refetch for the new viewport. Layer toggle React state stays put.
+          const map = mapRef.current
+          if (homeMarkerRef.current) {
+            homeMarkerRef.current.remove()
+            homeMarkerRef.current = null
+          }
+          if (highlightMarkerRef.current) {
+            highlightMarkerRef.current.remove()
+            highlightMarkerRef.current = null
+          }
+          homeMarkerRef.current = L.marker([lat, lng], { icon: houseIcon })
+            .bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
+            .addTo(map)
+          // Reset loaded-bounds so layers refetch when we land at the new viewport.
+          airportLoadedBoundsRef.current = null
+          airportKnownIdsRef.current.clear()
+          superfundLoadedBoundsRef.current = null
+          transitLoadedBoundsRef.current = null
+          schoolLoadedBoundsRef.current = null
+          costcoLoadedBoundsRef.current = null
+          costcoKnownIdsRef.current.clear()
+          emsLoadedBoundsRef.current = null
+          emsKnownIdsRef.current.clear()
+          map.flyTo([lat, lng], 14, { duration: 0.5 })
+          setStatus('ready')
+          runLocationAnalysis(lat, lng)
+          setTimeout(() => map.invalidateSize(), 0)
+          return
+        }
+
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
           zoom: 14,
@@ -2049,13 +2215,9 @@ function MapPage() {
           if (LR_DEBUG) console.log(`[LR:map] Zoom level: ${map.getZoom()}`)
         })
 
-        const houseIcon = L.divIcon({
-          className: 'location-pin',
-          html: `<div class="location-pin-icon">🏠</div>`,
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-        })
-        L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' }).addTo(map)
+        homeMarkerRef.current = L.marker([lat, lng], { icon: houseIcon })
+          .bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
+          .addTo(map)
 
         // Defer noise layer creation until the user toggles it on — the
         // PMTiles + protomaps-leaflet deps are loaded in toggleNoise instead
@@ -2111,6 +2273,14 @@ function MapPage() {
 
     return () => {
       abortController.abort()
+    }
+  }, [address, navigate])
+
+  // Tear the map down only on actual unmount, not on every address change.
+  // This keeps layer toggle state and zoom intact when the user changes the
+  // analyzed address from the header.
+  useEffect(() => {
+    return () => {
       baseLayerRef.current = null
       noiseLayerRef.current = null
       airportLayerRef.current = null
@@ -2134,10 +2304,12 @@ function MapPage() {
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
       emsKnownIdsRef.current.clear()
+      homeMarkerRef.current = null
+      highlightMarkerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [address, navigate])
+  }, [])
 
   const switchBaseMap = async (id: BaseMapId) => {
     const map = mapRef.current
@@ -2842,9 +3014,31 @@ function MapPage() {
                 }}
                 onKeyDown={handleAddressKeyDown}
                 onFocus={() => addressSuggestions.length > 0 && setShowAddressSuggestions(true)}
-                placeholder="Enter a U.S. address..."
+                placeholder="Street address, city, state"
                 autoComplete="off"
+                aria-label="Analyze a different address"
               />
+              <button
+                type="button"
+                className="header-address-locate"
+                onClick={useMyLocation}
+                disabled={locating}
+                title="Use my current location"
+                aria-label="Use my current location"
+              >
+                {locating ? (
+                  <span className="header-address-locate-spinner" aria-hidden="true" />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                    <line x1="12" y1="2" x2="12" y2="5" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                    <line x1="2" y1="12" x2="5" y2="12" />
+                    <line x1="19" y1="12" x2="22" y2="12" />
+                  </svg>
+                )}
+              </button>
               {showAddressSuggestions && (
                 <ul className="header-address-suggestions">
                   {addressSuggestions.map((s, i) => (
@@ -2901,6 +3095,9 @@ function MapPage() {
                 <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
                 <span>Layer Presets</span>
               </label>
+              <button type="button" className="exp-menu-action" onClick={replayTour}>
+                ▶ Replay guided tour
+              </button>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -2937,9 +3134,20 @@ function MapPage() {
         {status === 'error' && (
           <div className="map-overlay error">
             <p>{errorMsg}</p>
-            <button className="retry-button" onClick={() => navigate('/')}>
-              Try another address
-            </button>
+            <div className="map-error-actions">
+              <button
+                className="retry-button"
+                onClick={retryAnalysis}
+              >
+                Retry
+              </button>
+              <button
+                className="retry-button retry-button-secondary"
+                onClick={startEditingAddress}
+              >
+                Edit address
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -3491,9 +3699,21 @@ function MapPage() {
                       ? 'Searching nearby Costcos…'
                       : analysisResults.costco
                       ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
-                      : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
+                      : analysisResults.costcoError
+                      ? 'Search failed'
+                      : analysisResults.costcoNearestBeyond
+                      ? `Closest is ${analysisResults.costcoNearestBeyond.distanceMi} mi (outside ${COSTCO_ANALYSIS_RADIUS_MI} mi)`
+                      : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
                   </div>
                   {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  {analysisResults.costcoError && !analysisResults.costcoLoading && (
+                    <button
+                      type="button"
+                      className="analysis-card-retry"
+                      onClick={(e) => { e.stopPropagation(); retryCostco() }}
+                      aria-label="Retry Costco search"
+                    >Retry</button>
+                  )}
                 </div>
               </div>
             </>
@@ -3786,9 +4006,41 @@ function MapPage() {
                     </>
                   )
                 })() : analysisResults.costcoError ? (
-                  <p className="analysis-expand-level warning">
-                    Costco search timed out. The Overpass server may be busy — try again later.
-                  </p>
+                  <>
+                    <p className="analysis-expand-level warning">
+                      Costco search failed. Google Places may be busy or rate-limited.
+                    </p>
+                    <button
+                      type="button"
+                      className="analysis-expand-retry"
+                      onClick={retryCostco}
+                    >
+                      Retry Costco search
+                    </button>
+                  </>
+                ) : analysisResults.costcoNearestBeyond ? (
+                  <>
+                    <p className="analysis-expand-level warning">
+                      Closest Costco is <strong>{analysisResults.costcoNearestBeyond.distanceMi} mi</strong> away
+                      {analysisResults.costcoNearestBeyond.city ? ` in ${analysisResults.costcoNearestBeyond.city}` : ''} —
+                      outside the {COSTCO_ANALYSIS_RADIUS_MI}-mile range.
+                    </p>
+                    <div className="analysis-expand-rec">
+                      <strong>⚠️ Bulk shopping will be a trek</strong>
+                      <p>
+                        Stocking up is doable but you're committing to a serious drive. Budget the gas, the time,
+                        and a sturdy cooler if you're hauling frozen goods home.
+                      </p>
+                    </div>
+                    <div className="analysis-expand-rec">
+                      <strong>Distance bands</strong>
+                      <p>
+                        <span className="analysis-band good">≤ 30 mi</span> blissful · {' '}
+                        <span className="analysis-band warning">31–50 mi</span> tolerable · {' '}
+                        <span className="analysis-band danger">51–100 mi</span> reconsider
+                      </p>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <p className="analysis-expand-level danger">
@@ -3990,9 +4242,10 @@ function MapPage() {
 
       {status === 'ready' && (
         <GuidedTour
+          key={tourReplayKey}
           storageKey="lr_tour_done"
-          forceShow={tourEnabled}
-          delay={2000}
+          forceShow={tourEnabled || tourReplayKey > 0}
+          delay={tourReplayKey > 0 ? 100 : 2000}
           steps={[
             {
               selector: '.header-address-wrapper',
