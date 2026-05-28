@@ -2491,6 +2491,8 @@ function MapPage() {
           pointToLayer: (_feat, latlng) => L.marker(latlng, { icon: SUPERFUND_ICON, riseOnHover: true }),
           onEachFeature: (_feature, layer) => {
             const props = (_feature as GeoJSON.Feature).properties || {}
+            const name = props.SITE_NAME || 'Superfund Site'
+            layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
             layer.bindPopup(superfundPopup(props), { maxWidth: 280 })
           },
         })
