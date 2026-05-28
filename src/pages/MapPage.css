@@ -1508,6 +1508,28 @@
   border-color: rgba(102, 187, 106, 0.4);
 }
 
+.analysis-card.pending {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  opacity: 0.85;
+}
+
+.analysis-card-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  animation: skeletonSpin 0.8s linear infinite;
+}
+
+.analysis-chevron.hidden {
+  visibility: hidden;
+}
+
 .analysis-item {
   display: flex;
   gap: 10px;

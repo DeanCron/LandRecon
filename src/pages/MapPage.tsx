@@ -714,6 +714,7 @@ function computeLocationGrade(results: {
   superfunds: { status: string }[]
   costco: { distanceMi: number } | null
   costcoError: boolean
+  costcoLoading?: boolean
   dataCenters: unknown[]
   nearestER: { distanceMi: number } | null
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] } {
@@ -735,18 +736,20 @@ function computeLocationGrade(results: {
     : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
   breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 2, detail: sfDetail })
 
-  // Costco
-  let costcoScore: number
-  let costcoDetail: string
-  if (!results.costco) {
-    costcoScore = results.costcoError ? 1 : 2
-    costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
-  } else {
-    const cs = costcoSeverity(results.costco.distanceMi)
-    costcoScore = cs === 'good' ? 0 : cs === 'warning' ? 1 : 2
-    costcoDetail = `${results.costco.distanceMi} mi away`
+  // Costco (skipped while still loading so the grade doesn't get artificially penalized)
+  if (!results.costcoLoading) {
+    let costcoScore: number
+    let costcoDetail: string
+    if (!results.costco) {
+      costcoScore = results.costcoError ? 1 : 2
+      costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
+    } else {
+      const cs = costcoSeverity(results.costco.distanceMi)
+      costcoScore = cs === 'good' ? 0 : cs === 'warning' ? 1 : 2
+      costcoDetail = `${results.costco.distanceMi} mi away`
+    }
+    breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 2, detail: costcoDetail })
   }
-  breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 2, detail: costcoDetail })
 
   // Data centers
   const dcSev = dataCenterSeverity(results.dataCenters.length)
@@ -893,10 +896,11 @@ function MapPage() {
     costco: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null
     costcoNearby: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[]
     costcoError: boolean
+    costcoLoading: boolean
     dataCenters: { name: string; city: string; state: string; distanceMi: number; status: string; operator: string; mw: string; sizerank: string; lat: number; lng: number }[]
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [], nearestER: null, erError: false })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | null>(null)
 
@@ -928,7 +932,7 @@ function MapPage() {
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (analysisResults.loading) return
+    if (analysisResults.loading || analysisResults.costcoLoading) return
     const grade = computeLocationGrade(analysisResults)
     const entry: SavedAnalysis = {
       address: document.querySelector('.analysis-address-display')?.textContent ?? 'Unknown',
@@ -1467,7 +1471,7 @@ function MapPage() {
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, dataCenters: [], nearestER: null, erError: false })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
@@ -1482,8 +1486,60 @@ function MapPage() {
     const milesToMeters = 1609.34
     const TIMEOUT = 10000
 
-    // Run all checks in parallel with timeouts
-    const [noiseResult, superfundResult, costcoResult, dataCenterResult, erResult] = await Promise.allSettled([
+    // Costco runs independently from the other categories. The Overpass server
+    // is often the slow one, so we let it complete in the background and merge
+    // its result in via a second setAnalysisResults once it lands.
+    type CostcoHit = { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }
+    const costcoPromise = (async () => {
+      try {
+        const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
+        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
+        const query = `[out:json][timeout:30];(
+          node["brand"="Costco"]["shop"](${bbox});
+          way["brand"="Costco"]["shop"](${bbox});
+          relation["brand"="Costco"]["shop"](${bbox});
+          node["brand:wikidata"="Q715583"]["shop"](${bbox});
+          way["brand:wikidata"="Q715583"]["shop"](${bbox});
+          relation["brand:wikidata"="Q715583"]["shop"](${bbox});
+        );out body center;`
+        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000), label: 'analysis-costco' })
+        if (!data?.elements) return { nearest: null as CostcoHit | null, nearby: [] as CostcoHit[] }
+        const seen = new Set<string>()
+        const hits: CostcoHit[] = []
+        for (const el of data.elements) {
+          const id = `${el.type}-${el.id}`
+          if (seen.has(id)) continue
+          seen.add(id)
+          const elLat = el.lat ?? el.center?.lat
+          const elLon = el.lon ?? el.center?.lon
+          if (elLat == null || elLon == null) continue
+          const dist = location.distanceTo(L.latLng(elLat, elLon))
+          const distMi = dist / milesToMeters
+          if (distMi > COSTCO_ANALYSIS_RADIUS_MI) continue
+          const tags = el.tags || {}
+          const city = tags['addr:city'] || ''
+          const state = tags['addr:state'] || ''
+          const branch = tags.branch || ''
+          const locality = branch || [city, state].filter(Boolean).join(', ')
+          const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
+          hits.push({
+            osmId: id,
+            name: tags.name || 'Costco',
+            city: locality,
+            address: street,
+            distanceMi: Math.round(distMi * 10) / 10,
+            lat: elLat,
+            lng: elLon,
+          })
+        }
+        hits.sort((a, b) => a.distanceMi - b.distanceMi)
+        return { nearest: hits[0] ?? null, nearby: hits }
+      } finally { markDone('costco') }
+    })()
+
+    // Run the other checks in parallel with timeouts. We *don't* await Costco
+    // here so the report can render as soon as these four resolve.
+    const [noiseResult, superfundResult, dataCenterResult, erResult] = await Promise.allSettled([
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         try {
@@ -1580,55 +1636,6 @@ function MapPage() {
         } finally { markDone('superfund') }
       })(),
 
-      // Find every Costco within COSTCO_ANALYSIS_RADIUS_MI
-      (async () => {
-        try {
-        type CostcoHit = { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }
-        const radiusDeg = (COSTCO_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
-        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.3},${lat + radiusDeg},${lng + radiusDeg * 1.3}`
-        const query = `[out:json][timeout:30];(
-          node["brand"="Costco"]["shop"](${bbox});
-          way["brand"="Costco"]["shop"](${bbox});
-          relation["brand"="Costco"]["shop"](${bbox});
-          node["brand:wikidata"="Q715583"]["shop"](${bbox});
-          way["brand:wikidata"="Q715583"]["shop"](${bbox});
-          relation["brand:wikidata"="Q715583"]["shop"](${bbox});
-        );out body center;`
-        const data = await fetchOverpass(query, { timeoutMs: 35000, signal: AbortSignal.timeout(35000), label: 'analysis-costco' })
-        if (!data?.elements) return { nearest: null as CostcoHit | null, nearby: [] as CostcoHit[] }
-        const seen = new Set<string>()
-        const hits: CostcoHit[] = []
-        for (const el of data.elements) {
-          const id = `${el.type}-${el.id}`
-          if (seen.has(id)) continue
-          seen.add(id)
-          const elLat = el.lat ?? el.center?.lat
-          const elLon = el.lon ?? el.center?.lon
-          if (elLat == null || elLon == null) continue
-          const dist = location.distanceTo(L.latLng(elLat, elLon))
-          const distMi = dist / milesToMeters
-          if (distMi > COSTCO_ANALYSIS_RADIUS_MI) continue
-          const tags = el.tags || {}
-          const city = tags['addr:city'] || ''
-          const state = tags['addr:state'] || ''
-          const branch = tags.branch || ''
-          const locality = branch || [city, state].filter(Boolean).join(', ')
-          const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
-          hits.push({
-            osmId: id,
-            name: tags.name || 'Costco',
-            city: locality,
-            address: street,
-            distanceMi: Math.round(distMi * 10) / 10,
-            lat: elLat,
-            lng: elLon,
-          })
-        }
-        hits.sort((a, b) => a.distanceMi - b.distanceMi)
-        return { nearest: hits[0] ?? null, nearby: hits }
-        } finally { markDone('costco') }
-      })(),
-
       // Data centers within radius (static JSON)
       (async () => {
         try {
@@ -1723,22 +1730,44 @@ function MapPage() {
     const noiseAirport = noiseData?.airport ?? null
     const noiseAirportCode = noiseData?.code ?? null
     const superfunds = superfundResult.status === 'fulfilled' ? superfundResult.value : []
-    const costcoData = costcoResult.status === 'fulfilled' ? costcoResult.value : { nearest: null, nearby: [] }
-    const costco = costcoData.nearest
-    const costcoNearby = costcoData.nearby
-    const costcoError = costcoResult.status === 'rejected'
     const dataCenters = dataCenterResult.status === 'fulfilled' ? dataCenterResult.value : []
     const nearestER = erResult.status === 'fulfilled' ? erResult.value : null
     const erError = erResult.status === 'rejected'
 
-    dbg('analysis', 'Results:', {
+    dbg('analysis', 'Primary results in (Costco still in-flight):', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
       superfunds: superfunds.length,
-      costco: costco ? `${costco.distanceMi.toFixed(1)} mi` : 'none',
       dataCenters: dataCenters.length,
       nearestER: nearestER ? `${nearestER.distanceMi} mi` : 'none',
     })
-    setAnalysisResults({ loading: false, noiseLevel, noiseAirport, noiseAirportCode, superfunds, costco, costcoNearby, costcoError, dataCenters, nearestER, erError })
+    setAnalysisResults({
+      loading: false,
+      noiseLevel, noiseAirport, noiseAirportCode,
+      superfunds,
+      costco: null, costcoNearby: [], costcoError: false, costcoLoading: true,
+      dataCenters,
+      nearestER, erError,
+    })
+
+    costcoPromise.then((data) => {
+      dbg('analysis', 'Costco result:', data.nearest ? `${data.nearest.distanceMi.toFixed(1)} mi` : 'none')
+      setAnalysisResults((prev) => ({
+        ...prev,
+        costco: data.nearest,
+        costcoNearby: data.nearby,
+        costcoError: false,
+        costcoLoading: false,
+      }))
+    }).catch((err) => {
+      dbg('analysis', 'Costco failed:', err)
+      setAnalysisResults((prev) => ({
+        ...prev,
+        costco: null,
+        costcoNearby: [],
+        costcoError: true,
+        costcoLoading: false,
+      }))
+    })
   }, [])
 
   useEffect(() => {
@@ -3007,7 +3036,7 @@ function MapPage() {
               <button
                 className="analysis-action-btn"
                 onClick={saveCurrentAnalysis}
-                disabled={analysisResults.loading}
+                disabled={analysisResults.loading || analysisResults.costcoLoading}
                 title="Save for comparison"
                 aria-label="Save"
               >
@@ -3154,23 +3183,6 @@ function MapPage() {
                 </div>
               </div>
 
-              {/* Costco */}
-              <div className={`analysis-card ${analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
-                <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'costco'; setAnalysisDetail(closing ? null : 'costco'); if (closing) flyToAddress() }}
-                >
-                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}`}>‹</div>
-                  <div className="analysis-icon">🛒</div>
-                  <div className="analysis-detail">
-                    <strong>Nearest Costco</strong>
-                    <p>{analysisResults.costco
-                      ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
-                      : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
-                  </div>
-                </div>
-              </div>
-
               {/* Data Centers */}
               <div className={`analysis-card ${dataCenterSeverity(analysisResults.dataCenters.length)}`}>
                 <div
@@ -3202,6 +3214,32 @@ function MapPage() {
                       ? `${analysisResults.nearestER.distanceMi} mi — ${analysisResults.nearestER.name}`
                       : analysisResults.erError ? 'Search failed' : 'None found nearby'}</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Costco — runs in the background after everything else, so it lives at the bottom */}
+              <div className={`analysis-card ${analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
+                <div
+                  className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (analysisResults.costcoLoading) return
+                    const closing = analysisDetail === 'costco'
+                    setAnalysisDetail(closing ? null : 'costco')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={analysisResults.costcoLoading || undefined}
+                >
+                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}${analysisResults.costcoLoading ? ' hidden' : ''}`}>‹</div>
+                  <div className="analysis-icon">🛒</div>
+                  <div className="analysis-detail">
+                    <strong>Nearest Costco</strong>
+                    <p>{analysisResults.costcoLoading
+                      ? 'Searching nearby Costcos…'
+                      : analysisResults.costco
+                      ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
+                      : analysisResults.costcoError ? 'Search timed out' : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
+                  </div>
+                  {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
             </>
@@ -3410,7 +3448,12 @@ function MapPage() {
 
             {analysisDetail === 'costco' && (
               <>
-                {analysisResults.costco ? (() => {
+                {analysisResults.costcoLoading ? (
+                  <p className="analysis-expand-level" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="analysis-card-spinner" aria-hidden="true" style={{ margin: 0 }} />
+                    Still searching for nearby Costcos…
+                  </p>
+                ) : analysisResults.costco ? (() => {
                   const dist = analysisResults.costco.distanceMi
                   const sev = costcoSeverity(dist)
                   return (
