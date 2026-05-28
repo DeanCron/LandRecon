@@ -3318,6 +3318,45 @@ function MapPage() {
       }
     }
 
+    if (analysisResults.crowdMagnets.length > 0 && !crowdVisible) {
+      const layer = crowdLayerRef.current
+      if (layer) {
+        layer.addTo(map)
+        // Seed from already-loaded analysis results — avoids a second slow
+        // Overpass round-trip on auto-enable. Skip moveend for the same reason
+        // as data centers / Superfund (keep view constrained to analysis radius).
+        let subLayers = crowdSubLayersRef.current
+        if (!subLayers) {
+          subLayers = {} as Record<CrowdType, L.LayerGroup>
+          for (const t of CROWD_TYPES) subLayers[t] = L.layerGroup()
+          crowdSubLayersRef.current = subLayers
+          for (const t of CROWD_TYPES) {
+            if (crowdSubVisibleRef.current[t]) subLayers[t].addTo(layer)
+          }
+        }
+        const known = crowdKnownIdsRef.current
+        for (const m of analysisResults.crowdMagnets) {
+          if (known.has(m.id)) continue
+          const sub = subLayers[m.type]
+          if (!sub) continue
+          const color = CROWD_COLORS[m.type]
+          const emoji = CROWD_ICONS[m.type]
+          const icon = L.divIcon({
+            className: 'crowd-label',
+            html: `<div class="crowd-pin" style="background:${color}">${emoji}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          })
+          L.marker([m.lat, m.lng], { icon })
+            .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
+            .addTo(sub)
+          known.add(m.id)
+        }
+        dbg('crowd', `Seeded ${analysisResults.crowdMagnets.length} crowd magnets from analysis`)
+        setCrowdVisible(true)
+      }
+    }
+
     // Zoom out to show the farthest issue — but only if the issue bounds
     // aren't already contained within the current map view. Otherwise we'd
     // pointlessly zoom the user out from their chosen zoom (e.g. dense urban
