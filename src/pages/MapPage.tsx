@@ -3260,7 +3260,7 @@ function MapPage() {
                           </div>
                           {s.url && (
                             <a href={s.url} target="_blank" rel="noopener noreferrer" className="analysis-epa-link">
-                              EPA Profile →
+                              EPA Site Profile →
                             </a>
                           )}
                         </li>

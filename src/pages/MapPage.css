@@ -1790,10 +1790,11 @@
 }
 
 .analysis-epa-link {
+  display: inline-block;
+  margin-top: 10px;
   font-size: 0.78rem;
   color: #0072B2;
   text-decoration: none;
-  margin-left: auto;
 }
 
 .analysis-epa-link:hover {
