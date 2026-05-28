@@ -9,11 +9,19 @@ import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import GuidedTour from '../components/GuidedTour'
 import { pushRecentSearch } from '../utils/recentSearches'
-import {
-  createNoiseLayer,
-  queryNoiseLevelAtPoint,
-  LEGEND_BANDS,
-} from '../noise/airportNoise'
+import { debounce, quantizeCoord } from '../utils/perf'
+import { LEGEND_BANDS } from '../noise/legend'
+
+// The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
+// dynamic-imported on first use so it stays out of the initial MapPage chunk.
+type AirportNoiseModule = typeof import('../noise/airportNoise')
+let airportNoiseModulePromise: Promise<AirportNoiseModule> | null = null
+function loadAirportNoiseModule(): Promise<AirportNoiseModule> {
+  if (!airportNoiseModulePromise) {
+    airportNoiseModulePromise = import('../noise/airportNoise')
+  }
+  return airportNoiseModulePromise
+}
 
 const NOISE_PMTILES_URL =
   import.meta.env.VITE_NOISE_PMTILES_URL || '/data/airport-noise.pmtiles'
@@ -42,12 +50,44 @@ const GOOGLE_NO_POI = [
 
 type BaseMapId = 'street' | 'satellite'
 
-const googleSessionCache = new Map<string, { token: string; expiry: number }>()
+type GoogleSessionEntry = { token: string; expiry: number }
+const SESSION_STORAGE_PREFIX = 'lr_gtile_session:'
+const googleSessionCache = new Map<string, GoogleSessionEntry>()
+
+function readPersistedSession(key: string): GoogleSessionEntry | null {
+  if (typeof sessionStorage === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_PREFIX + key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as GoogleSessionEntry
+    if (typeof parsed?.token !== 'string' || typeof parsed?.expiry !== 'number') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writePersistedSession(key: string, entry: GoogleSessionEntry) {
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_PREFIX + key, JSON.stringify(entry))
+  } catch {
+    // sessionStorage may be full or disabled; not fatal
+  }
+}
 
 async function getGoogleTileSession(mapType: string, styles?: Record<string, unknown>[]): Promise<string> {
   const key = `${mapType}:${JSON.stringify(styles || [])}`
-  const cached = googleSessionCache.get(key)
-  if (cached && cached.expiry > Date.now() / 1000 + 300) {
+  const now = Date.now() / 1000 + 300
+  let cached = googleSessionCache.get(key)
+  if (!cached) {
+    const persisted = readPersistedSession(key)
+    if (persisted) {
+      googleSessionCache.set(key, persisted)
+      cached = persisted
+    }
+  }
+  if (cached && cached.expiry > now) {
     dbg('tiles', 'Using cached session for', mapType)
     return cached.token
   }
@@ -69,7 +109,9 @@ async function getGoogleTileSession(mapType: string, styles?: Record<string, unk
       }
       const data = await res.json()
       dbg('tiles', 'Session created, expires:', new Date(parseInt(data.expiry) * 1000).toISOString())
-      googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
+      const entry: GoogleSessionEntry = { token: data.session, expiry: parseInt(data.expiry) }
+      googleSessionCache.set(key, entry)
+      writePersistedSession(key, entry)
       return data.session
     } catch (e) {
       lastErr = e
@@ -183,6 +225,57 @@ function parseCostcoAddress(addr: string): { street: string; locality: string } 
   }
   const locality = [city, state].filter(Boolean).join(', ')
   return { street, locality }
+}
+
+// Per-tab cache of completed analyses keyed by quantized coordinates
+// (~110 m precision). Re-running for an address near a prior one returns
+// instantly with no Google/EPA/ArcGIS calls.
+const ANALYSIS_CACHE_PREFIX = 'lr_analysis:'
+const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+interface CachedAnalysisPayload {
+  ts: number
+  data: {
+    noiseLevel: number | null
+    noiseAirport: string | null
+    noiseAirportCode: string | null
+    superfunds: unknown[]
+    costco: unknown
+    costcoNearby: unknown[]
+    costcoError: boolean
+    dataCenters: unknown[]
+    nearestER: unknown
+    erError: boolean
+  }
+}
+
+function analysisCacheKey(lat: number, lng: number): string {
+  return `${ANALYSIS_CACHE_PREFIX}${quantizeCoord(lat)},${quantizeCoord(lng)}`
+}
+
+function readAnalysisCache(lat: number, lng: number): CachedAnalysisPayload['data'] | null {
+  if (typeof sessionStorage === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem(analysisCacheKey(lat, lng))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CachedAnalysisPayload
+    if (Date.now() - parsed.ts > ANALYSIS_CACHE_TTL_MS) return null
+    return parsed.data
+  } catch {
+    return null
+  }
+}
+
+function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysisPayload['data']) {
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(
+      analysisCacheKey(lat, lng),
+      JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload),
+    )
+  } catch {
+    // Storage is full or disabled; not fatal — analysis still ran.
+  }
 }
 
 
@@ -966,6 +1059,9 @@ function MapPage() {
   const highlightMarkerRef = useRef<L.Marker | null>(null)
   const transitPreloadedRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
+  // Monotonic counter so an in-flight analysis can detect that the user has
+  // since kicked off a newer one and silently discard its (now-stale) results.
+  const analysisRunIdRef = useRef(0)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [noiseVisible, setNoiseVisible] = useState(false)
@@ -1556,6 +1652,39 @@ function MapPage() {
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+    const runId = ++analysisRunIdRef.current
+    const isLatestRun = () => analysisRunIdRef.current === runId
+
+    // Cache hit: hand back the previously-computed report instantly and skip
+    // all the network calls below.
+    const cached = readAnalysisCache(lat, lng)
+    if (cached) {
+      dbg('analysis', 'Cache hit — restoring without re-fetching')
+      const allDone: Record<string, 'pending' | 'done'> = {}
+      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er']) allDone[c] = 'done'
+      setAnalysisProgress(allDone)
+      setAnalysisResults({
+        loading: false,
+        noiseLevel: cached.noiseLevel,
+        noiseAirport: cached.noiseAirport,
+        noiseAirportCode: cached.noiseAirportCode,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        superfunds: cached.superfunds as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        costco: cached.costco as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        costcoNearby: cached.costcoNearby as any,
+        costcoError: cached.costcoError,
+        costcoLoading: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dataCenters: cached.dataCenters as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        nearestER: cached.nearestER as any,
+        erError: cached.erError,
+      })
+      return
+    }
+
     setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
@@ -1563,6 +1692,7 @@ function MapPage() {
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
     const markDone = (key: string) => {
+      if (!isLatestRun()) return
       progress[key] = 'done'
       setAnalysisProgress({ ...progress })
     }
@@ -1613,6 +1743,7 @@ function MapPage() {
       // Check noise via PMTiles vector query, then find nearest airport
       (async () => {
         try {
+        const { queryNoiseLevelAtPoint } = await loadAirportNoiseModule()
         const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
         if (!band) return null
         const level = band.dbMin
@@ -1810,6 +1941,10 @@ function MapPage() {
       dataCenters: dataCenters.length,
       nearestER: nearestER ? `${nearestER.distanceMi} mi` : 'none',
     })
+    if (!isLatestRun()) {
+      dbg('analysis', 'Stale run — discarding primary results')
+      return
+    }
     setAnalysisResults({
       loading: false,
       noiseLevel, noiseAirport, noiseAirportCode,
@@ -1821,6 +1956,10 @@ function MapPage() {
 
     costcoPromise.then((data) => {
       dbg('analysis', 'Costco result:', data.nearest ? `${data.nearest.distanceMi.toFixed(1)} mi` : 'none')
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Costco result')
+        return
+      }
       setAnalysisResults((prev) => ({
         ...prev,
         costco: data.nearest,
@@ -1828,8 +1967,18 @@ function MapPage() {
         costcoError: false,
         costcoLoading: false,
       }))
+      writeAnalysisCache(lat, lng, {
+        noiseLevel, noiseAirport, noiseAirportCode,
+        superfunds,
+        costco: data.nearest,
+        costcoNearby: data.nearby,
+        costcoError: false,
+        dataCenters,
+        nearestER, erError,
+      })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
+      if (!isLatestRun()) return
       setAnalysisResults((prev) => ({
         ...prev,
         costco: null,
@@ -1908,8 +2057,10 @@ function MapPage() {
         })
         L.marker([lat, lng], { icon: houseIcon }).bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' }).addTo(map)
 
-        // Create noise layer (not added to map until toggled on)
-        noiseLayerRef.current = createNoiseLayer(NOISE_PMTILES_URL, { opacity: 0.7 })
+        // Defer noise layer creation until the user toggles it on — the
+        // PMTiles + protomaps-leaflet deps are loaded in toggleNoise instead
+        // of pre-paying the cost on map init.
+        noiseLayerRef.current = null
 
         // Create airport label layer (shown with noise layer)
         airportLayerRef.current = L.layerGroup()
@@ -2006,12 +2157,19 @@ function MapPage() {
     }
   }
 
-  const toggleNoise = () => {
+  const toggleNoise = async () => {
     const map = mapRef.current
-    const layer = noiseLayerRef.current as L.GridLayer | null
     const airportLayer = airportLayerRef.current
-    if (!map || !layer) return
+    if (!map) return
     dbg('toggle', `noise → ${noiseVisible ? 'OFF' : 'ON'}`)
+
+    // Lazily create the noise layer on first toggle so the PMTiles +
+    // protomaps-leaflet deps don't sit in the initial MapPage chunk.
+    if (!noiseLayerRef.current) {
+      const { createNoiseLayer } = await loadAirportNoiseModule()
+      noiseLayerRef.current = createNoiseLayer(NOISE_PMTILES_URL, { opacity: 0.7 })
+    }
+    const layer = noiseLayerRef.current as L.GridLayer
 
     if (noiseVisible) {
       map.removeLayer(layer)
@@ -2033,21 +2191,27 @@ function MapPage() {
     setNoiseVisible(!noiseVisible)
   }
 
-  const handleAirportMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = airportLayerRef.current
-    if (map && layer) {
-      loadAirportLabels(map, layer)
-    }
-  }, [loadAirportLabels])
+  const handleAirportMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = airportLayerRef.current
+      if (map && layer) {
+        loadAirportLabels(map, layer)
+      }
+    }, 250),
+    [loadAirportLabels],
+  )
 
-  const handleCostcoMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = costcoLayerRef.current
-    if (map && layer) {
-      loadCostcoLabels(map, layer)
-    }
-  }, [loadCostcoLabels])
+  const handleCostcoMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = costcoLayerRef.current
+      if (map && layer) {
+        loadCostcoLabels(map, layer)
+      }
+    }, 250),
+    [loadCostcoLabels],
+  )
 
   const toggleCostco = () => {
     const map = mapRef.current
@@ -2125,11 +2289,14 @@ function MapPage() {
     }
   }, [])
 
-  const handleDataCenterMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = dataCenterLayerRef.current
-    if (map && layer) loadDataCenters(map, layer)
-  }, [loadDataCenters])
+  const handleDataCenterMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = dataCenterLayerRef.current
+      if (map && layer) loadDataCenters(map, layer)
+    }, 250),
+    [loadDataCenters],
+  )
 
   const toggleDataCenters = () => {
     const map = mapRef.current
@@ -2274,11 +2441,14 @@ function MapPage() {
     }
   }, [])
 
-  const handleEmsMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = emsLayerRef.current
-    if (map && layer) loadEmsData(map, layer)
-  }, [loadEmsData])
+  const handleEmsMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = emsLayerRef.current
+      if (map && layer) loadEmsData(map, layer)
+    }, 250),
+    [loadEmsData],
+  )
 
   const toggleEms = () => {
     const map = mapRef.current
@@ -2335,13 +2505,16 @@ function MapPage() {
     setSuperfundVisible(!superfundVisible)
   }
 
-  const handleSuperfundMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = superfundLayerRef.current
-    if (map && layer) {
-      loadSuperfundData(map, layer)
-    }
-  }, [loadSuperfundData])
+  const handleSuperfundMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = superfundLayerRef.current
+      if (map && layer) {
+        loadSuperfundData(map, layer)
+      }
+    }, 250),
+    [loadSuperfundData],
+  )
 
   const toggleTransit = () => {
     const map = mapRef.current
@@ -2389,13 +2562,16 @@ function MapPage() {
     }
   }
 
-  const handleTransitMove = useCallback(() => {
-    const map = mapRef.current
-    const layer = transitLayerRef.current
-    if (map && layer) {
-      loadTransitData(map, layer)
-    }
-  }, [loadTransitData])
+  const handleTransitMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = transitLayerRef.current
+      if (map && layer) {
+        loadTransitData(map, layer)
+      }
+    }, 250),
+    [loadTransitData],
+  )
 
   const toggleSchools = () => {
     const map = mapRef.current
@@ -2503,17 +2679,23 @@ function MapPage() {
     let maxRadiusMeters = 0
 
     if (analysisResults.noiseLevel && !noiseVisible) {
-      const layer = noiseLayerRef.current as L.GridLayer | null
       const airportLayer = airportLayerRef.current
-      if (layer) {
+      const noiseDeg = (5 * milesToMeters) / 111320
+      const noiseBounds = L.latLngBounds(
+        [center.lat - noiseDeg, center.lng - noiseDeg * 1.5],
+        [center.lat + noiseDeg, center.lng + noiseDeg * 1.5]
+      )
+      // The noise layer is created lazily on first need. If it hasn't been
+      // built yet, fetch the heavy module first, then add it.
+      const enableNoise = async () => {
+        if (!noiseLayerRef.current) {
+          const { createNoiseLayer } = await loadAirportNoiseModule()
+          noiseLayerRef.current = createNoiseLayer(NOISE_PMTILES_URL, { opacity: 0.7 })
+        }
+        const layer = noiseLayerRef.current as L.GridLayer
         // Constrain noise tiles to the area around the location.
         // protomaps-leaflet's `leafletLayer` extends L.GridLayer, so the
         // GridLayer `bounds` option still filters which tiles get fetched.
-        const noiseDeg = (5 * milesToMeters) / 111320
-        const noiseBounds = L.latLngBounds(
-          [center.lat - noiseDeg, center.lng - noiseDeg * 1.5],
-          [center.lat + noiseDeg, center.lng + noiseDeg * 1.5]
-        )
         ;(layer.options as L.GridLayerOptions).bounds = noiseBounds
         layer.addTo(map)
         if (airportLayer) {
@@ -2530,6 +2712,7 @@ function MapPage() {
         }
         setNoiseVisible(true)
       }
+      void enableNoise()
       // Noise corridors typically extend ~3-5 miles from airport
       maxRadiusMeters = Math.max(maxRadiusMeters, 5 * milesToMeters)
     }

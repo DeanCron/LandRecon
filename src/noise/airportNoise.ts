@@ -15,47 +15,26 @@ import { leafletLayer, PolygonSymbolizer, type Feature } from 'protomaps-leaflet
 import { PMTiles } from 'pmtiles'
 import { VectorTile, classifyRings } from '@mapbox/vector-tile'
 import Pbf from 'pbf'
+import {
+  NOISE_LAYER_NAME,
+  NOISE_MAX_ZOOM,
+  NOISE_BAND_COLORS,
+  NOISE_BAND_BREAKS,
+  LEGEND_BANDS,
+  colorForDbMin,
+  type LegendBand,
+} from './legend'
 
-export const NOISE_LAYER_NAME = 'airport_noise'
-
-// Max zoom baked into the PMTiles archive. Tippecanoe was invoked with -z12;
-// point queries snap to this zoom for the smallest tile and tightest polygons.
-export const NOISE_MAX_ZOOM = 12
-
-// Color ramp keyed by the lower edge of each dB band. Carried forward from
-// the retired raster tile server's COLOR_STOPS table so the visual overlay
-// keeps the same legend conventions used elsewhere in the app.
-export const NOISE_BAND_COLORS: Record<number, string> = {
-  50: '#7CB342',
-  55: '#FFEB3B',
-  60: '#FF9800',
-  65: '#F44336',
-  70: '#880E4F',
+// Re-export the constants so legacy importers (and tests) continue to work,
+// even though the canonical home for them is ./legend.
+export {
+  NOISE_LAYER_NAME,
+  NOISE_MAX_ZOOM,
+  NOISE_BAND_COLORS,
+  NOISE_BAND_BREAKS,
+  LEGEND_BANDS,
 }
-
-const NOISE_BAND_BREAKS = [50, 55, 60, 65, 70] as const
-
-export interface LegendBand {
-  dbMin: number
-  label: string
-  color: string
-}
-
-// Ordered legend entries for UI rendering. The top band is open-ended (>=70).
-export const LEGEND_BANDS: readonly LegendBand[] = NOISE_BAND_BREAKS.map((db, i) => ({
-  dbMin: db,
-  label: i === NOISE_BAND_BREAKS.length - 1 ? `${db}+ dB` : `${db}\u2013${NOISE_BAND_BREAKS[i + 1]}`,
-  color: NOISE_BAND_COLORS[db],
-}))
-
-function colorForDbMin(db: unknown): string {
-  if (typeof db !== 'number' || !Number.isFinite(db)) return '#888888'
-  let snap: number = NOISE_BAND_BREAKS[0]
-  for (const b of NOISE_BAND_BREAKS) {
-    if (db >= b) snap = b
-  }
-  return NOISE_BAND_COLORS[snap] ?? '#888888'
-}
+export type { LegendBand }
 
 export interface NoiseLayerOptions {
   opacity?: number
