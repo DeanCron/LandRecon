@@ -32,3 +32,6 @@ build/
 # Python build artifacts
 __pycache__/
 *.pyc
+
+# Local source data for district pipeline (user-provided exports)
+data-sources/
