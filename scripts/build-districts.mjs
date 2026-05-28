@@ -229,66 +229,6 @@ function parseCsvAll(text) {
   return rows
 }
 
-async function buildStateLegResults(layerId, label) {
-  console.log(`\n[${layerId}-results] ${label}`)
-  const inputPath = join(process.cwd(), 'data-sources', `${layerId}-results.csv`)
-  if (!existsSync(inputPath)) {
-    console.log(`  no input at data-sources/${layerId}-results.csv — skipping`)
-    console.log('  (drop a CSV with columns: geoid,d_pct,r_pct[,d,r,o,total,winner])')
-    return
-  }
-
-  process.stdout.write(`  read ${inputPath} ... `)
-  const text = await (await import('node:fs/promises')).readFile(inputPath, 'utf8')
-  console.log(`${(text.length / 1024).toFixed(1)} KB`)
-
-  const rows = parseCsvAll(text)
-  if (rows.length < 2) {
-    console.log('  empty input, skipping')
-    return
-  }
-  const header = rows[0].map((h) => h.trim().toLowerCase())
-  const col = (name) => header.indexOf(name)
-  const iGeoid = col('geoid')
-  const iD = col('d_pct')
-  const iR = col('r_pct')
-  if (iGeoid < 0 || iD < 0 || iR < 0) {
-    throw new Error(`${layerId}-results.csv: missing required columns geoid,d_pct,r_pct`)
-  }
-  const iDv = col('d')
-  const iRv = col('r')
-  const iOv = col('o')
-  const iTot = col('total')
-  const iWin = col('winner')
-
-  const out = {}
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r]
-    if (!row[iGeoid]) continue
-    const geoid = row[iGeoid].trim().padStart(5, '0')
-    const d_pct = +row[iD] || 0
-    const r_pct = +row[iR] || 0
-    const margin_pct = +(d_pct - r_pct).toFixed(2)
-    const d = iDv >= 0 ? Number(row[iDv]) || 0 : 0
-    const rv = iRv >= 0 ? Number(row[iRv]) || 0 : 0
-    const o = iOv >= 0 ? Number(row[iOv]) || 0 : 0
-    const total = iTot >= 0 ? Number(row[iTot]) || (d + rv + o) : (d + rv + o)
-    const winner = (iWin >= 0 && row[iWin])
-      ? row[iWin].trim().toUpperCase()
-      : (d_pct > r_pct ? 'D' : r_pct > d_pct ? 'R' : 'O')
-    out[geoid] = { d, r: rv, o, total, d_pct, r_pct, margin_pct, winner }
-  }
-
-  const outPath = join(OUT_DIR, `${layerId}-results.json`)
-  const meta = {
-    source: 'User-supplied via data-sources/ (typically Daily Kos statewide-by-district, CC BY-NC)',
-    fetched_at: new Date().toISOString().slice(0, 10),
-    district_count: Object.keys(out).length,
-  }
-  await writeFile(outPath, JSON.stringify({ meta, results: out }))
-  console.log(`  wrote ${outPath} (${Object.keys(out).length} districts)`)
-}
-
 async function main() {
   console.log('Building LandRecon voting-district boundary + results files')
   console.log(`  out: ${OUT_DIR}`)
@@ -302,8 +242,6 @@ async function main() {
   }
 
   await buildCongressResults()
-  await buildStateLegResults('sldu', 'State Senate results')
-  await buildStateLegResults('sldl', 'State House results')
 
   await rm(WORK_DIR, { recursive: true, force: true })
   console.log('\nDone.')
