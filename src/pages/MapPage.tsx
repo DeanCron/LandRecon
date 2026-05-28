@@ -1814,14 +1814,14 @@ function MapPage() {
     }
   }, [])
 
-  const runLocationAnalysis = useCallback(async (lat: number, lng: number) => {
-    dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+  const runLocationAnalysis = useCallback(async (lat: number, lng: number, opts?: { force?: boolean }) => {
+    dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}${opts?.force ? ' (forced)' : ''}`)
     const runId = ++analysisRunIdRef.current
     const isLatestRun = () => analysisRunIdRef.current === runId
 
     // Cache hit: hand back the previously-computed report instantly and skip
-    // all the network calls below.
-    const cached = readAnalysisCache(lat, lng)
+    // all the network calls below. Re-analyze (force=true) bypasses the cache.
+    const cached = opts?.force ? null : readAnalysisCache(lat, lng)
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
@@ -3789,7 +3789,7 @@ function MapPage() {
               className="analysis-action-btn"
               onClick={() => {
                 const loc = targetLocationRef.current
-                if (loc) runLocationAnalysis(loc.lat, loc.lng)
+                if (loc) runLocationAnalysis(loc.lat, loc.lng, { force: true })
               }}
               disabled={status !== 'ready' || analysisResults.loading}
               title="Re-analyze this location"
