@@ -1446,15 +1446,39 @@ function MapPage() {
     setShareError(null)
   }, [])
 
-  const flyToAddress = useCallback(() => {
+  const savedMapViewRef = useRef<{ center: L.LatLng; zoom: number } | null>(null)
+
+  const flyToWithAddress = useCallback((lat: number, lng: number) => {
+    const map = mapRef.current
+    if (!map) return
+    const home = targetLocationRef.current
+    if (!savedMapViewRef.current) {
+      savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
+    }
+    if (home) {
+      const bounds = L.latLngBounds([[home.lat, home.lng], [lat, lng]])
+      map.flyToBounds(bounds, { padding: [60, 60], maxZoom: 15, duration: 0.5 })
+    } else {
+      map.flyTo([lat, lng], 15, { duration: 0.5 })
+    }
+  }, [])
+
+  // When the detail flyout closes, restore the pre-flyout view (saved on
+  // the first "show on map" click inside the flyout) and tear down any
+  // highlight pin. If the user never clicked "show on map", saved view is
+  // null and the map is left exactly where it is.
+  useEffect(() => {
+    if (analysisDetail !== null) return
+    const saved = savedMapViewRef.current
+    savedMapViewRef.current = null
     if (highlightMarkerRef.current) {
       highlightMarkerRef.current.remove()
       highlightMarkerRef.current = null
     }
-    if (targetLocationRef.current && mapRef.current) {
-      mapRef.current.flyTo(targetLocationRef.current, mapRef.current.getZoom(), { duration: 0.5 })
+    if (saved && mapRef.current) {
+      mapRef.current.flyTo(saved.center, saved.zoom, { duration: 0.5 })
     }
-  }, [])
+  }, [analysisDetail])
 
   const showHighlightPin = useCallback((lat: number, lng: number, label: string) => {
     if (!mapRef.current) return
@@ -1468,8 +1492,8 @@ function MapPage() {
       iconAnchor: [16, 32],
     })
     highlightMarkerRef.current = L.marker([lat, lng], { icon }).addTo(mapRef.current)
-    mapRef.current.flyTo([lat, lng], 15)
-  }, [])
+    flyToWithAddress(lat, lng)
+  }, [flyToWithAddress])
 
   const cancelEditingAddress = useCallback(() => {
     setEditingAddress(false)
@@ -3918,9 +3942,8 @@ function MapPage() {
                   className={`analysis-item${pNoise ? '' : ' clickable'}`}
                   onClick={() => {
                     if (pNoise) return
-                    const closing = analysisDetail === 'noise'
-                    setAnalysisDetail(closing ? null : 'noise')
-                    if (closing) flyToAddress()
+                    if (analysisDetail === 'noise') setAnalysisDetail(null)
+                    else setAnalysisDetail('noise')
                   }}
                   aria-busy={pNoise || undefined}
                 >
@@ -3944,9 +3967,8 @@ function MapPage() {
                   className={`analysis-item${pSF ? '' : ' clickable'}`}
                   onClick={() => {
                     if (pSF) return
-                    const closing = analysisDetail === 'superfunds'
-                    setAnalysisDetail(closing ? null : 'superfunds')
-                    if (closing) flyToAddress()
+                    if (analysisDetail === 'superfunds') setAnalysisDetail(null)
+                    else setAnalysisDetail('superfunds')
                   }}
                   aria-busy={pSF || undefined}
                 >
@@ -3972,9 +3994,8 @@ function MapPage() {
                   className={`analysis-item${pDC ? '' : ' clickable'}`}
                   onClick={() => {
                     if (pDC) return
-                    const closing = analysisDetail === 'datacenters'
-                    setAnalysisDetail(closing ? null : 'datacenters')
-                    if (closing) flyToAddress()
+                    if (analysisDetail === 'datacenters') setAnalysisDetail(null)
+                    else setAnalysisDetail('datacenters')
                   }}
                   aria-busy={pDC || undefined}
                 >
@@ -4000,9 +4021,8 @@ function MapPage() {
                   className={`analysis-item${pCrowd ? '' : ' clickable'}`}
                   onClick={() => {
                     if (pCrowd) return
-                    const closing = analysisDetail === 'crowd'
-                    setAnalysisDetail(closing ? null : 'crowd')
-                    if (closing) flyToAddress()
+                    if (analysisDetail === 'crowd') setAnalysisDetail(null)
+                    else setAnalysisDetail('crowd')
                   }}
                   aria-busy={pCrowd || undefined}
                 >
@@ -4028,9 +4048,8 @@ function MapPage() {
                   className={`analysis-item${pER ? '' : ' clickable'}`}
                   onClick={() => {
                     if (pER) return
-                    const closing = analysisDetail === 'er'
-                    setAnalysisDetail(closing ? null : 'er')
-                    if (closing) flyToAddress()
+                    if (analysisDetail === 'er') setAnalysisDetail(null)
+                    else setAnalysisDetail('er')
                   }}
                   aria-busy={pER || undefined}
                 >
@@ -4054,9 +4073,8 @@ function MapPage() {
               className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
               onClick={() => {
                 if (analysisResults.costcoLoading) return
-                const closing = analysisDetail === 'costco'
-                setAnalysisDetail(closing ? null : 'costco')
-                if (closing) flyToAddress()
+                if (analysisDetail === 'costco') setAnalysisDetail(null)
+                else setAnalysisDetail('costco')
               }}
               aria-busy={analysisResults.costcoLoading || undefined}
             >
@@ -4101,9 +4119,9 @@ function MapPage() {
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
+              const wasScore = analysisDetail === 'score'
               setAnalysisDetail(null)
-              if (analysisDetail === 'score') setShowScoreBreakdown(false)
-              flyToAddress()
+              if (wasScore) setShowScoreBreakdown(false)
             }} aria-label="Close detail">×</button>
           </div>
           <div className="analysis-popout-body">
@@ -4242,9 +4260,9 @@ function MapPage() {
                             </div>
                             <button
                               className="analysis-flyto-btn"
-                              onClick={() => mapRef.current?.flyTo([s.lat, s.lng], 15)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${s.name}`}
+                              onClick={() => flyToWithAddress(s.lat, s.lng)}
+                              title="Show on map with your address"
+                              aria-label={`Show ${s.name} on map`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
@@ -4305,7 +4323,7 @@ function MapPage() {
                       )}
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
-                        <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); mapRef.current?.flyTo([analysisResults.costco!.lat, analysisResults.costco!.lng], 15) }}>
+                        <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); flyToWithAddress(analysisResults.costco!.lat, analysisResults.costco!.lng) }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                             <circle cx="12" cy="10" r="3" />
@@ -4454,9 +4472,9 @@ function MapPage() {
                             <span className="dc-distance">{dc.distanceMi} mi</span>
                             <button
                               className="analysis-flyto-btn"
-                              onClick={() => mapRef.current?.flyTo([dc.lat, dc.lng], 15)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${dc.name || 'data center'}`}
+                              onClick={() => flyToWithAddress(dc.lat, dc.lng)}
+                              title="Show on map with your address"
+                              aria-label={`Show ${dc.name || 'data center'} on map`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
@@ -4515,9 +4533,9 @@ function MapPage() {
                             <span className="dc-distance">{m.distanceMi} mi</span>
                             <button
                               className="analysis-flyto-btn"
-                              onClick={() => mapRef.current?.flyTo([m.lat, m.lng], 15)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${m.name}`}
+                              onClick={() => flyToWithAddress(m.lat, m.lng)}
+                              title="Show on map with your address"
+                              aria-label={`Show ${m.name} on map`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
