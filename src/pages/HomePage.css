@@ -78,7 +78,7 @@
 
 .home-input {
   width: 100%;
-  padding: 16px 16px 16px 48px;
+  padding: 16px 52px 16px 48px;
   font-size: 1rem;
   font-family: inherit;
   background: var(--color-surface);
@@ -104,35 +104,37 @@
   pointer-events: none;
 }
 
-.home-locate-button {
-  margin-top: 0.6rem;
+.home-input-locate {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 8px 14px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 0.88rem;
-  border-radius: 999px;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-muted);
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  transition: color 0.15s, background-color 0.15s;
 }
 
-.home-locate-button:hover:not(:disabled) {
-  border-color: var(--color-primary);
+.home-input-locate:hover:not(:disabled) {
   color: var(--color-primary);
+  background: var(--color-bg);
 }
 
-.home-locate-button:disabled {
-  opacity: 0.6;
+.home-input-locate:disabled {
   cursor: progress;
+  opacity: 0.7;
 }
 
 .home-locate-spinner {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-primary);
   border-radius: 50%;

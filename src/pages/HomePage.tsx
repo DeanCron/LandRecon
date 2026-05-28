@@ -243,6 +243,27 @@ function HomePage() {
               aria-expanded={showSuggestions}
               aria-controls="home-suggestions"
             />
+            <button
+              type="button"
+              className="home-input-locate"
+              onClick={handleUseMyLocation}
+              disabled={locating}
+              aria-label="Use my current location"
+              title={locating ? 'Finding you…' : 'Use my current location'}
+            >
+              {locating ? (
+                <span className="home-locate-spinner" aria-hidden="true" />
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="3" />
+                  <line x1="12" y1="2" x2="12" y2="5" />
+                  <line x1="12" y1="19" x2="12" y2="22" />
+                  <line x1="2" y1="12" x2="5" y2="12" />
+                  <line x1="19" y1="12" x2="22" y2="12" />
+                </svg>
+              )}
+            </button>
             {address.length > 0 && address.length < 3 && !showSuggestions && (
               <div className="home-input-hint" role="status">
                 Keep typing — we'll suggest matches after 3 characters.
@@ -277,32 +298,6 @@ function HomePage() {
             </svg>
           </button>
         </form>
-        <button
-          type="button"
-          className="home-locate-button"
-          onClick={handleUseMyLocation}
-          disabled={locating}
-          aria-label="Use my current location"
-        >
-          {locating ? (
-            <>
-              <span className="home-locate-spinner" aria-hidden="true" />
-              Finding you…
-            </>
-          ) : (
-            <>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="3" />
-                <line x1="12" y1="2" x2="12" y2="5" />
-                <line x1="12" y1="19" x2="12" y2="22" />
-                <line x1="2" y1="12" x2="5" y2="12" />
-                <line x1="19" y1="12" x2="22" y2="12" />
-              </svg>
-              Use my location
-            </>
-          )}
-        </button>
         {locateError && (
           <p className="home-locate-error" role="alert">{locateError}</p>
         )}
