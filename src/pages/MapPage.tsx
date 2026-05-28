@@ -248,6 +248,7 @@ const DEV_TODOS: DevTodo[] = [
 ]
 const DEV_TODOS_ITEMS_KEY = 'lr_dev_todos_items'
 const DEV_TODOS_CHECKS_KEY = 'lr_dev_todos'
+const DEV_TODOS_API = '/api/dev-todos'
 
 function readDevTodoItems(): DevTodo[] {
   try {
@@ -269,6 +270,30 @@ function readDevTodoChecks(): Record<string, boolean> {
 }
 function writeDevTodoChecks(state: Record<string, boolean>) {
   try { localStorage.setItem(DEV_TODOS_CHECKS_KEY, JSON.stringify(state)) } catch { /* ignore */ }
+}
+
+async function fetchDevTodosFromServer(signal?: AbortSignal): Promise<{ items: DevTodo[]; checks: Record<string, boolean> } | null> {
+  try {
+    const res = await fetch(DEV_TODOS_API, { signal, cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    const items = Array.isArray(data?.items)
+      ? data.items.filter((t: unknown): t is DevTodo =>
+          !!t && typeof (t as DevTodo).id === 'string' && typeof (t as DevTodo).label === 'string')
+      : []
+    const checks = data?.checks && typeof data.checks === 'object' ? data.checks as Record<string, boolean> : {}
+    return { items, checks }
+  } catch { return null }
+}
+async function saveDevTodosToServer(payload: { items: DevTodo[]; checks: Record<string, boolean> }): Promise<boolean> {
+  try {
+    const res = await fetch(DEV_TODOS_API, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    return res.ok
+  } catch { return false }
 }
 
 interface CachedAnalysisPayload {
@@ -1227,11 +1252,49 @@ function MapPage() {
   const [devTodoItems, setDevTodoItems] = useState<DevTodo[]>(() => readDevTodoItems())
   const [devTodoChecks, setDevTodoChecks] = useState<Record<string, boolean>>(() => readDevTodoChecks())
   const [newDevTodoText, setNewDevTodoText] = useState('')
+  const [devTodoSync, setDevTodoSync] = useState<'idle' | 'loading' | 'saving' | 'offline'>('idle')
+  const devTodoSaveTimer = useRef<number | null>(null)
+
+  // Push the current items + checks to the server, debounced so a burst of
+  // edits collapses into a single PUT. Falls back to localStorage-only mode
+  // if the server can't be reached (e.g. running the SPA outside the
+  // container, or sidecar down).
+  const persistDevTodos = useCallback((items: DevTodo[], checks: Record<string, boolean>) => {
+    if (devTodoSaveTimer.current != null) window.clearTimeout(devTodoSaveTimer.current)
+    devTodoSaveTimer.current = window.setTimeout(async () => {
+      setDevTodoSync('saving')
+      const ok = await saveDevTodosToServer({ items, checks })
+      setDevTodoSync(ok ? 'idle' : 'offline')
+    }, 400)
+  }, [])
+
+  // When the modal opens, refresh from the server. If the server is
+  // reachable, its data is the source of truth and we also mirror it to
+  // localStorage for next-load speed + offline fallback.
+  useEffect(() => {
+    if (!devTodosOpen) return
+    let cancelled = false
+    setDevTodoSync('loading')
+    fetchDevTodosFromServer().then((data) => {
+      if (cancelled) return
+      if (data) {
+        setDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
+        setDevTodoChecks(data.checks)
+        writeDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
+        writeDevTodoChecks(data.checks)
+        setDevTodoSync('idle')
+      } else {
+        setDevTodoSync('offline')
+      }
+    })
+    return () => { cancelled = true }
+  }, [devTodosOpen])
 
   const toggleDevTodo = (id: string) => {
     setDevTodoChecks((prev) => {
       const next = { ...prev, [id]: !prev[id] }
       writeDevTodoChecks(next)
+      persistDevTodos(devTodoItems, next)
       return next
     })
   }
@@ -1242,23 +1305,22 @@ function MapPage() {
     setDevTodoItems((prev) => {
       const next = [...prev, { id, label }]
       writeDevTodoItems(next)
+      persistDevTodos(next, devTodoChecks)
       return next
     })
     setNewDevTodoText('')
   }
   const deleteDevTodo = (id: string) => {
+    const nextChecks = { ...devTodoChecks }
+    delete nextChecks[id]
     setDevTodoItems((prev) => {
       const next = prev.filter((t) => t.id !== id)
       writeDevTodoItems(next)
+      writeDevTodoChecks(nextChecks)
+      persistDevTodos(next, nextChecks)
       return next
     })
-    setDevTodoChecks((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      writeDevTodoChecks(next)
-      return next
-    })
+    setDevTodoChecks(nextChecks)
   }
   const remainingDevTodos = devTodoItems.filter((t) => !devTodoChecks[t.id]).length
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
@@ -4524,7 +4586,10 @@ function MapPage() {
               <button type="submit" disabled={!newDevTodoText.trim()}>Add</button>
             </form>
             <div className="dev-todos-hint">
-              Stored in this browser ({DEV_TODOS_ITEMS_KEY}). Clearing site data resets to the seeded list.
+              {devTodoSync === 'loading' && 'Loading from server…'}
+              {devTodoSync === 'saving' && 'Saving…'}
+              {devTodoSync === 'idle' && 'Synced to server. Persists across browsers and devices.'}
+              {devTodoSync === 'offline' && 'Server unreachable — saved to this browser only.'}
             </div>
           </div>
         </div>

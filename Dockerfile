@@ -16,16 +16,25 @@ ARG BUILD_GIT_HASH
 ENV BUILD_GIT_HASH=$BUILD_GIT_HASH
 RUN npm run build
 
-# Runtime stage - pure static SPA on nginx. The Flask + GDAL tile server
-# was retired once airport noise moved to PMTiles served from blob storage.
+# Runtime stage - pure static SPA on nginx, with a tiny Node sidecar for
+# the Dev Todos JSON endpoint. The Flask + GDAL tile server was retired
+# once airport noise moved to PMTiles served from blob storage.
 FROM nginx:1.27-alpine AS runtime
+RUN apk add --no-cache nodejs
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
+COPY server/ /app/server/
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && mkdir -p /var/lib/landrecon \
+    && chown -R nginx:nginx /var/lib/landrecon
 
 EXPOSE 8000
 
-# `nginx -g 'daemon off;'` is the default CMD of the base image; no override
-# needed. Health check hits the SPA root to confirm the server is up.
+# Health check hits the SPA root to confirm nginx is up. The sidecar runs
+# in the background; if it dies the dev-todos endpoint will 502 but the
+# SPA still works (and the dev todos modal falls back to localStorage).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:8000/ > /dev/null || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
 
