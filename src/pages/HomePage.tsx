@@ -55,6 +55,7 @@ function HomePage() {
   const [savedSnippets, setSavedSnippets] = useState<SavedAnalysisSnippet[]>(() => loadSavedAnalysisSnippets())
   const [locating, setLocating] = useState(false)
   const [locateError, setLocateError] = useState<string | null>(null)
+  const [recentOpen, setRecentOpen] = useState(false)
   const navigate = useNavigate()
 
   const gradeByAddress = useMemo(() => {
@@ -70,10 +71,20 @@ function HomePage() {
     return recent.filter((r) => !savedSet.has(r.address.toLowerCase()))
   }, [recent, savedSnippets])
 
+  useEffect(() => {
+    if (!recentOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRecentOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [recentOpen])
+
   const goToAddress = (value: string) => {
     const trimmed = value.trim()
     if (!trimmed) return
     setShowSuggestions(false)
+    setRecentOpen(false)
     setRecent(pushRecentSearch(trimmed))
     navigate(`/map?address=${encodeURIComponent(trimmed)}`)
   }
@@ -89,11 +100,15 @@ function HomePage() {
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const recentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setShowSuggestions(false)
+      }
+      if (recentRef.current && !recentRef.current.contains(e.target as Node)) {
+        setRecentOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -342,70 +357,97 @@ function HomePage() {
           </section>
         )}
         {visibleRecent.length > 0 && (
-          <section className="home-recent" aria-label="Recent searches">
-            <header className="home-recent-header">
-              <span className="home-recent-title">Recent</span>
-              <button
-                type="button"
-                className="home-recent-clear"
-                onClick={handleClearRecent}
+          <section className="home-recent" aria-label="Recent searches" ref={recentRef}>
+            <button
+              type="button"
+              className="home-recent-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={recentOpen}
+              onClick={() => setRecentOpen((v) => !v)}
+            >
+              <svg
+                className="home-recent-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
               >
-                Clear all
-              </button>
-            </header>
-            <ul className="home-recent-list">
-              {visibleRecent.slice(0, 5).map((item) => {
-                const saved = gradeByAddress.get(item.address.toLowerCase())
-                const grade = saved ?? (item.grade && item.gradeColor
-                  ? { grade: item.grade, gradeColor: item.gradeColor }
-                  : undefined)
-                return (
-                  <li key={item.address} className="home-recent-item">
-                    <button
-                      type="button"
-                      className="home-recent-go"
-                      onClick={() => goToAddress(item.address)}
-                      title={item.address}
-                    >
-                      <svg
-                        className="home-recent-icon"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <circle cx="12" cy="12" r="9" />
-                        <polyline points="12 7 12 12 15 14" />
-                      </svg>
-                      <span className="home-recent-address">{item.address}</span>
-                      {grade && (
-                        <span
-                          className="home-recent-grade"
-                          style={{ background: grade.gradeColor }}
-                          aria-label={`Saved grade ${grade.grade}`}
+                <circle cx="12" cy="12" r="9" />
+                <polyline points="12 7 12 12 15 14" />
+              </svg>
+              <span className="home-recent-trigger-label">Recent searches</span>
+              <span className="home-recent-count">{visibleRecent.length}</span>
+              <svg
+                className={`home-recent-chevron${recentOpen ? ' open' : ''}`}
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {recentOpen && (
+              <div className="home-recent-panel" role="listbox">
+                <ul className="home-recent-list">
+                  {visibleRecent.slice(0, 5).map((item) => {
+                    const saved = gradeByAddress.get(item.address.toLowerCase())
+                    const grade = saved ?? (item.grade && item.gradeColor
+                      ? { grade: item.grade, gradeColor: item.gradeColor }
+                      : undefined)
+                    return (
+                      <li key={item.address} className="home-recent-item" role="option">
+                        <button
+                          type="button"
+                          className="home-recent-go"
+                          onClick={() => goToAddress(item.address)}
+                          title={item.address}
                         >
-                          {grade.grade}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className="home-recent-remove"
-                      onClick={(e) => handleRemoveRecent(e, item.address)}
-                      aria-label={`Remove ${item.address} from recent searches`}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
+                          <span className="home-recent-address">{item.address}</span>
+                          {grade && (
+                            <span
+                              className="home-recent-grade"
+                              style={{ background: grade.gradeColor }}
+                              aria-label={`Saved grade ${grade.grade}`}
+                            >
+                              {grade.grade}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="home-recent-remove"
+                          onClick={(e) => handleRemoveRecent(e, item.address)}
+                          aria-label={`Remove ${item.address} from recent searches`}
+                          title="Remove"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <footer className="home-recent-footer">
+                  <button
+                    type="button"
+                    className="home-recent-clear"
+                    onClick={handleClearRecent}
+                  >
+                    Clear all
+                  </button>
+                </footer>
+              </div>
+            )}
           </section>
         )}
         <footer className="home-footer">
