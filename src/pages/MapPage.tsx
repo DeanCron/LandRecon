@@ -2507,6 +2507,25 @@ function MapPage() {
 
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
+        {status === 'ready' && analysisResults.loading && (() => {
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
+          const done = checks.filter((k) => analysisProgress[k] === 'done').length
+          const total = checks.length
+          const pct = Math.round((done / total) * 100)
+          return (
+            <div
+              className="analysis-progress-strip"
+              role="status"
+              aria-live="polite"
+              aria-label={`Analyzing area, ${done} of ${total} categories ready`}
+            >
+              <div className="analysis-progress-strip-fill" style={{ width: `${pct}%` }} />
+              <span className="analysis-progress-strip-text">
+                Analyzing area · <strong>{done}</strong> of {total} ready
+              </span>
+            </div>
+          )
+        })()}
         {status === 'loading' && (
           <div className="map-overlay">
             <div className="spinner" />
@@ -2538,6 +2557,15 @@ function MapPage() {
         aria-label="Open analysis"
       >
         <span className="fab-label">Report</span>
+        {analysisResults.loading && (() => {
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
+          const done = checks.filter((k) => analysisProgress[k] === 'done').length
+          return (
+            <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
+              {done}/{checks.length}
+            </span>
+          )
+        })()}
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
       </button>
 
@@ -2933,7 +2961,24 @@ function MapPage() {
                       <strong>{label}</strong>
                       <p>{analysisProgress[key] === 'done' ? 'Complete' : 'Checking…'}</p>
                     </div>
-                    {analysisProgress[key] !== 'done' && <div className="skeleton-spinner" />}
+                    {analysisProgress[key] === 'done' ? (
+                      <svg
+                        className="skeleton-check"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <div className="skeleton-spinner" />
+                    )}
                   </div>
                 </div>
               ))}

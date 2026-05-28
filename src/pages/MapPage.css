@@ -1255,8 +1255,89 @@
   animation: skeletonSpin 0.8s linear infinite;
 }
 
+.skeleton-check {
+  align-self: center;
+  flex-shrink: 0;
+  color: #10b981;
+  animation: skeletonCheckIn 0.25s ease-out;
+}
+
+@keyframes skeletonCheckIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 @keyframes skeletonSpin {
   to { transform: rotate(360deg); }
+}
+
+/* Analysis progress strip — visible during background analysis */
+.analysis-progress-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  overflow: hidden;
+  animation: stripSlideIn 0.25s ease-out;
+}
+
+@keyframes stripSlideIn {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+.analysis-progress-strip-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.55), rgba(16, 185, 129, 0.55));
+  transition: width 0.4s ease;
+}
+
+.analysis-progress-strip-text {
+  position: relative;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.analysis-progress-strip-text strong {
+  font-weight: 700;
+  color: #fff;
+}
+
+/* FAB progress badge on the Report button (mobile + desktop) */
+.fab-progress-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  animation: fabBadgePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes fabBadgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0); }
 }
 
 /* Per-item analysis progress checklist */
