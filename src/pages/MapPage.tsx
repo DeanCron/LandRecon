@@ -1526,16 +1526,16 @@ function MapPage() {
     }
   }, [analysisDetail])
 
-  const showHighlightPin = useCallback((lat: number, lng: number, label: string) => {
+  const showHighlightPin = useCallback((lat: number, lng: number, _label: string) => {
     if (!mapRef.current) return
     if (highlightMarkerRef.current) {
       highlightMarkerRef.current.remove()
     }
     const icon = L.divIcon({
       className: 'highlight-pin',
-      html: `<div class="highlight-pin-inner">🏥</div><div class="highlight-pin-label">${label}</div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
+      html: `<div class="highlight-pin-inner">🏥</div>`,
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
     })
     highlightMarkerRef.current = L.marker([lat, lng], { icon }).addTo(mapRef.current)
     flyToWithAddress(lat, lng)
