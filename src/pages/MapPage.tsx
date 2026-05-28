@@ -739,7 +739,7 @@ function classifyCrowdElement(tags: Record<string, string>): CrowdType | null {
   if (tags.boundary === 'national_park') return 'park'
   if (tags.tourism === 'theme_park') return 'themepark'
   if (tags.leisure === 'stadium') return 'stadium'
-  if (tags.amenity === 'amphitheatre' || tags.amenity === 'events_venue' || tags.leisure === 'bandstand') return 'concert'
+  if (tags.amenity === 'amphitheatre') return 'concert'
   if (tags.highway === 'raceway') return 'raceway'
   if (tags.leisure === 'track') {
     const sport = (tags.sport || '').toLowerCase()
@@ -753,16 +753,14 @@ async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): 
   const n = bounds.getNorth(), e = bounds.getEast()
   const bbox = `${s},${w},${n},${e}`
   const q = `[out:json][timeout:25];(
-    nwr["leisure"="stadium"](${bbox});
-    nwr["tourism"="theme_park"](${bbox});
-    nwr["amenity"="amphitheatre"](${bbox});
-    nwr["amenity"="events_venue"](${bbox});
-    nwr["leisure"="bandstand"](${bbox});
-    nwr["highway"="raceway"](${bbox});
-    way["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"](${bbox});
-    relation["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"](${bbox});
-    way["boundary"="national_park"](${bbox});
-    relation["boundary"="national_park"](${bbox});
+    nwr["leisure"="stadium"]["name"](${bbox});
+    nwr["tourism"="theme_park"]["name"](${bbox});
+    nwr["amenity"="amphitheatre"]["name"][!"historic"](${bbox});
+    nwr["highway"="raceway"]["name"](${bbox});
+    way["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"]["name"](${bbox});
+    relation["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"]["name"](${bbox});
+    way["boundary"="national_park"]["name"](${bbox});
+    relation["boundary"="national_park"]["name"](${bbox});
   );out body center;`
   const data = await fetchOverpass(q, { label: 'crowd', signal })
   if (!data?.elements) return []
@@ -775,13 +773,23 @@ async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): 
     const tags = el.tags || {}
     const type = classifyCrowdElement(tags)
     if (!type) continue
-    const name = tags.name || tags['name:en'] || tags.short_name || CROWD_LABEL_SINGULAR[type]
+    const rawName = tags.name || tags['name:en'] || tags.short_name
+    if (!rawName) continue
     const id = `${el.type}-${el.id}`
     if (seen.has(id)) continue
     seen.add(id)
-    out.push({ id, name, type, lat, lng: lon })
+    out.push({ id, name: rawName, type, lat, lng: lon })
   }
-  return out
+  // Dedupe by name+type within ~1.5 mi (catches multi-polygon parks and
+  // stadiums tagged as both way and relation).
+  const merged: CrowdMagnet[] = []
+  for (const m of out) {
+    const dup = merged.find((x) => x.type === m.type
+      && x.name.toLowerCase() === m.name.toLowerCase()
+      && L.latLng(x.lat, x.lng).distanceTo(L.latLng(m.lat, m.lng)) / 1609.34 < 1.5)
+    if (!dup) merged.push(m)
+  }
+  return merged
 }
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
