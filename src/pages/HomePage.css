@@ -270,22 +270,22 @@
 /* Recent searches */
 .home-recent {
   width: 100%;
-  margin-top: 1.5rem;
+  margin-top: 1rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 0.5rem 0.5rem 0.6rem;
+  border-radius: 10px;
+  padding: 0.3rem 0.4rem 0.4rem;
 }
 
 .home-recent-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.25rem 0.6rem 0.4rem;
+  padding: 0.15rem 0.5rem 0.25rem;
 }
 
 .home-recent-title {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -296,7 +296,7 @@
   background: none;
   border: none;
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-family: inherit;
   cursor: pointer;
   padding: 2px 6px;
@@ -315,13 +315,13 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .home-recent-item {
   display: flex;
   align-items: stretch;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
 }
 
@@ -333,12 +333,12 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   background: none;
   border: none;
-  padding: 9px 12px;
+  padding: 6px 10px;
   font-family: inherit;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   color: var(--color-text);
   cursor: pointer;
   text-align: left;
@@ -348,6 +348,8 @@
 .home-recent-icon {
   flex-shrink: 0;
   color: var(--color-text-muted);
+  width: 14px;
+  height: 14px;
 }
 
 .home-recent-address {
@@ -363,11 +365,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   color: #fff;
   letter-spacing: 0.02em;
@@ -375,7 +377,7 @@
 
 .home-recent-time {
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--color-text-muted);
 }
 
@@ -383,11 +385,11 @@
   background: none;
   border: none;
   color: var(--color-text-muted);
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-  padding: 0 12px;
-  border-radius: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
   transition: color 0.15s, background-color 0.15s;
 }
 
@@ -398,12 +400,12 @@
 
 @media (max-width: 640px) {
   .home-recent {
-    margin-top: 1rem;
+    margin-top: 0.75rem;
   }
 
   .home-recent-go {
-    padding: 11px 12px;
-    font-size: 0.92rem;
+    padding: 9px 10px;
+    font-size: 0.9rem;
   }
 
   .home-recent-time {
