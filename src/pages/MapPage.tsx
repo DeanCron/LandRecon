@@ -3796,168 +3796,181 @@ function MapPage() {
           </div>
         )}
         <div className="analysis-content">
-          {analysisResults.loading ? (
-            <div className="analysis-skeleton">
-              {[
-                { key: 'noise', icon: '✈️', label: 'Airport Noise' },
-                { key: 'superfund', icon: '☢️', label: 'Superfund Sites' },
-                { key: 'costco', icon: '🛒', label: 'Costco' },
-                { key: 'datacenters', icon: '🏢', label: 'Data Centers' },
-                { key: 'er', icon: '🏥', label: 'Emergency Room' },
-              ].map(({ key, icon, label }) => (
-                <div key={key} className={`analysis-card skeleton ${analysisProgress[key] === 'done' ? 'skeleton-done' : ''}`}>
-                  <div className="analysis-item">
-                    <div className="analysis-icon">{icon}</div>
-                    <div className="analysis-detail">
-                      <strong>{label}</strong>
-                      <p>{analysisProgress[key] === 'done' ? 'Complete' : 'Checking…'}</p>
-                    </div>
-                    {analysisProgress[key] === 'done' ? (
-                      <svg
-                        className="skeleton-check"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    ) : (
-                      <div className="skeleton-spinner" />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <>
-              {/* Noise */}
-              <div className={`analysis-card ${analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear'}`}>
+          {(() => {
+            const pNoise = analysisProgress.noise !== 'done'
+            return (
+              <div className={`analysis-card ${pNoise ? 'pending' : (analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear')}`}>
                 <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'noise'; setAnalysisDetail(closing ? null : 'noise'); if (closing) flyToAddress() }}
+                  className={`analysis-item${pNoise ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pNoise) return
+                    const closing = analysisDetail === 'noise'
+                    setAnalysisDetail(closing ? null : 'noise')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={pNoise || undefined}
                 >
-                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}`}>‹</div>
+                  <div className={`analysis-chevron${analysisDetail === 'noise' ? ' expanded' : ''}${pNoise ? ' hidden' : ''}`}>‹</div>
                   <div className="analysis-icon">✈️</div>
                   <div className="analysis-detail">
                     <strong>Airport Noise</strong>
-                    <p>{analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected'}</p>
+                    <p>{pNoise ? 'Checking…' : (analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected')}</p>
                   </div>
+                  {pNoise && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
+            )
+          })()}
 
-              {/* Superfund */}
-              <div className={`analysis-card ${superfundSeverity(analysisResults.superfunds)}`}>
+          {(() => {
+            const pSF = analysisProgress.superfund !== 'done'
+            return (
+              <div className={`analysis-card ${pSF ? 'pending' : superfundSeverity(analysisResults.superfunds)}`}>
                 <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'superfunds'; setAnalysisDetail(closing ? null : 'superfunds'); if (closing) flyToAddress() }}
+                  className={`analysis-item${pSF ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pSF) return
+                    const closing = analysisDetail === 'superfunds'
+                    setAnalysisDetail(closing ? null : 'superfunds')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={pSF || undefined}
                 >
-                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}`}>‹</div>
+                  <div className={`analysis-chevron${analysisDetail === 'superfunds' ? ' expanded' : ''}${pSF ? ' hidden' : ''}`}>‹</div>
                   <div className="analysis-icon">☢️</div>
                   <div className="analysis-detail">
                     <strong>Superfund Sites</strong>
-                    <p>{analysisResults.superfunds.length > 0
+                    <p>{pSF ? 'Checking…' : (analysisResults.superfunds.length > 0
                       ? `${analysisResults.superfunds.length} within 5 mi`
-                      : 'No Superfund sites within 5 miles'}</p>
+                      : 'No Superfund sites within 5 miles')}</p>
                   </div>
+                  {pSF && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
+            )
+          })()}
 
-              {/* Data Centers */}
-              <div className={`analysis-card ${dataCenterSeverity(analysisResults.dataCenters.length)}`}>
+          {(() => {
+            const pDC = analysisProgress.datacenters !== 'done'
+            return (
+              <div className={`analysis-card ${pDC ? 'pending' : dataCenterSeverity(analysisResults.dataCenters.length)}`}>
                 <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'datacenters'; setAnalysisDetail(closing ? null : 'datacenters'); if (closing) flyToAddress() }}
+                  className={`analysis-item${pDC ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pDC) return
+                    const closing = analysisDetail === 'datacenters'
+                    setAnalysisDetail(closing ? null : 'datacenters')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={pDC || undefined}
                 >
-                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}`}>‹</div>
+                  <div className={`analysis-chevron${analysisDetail === 'datacenters' ? ' expanded' : ''}${pDC ? ' hidden' : ''}`}>‹</div>
                   <div className="analysis-icon">🏢</div>
                   <div className="analysis-detail">
                     <strong>Data Centers</strong>
-                    <p>{analysisResults.dataCenters.length > 0
+                    <p>{pDC ? 'Checking…' : (analysisResults.dataCenters.length > 0
                       ? `${analysisResults.dataCenters.length} within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi`
-                      : 'No data centers nearby'}</p>
+                      : 'No data centers nearby')}</p>
                   </div>
+                  {pDC && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
+            )
+          })()}
 
-              {/* Crowd Magnets */}
-              <div className={`analysis-card ${crowdMagnetsSeverity(analysisResults.crowdMagnets.length)}`}>
+          {(() => {
+            const pCrowd = analysisProgress.crowd !== 'done'
+            return (
+              <div className={`analysis-card ${pCrowd ? 'pending' : crowdMagnetsSeverity(analysisResults.crowdMagnets.length)}`}>
                 <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'crowd'; setAnalysisDetail(closing ? null : 'crowd'); if (closing) flyToAddress() }}
+                  className={`analysis-item${pCrowd ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pCrowd) return
+                    const closing = analysisDetail === 'crowd'
+                    setAnalysisDetail(closing ? null : 'crowd')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={pCrowd || undefined}
                 >
-                  <div className={`analysis-chevron${analysisDetail === 'crowd' ? ' expanded' : ''}`}>‹</div>
+                  <div className={`analysis-chevron${analysisDetail === 'crowd' ? ' expanded' : ''}${pCrowd ? ' hidden' : ''}`}>‹</div>
                   <div className="analysis-icon">🎟️</div>
                   <div className="analysis-detail">
                     <strong>Crowd Magnets</strong>
-                    <p>{analysisResults.crowdMagnets.length > 0
+                    <p>{pCrowd ? 'Checking…' : (analysisResults.crowdMagnets.length > 0
                       ? `${analysisResults.crowdMagnets.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
-                      : `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`}</p>
+                      : `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`)}</p>
                   </div>
+                  {pCrowd && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
+            )
+          })()}
 
-              {/* Emergency Room */}
-              <div className={`analysis-card ${analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger'}`}>
+          {(() => {
+            const pER = analysisProgress.er !== 'done'
+            return (
+              <div className={`analysis-card ${pER ? 'pending' : (analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger')}`}>
                 <div
-                  className="analysis-item clickable"
-                  onClick={() => { const closing = analysisDetail === 'er'; setAnalysisDetail(closing ? null : 'er'); if (closing) flyToAddress() }}
+                  className={`analysis-item${pER ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pER) return
+                    const closing = analysisDetail === 'er'
+                    setAnalysisDetail(closing ? null : 'er')
+                    if (closing) flyToAddress()
+                  }}
+                  aria-busy={pER || undefined}
                 >
-                  <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}`}>‹</div>
+                  <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}${pER ? ' hidden' : ''}`}>‹</div>
                   <div className="analysis-icon">🏥</div>
                   <div className="analysis-detail">
                     <strong>Emergency Room</strong>
-                    <p>{analysisResults.nearestER
+                    <p>{pER ? 'Checking…' : (analysisResults.nearestER
                       ? `${analysisResults.nearestER.distanceMi} mi — ${analysisResults.nearestER.name}`
-                      : analysisResults.erError ? 'Search failed' : 'None found nearby'}</p>
+                      : analysisResults.erError ? 'Search failed' : 'None found nearby')}</p>
                   </div>
+                  {pER && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
               </div>
+            )
+          })()}
 
-              {/* Costco — runs in the background after everything else, so it lives at the bottom */}
-              <div className={`analysis-card ${analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
-                <div
-                  className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
-                  onClick={() => {
-                    if (analysisResults.costcoLoading) return
-                    const closing = analysisDetail === 'costco'
-                    setAnalysisDetail(closing ? null : 'costco')
-                    if (closing) flyToAddress()
-                  }}
-                  aria-busy={analysisResults.costcoLoading || undefined}
-                >
-                  <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}${analysisResults.costcoLoading ? ' hidden' : ''}`}>‹</div>
-                  <div className="analysis-icon">🛒</div>
-                  <div className="analysis-detail">
-                    <strong>Nearest Costco</strong>
-                    <p>{analysisResults.costcoLoading
-                      ? 'Searching nearby Costcos…'
-                      : analysisResults.costco
-                      ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
-                      : analysisResults.costcoError
-                      ? 'Search failed'
-                      : analysisResults.costcoNearestBeyond
-                      ? `Closest is ${analysisResults.costcoNearestBeyond.distanceMi} mi (outside ${COSTCO_ANALYSIS_RADIUS_MI} mi)`
-                      : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
-                  </div>
-                  {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
-                  {analysisResults.costcoError && !analysisResults.costcoLoading && (
-                    <button
-                      type="button"
-                      className="analysis-card-retry"
-                      onClick={(e) => { e.stopPropagation(); retryCostco() }}
-                      aria-label="Retry Costco search"
-                    >Retry</button>
-                  )}
-                </div>
+          {/* Costco — runs in the background after everything else, so it lives at the bottom */}
+          <div className={`analysis-card ${analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
+            <div
+              className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
+              onClick={() => {
+                if (analysisResults.costcoLoading) return
+                const closing = analysisDetail === 'costco'
+                setAnalysisDetail(closing ? null : 'costco')
+                if (closing) flyToAddress()
+              }}
+              aria-busy={analysisResults.costcoLoading || undefined}
+            >
+              <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}${analysisResults.costcoLoading ? ' hidden' : ''}`}>‹</div>
+              <div className="analysis-icon">🛒</div>
+              <div className="analysis-detail">
+                <strong>Nearest Costco</strong>
+                <p>{analysisResults.costcoLoading
+                  ? 'Searching nearby Costcos…'
+                  : analysisResults.costco
+                  ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
+                  : analysisResults.costcoError
+                  ? 'Search failed'
+                  : analysisResults.costcoNearestBeyond
+                  ? `Closest is ${analysisResults.costcoNearestBeyond.distanceMi} mi (outside ${COSTCO_ANALYSIS_RADIUS_MI} mi)`
+                  : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
               </div>
-            </>
-          )}
+              {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
+              {analysisResults.costcoError && !analysisResults.costcoLoading && (
+                <button
+                  type="button"
+                  className="analysis-card-retry"
+                  onClick={(e) => { e.stopPropagation(); retryCostco() }}
+                  aria-label="Retry Costco search"
+                >Retry</button>
+              )}
+            </div>
+          </div>
         </div>
       </aside>
 
