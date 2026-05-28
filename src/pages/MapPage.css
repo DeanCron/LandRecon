@@ -997,6 +997,34 @@
   box-shadow: none !important;
 }
 
+/* Modern unified style for all Leaflet tooltips on map markers.
+   Individual overrides (location-tooltip, district-tooltip) live below. */
+.leaflet-tooltip {
+  background: rgba(17, 24, 39, 0.92);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1.35;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.28),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.leaflet-tooltip strong { color: #fff; font-weight: 600; }
+.leaflet-tooltip em { color: rgba(248, 250, 252, 0.7); font-style: normal; }
+
+.leaflet-tooltip-top::before { border-top-color: rgba(17, 24, 39, 0.92) !important; }
+.leaflet-tooltip-bottom::before { border-bottom-color: rgba(17, 24, 39, 0.92) !important; }
+.leaflet-tooltip-left::before { border-left-color: rgba(17, 24, 39, 0.92) !important; }
+.leaflet-tooltip-right::before { border-right-color: rgba(17, 24, 39, 0.92) !important; }
+
 .location-pin-icon {
   font-size: 24px;
   text-align: center;
@@ -1010,19 +1038,12 @@
 }
 
 .location-tooltip {
-  background: #1a1a2e;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
   padding: 8px 14px;
   font-size: 0.85rem;
-  font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  letter-spacing: 0.2px;
 }
 
 .location-tooltip::before {
-  border-top-color: #1a1a2e !important;
+  border-top-color: rgba(17, 24, 39, 0.92) !important;
 }
 
 .airport-label {
@@ -1161,7 +1182,9 @@
 .district-tooltip {
   font-size: 0.78rem;
   line-height: 1.35;
-  padding: 4px 8px;
+  padding: 6px 10px;
+  white-space: normal;
+  max-width: 220px;
 }
 
 .district-popup {
