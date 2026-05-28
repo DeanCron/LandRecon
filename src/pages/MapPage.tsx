@@ -8,7 +8,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import GuidedTour from '../components/GuidedTour'
-import { pushRecentSearch } from '../utils/recentSearches'
+import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
 import { LEGEND_BANDS } from '../noise/legend'
 
@@ -3186,6 +3186,15 @@ function MapPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisResults.loading])
+
+  // Stamp the computed grade onto the Recent search entry so the home page
+  // can show it as a badge next to the address.
+  useEffect(() => {
+    if (analysisResults.loading || analysisResults.costcoLoading) return
+    if (!address) return
+    const g = computeLocationGrade(analysisResults)
+    updateRecentSearchGrade(address, g.letter, g.color)
+  }, [address, analysisResults])
 
   return (
     <div className="map-page">

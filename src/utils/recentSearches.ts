@@ -1,6 +1,8 @@
 export interface RecentSearch {
   address: string
   timestamp: number
+  grade?: string
+  gradeColor?: string
 }
 
 export interface SavedAnalysisSnippet {
@@ -20,10 +22,17 @@ export function loadRecentSearches(): RecentSearch[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (r): r is RecentSearch =>
-        r && typeof r.address === 'string' && typeof r.timestamp === 'number',
-    )
+    return parsed
+      .filter(
+        (r): r is RecentSearch =>
+          r && typeof r.address === 'string' && typeof r.timestamp === 'number',
+      )
+      .map((r) => ({
+        address: r.address,
+        timestamp: r.timestamp,
+        grade: typeof r.grade === 'string' ? r.grade : undefined,
+        gradeColor: typeof r.gradeColor === 'string' ? r.gradeColor : undefined,
+      }))
   } catch {
     return []
   }
@@ -32,14 +41,41 @@ export function loadRecentSearches(): RecentSearch[] {
 export function pushRecentSearch(address: string): RecentSearch[] {
   const norm = (address || '').trim()
   if (!norm) return loadRecentSearches()
-  const existing = loadRecentSearches().filter(
-    (r) => r.address.toLowerCase() !== norm.toLowerCase(),
-  )
-  const next = [{ address: norm, timestamp: Date.now() }, ...existing].slice(0, RECENT_MAX)
+  const existing = loadRecentSearches()
+  const prev = existing.find((r) => r.address.toLowerCase() === norm.toLowerCase())
+  const filtered = existing.filter((r) => r.address.toLowerCase() !== norm.toLowerCase())
+  const next: RecentSearch[] = [
+    { address: norm, timestamp: Date.now(), grade: prev?.grade, gradeColor: prev?.gradeColor },
+    ...filtered,
+  ].slice(0, RECENT_MAX)
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(next))
   } catch {
     /* storage may be full or disabled */
+  }
+  return next
+}
+
+export function updateRecentSearchGrade(
+  address: string,
+  grade: string,
+  gradeColor: string,
+): RecentSearch[] {
+  const norm = (address || '').trim()
+  if (!norm) return loadRecentSearches()
+  const existing = loadRecentSearches()
+  let changed = false
+  const next = existing.map((r) => {
+    if (r.address.toLowerCase() !== norm.toLowerCase()) return r
+    if (r.grade === grade && r.gradeColor === gradeColor) return r
+    changed = true
+    return { ...r, grade, gradeColor }
+  })
+  if (!changed) return existing
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore */
   }
   return next
 }

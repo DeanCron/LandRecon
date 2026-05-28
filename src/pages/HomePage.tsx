@@ -355,7 +355,10 @@ function HomePage() {
             </header>
             <ul className="home-recent-list">
               {visibleRecent.slice(0, 5).map((item) => {
-                const grade = gradeByAddress.get(item.address.toLowerCase())
+                const saved = gradeByAddress.get(item.address.toLowerCase())
+                const grade = saved ?? (item.grade && item.gradeColor
+                  ? { grade: item.grade, gradeColor: item.gradeColor }
+                  : undefined)
                 return (
                   <li key={item.address} className="home-recent-item">
                     <button
