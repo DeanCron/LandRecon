@@ -612,7 +612,7 @@ const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   D: { label: 'Deleted', desc: 'Removed from NPL after cleanup goals were met' },
   R: { label: 'Removed', desc: 'Removed from proposed NPL listing' },
   W: { label: 'Withdrawn', desc: 'Proposed for NPL but later withdrawn before listing' },
-  N: { label: 'Not on NPL', desc: 'Evaluated but not listed on the National Priorities List' },
+  N: { label: 'Not on NPL', desc: 'Evaluated but not currently on the National Priorities List' },
   I: { label: 'Tribal Land', desc: 'Site located on or affecting tribal lands' },
 }
 
@@ -1111,6 +1111,7 @@ function MapPage() {
     stadium: true, concert: true, park: true, raceway: true, themepark: true,
   })
   const crowdSubVisibleRef = useRef(crowdSubVisible)
+  const nearestErMarkerRef = useRef<L.Marker | null>(null)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
   const highlightMarkerRef = useRef<L.Marker | null>(null)
@@ -2585,6 +2586,7 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
+      nearestErMarkerRef.current = null
       homeMarkerRef.current = null
       highlightMarkerRef.current = null
       mapRef.current?.remove()
@@ -3378,6 +3380,31 @@ function MapPage() {
       }
     }
 
+    // Auto-place a single pin for the nearest ER from the analysis result.
+    // Distinct from the EMS layer (which dumps every hospital/fire/police in
+    // view) — this is one focused pin with an ER-specific icon.
+    if (analysisResults.nearestER) {
+      const existing = nearestErMarkerRef.current
+      if (existing) {
+        map.removeLayer(existing)
+        nearestErMarkerRef.current = null
+      }
+      const er = analysisResults.nearestER
+      const icon = L.divIcon({
+        className: 'er-label',
+        html: `<div class="er-pin">🚑</div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      })
+      const tooltipParts = [er.name]
+      if (er.address) tooltipParts.push(er.address)
+      const marker = L.marker([er.lat, er.lng], { icon })
+        .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
+        .addTo(map)
+      nearestErMarkerRef.current = marker
+      dbg('er', `Auto-pinned nearest ER: ${er.name} (${er.distanceMi} mi)`)
+    }
+
     if (analysisResults.dataCenters.length > 0 && !dataCenterVisible) {
       const layer = dataCenterLayerRef.current
       if (layer) {
@@ -3444,6 +3471,10 @@ function MapPage() {
     // auto-enabled Costco pin is actually visible after the fit.
     const closestCostco = analysisResults.costco ?? analysisResults.costcoNearestBeyond
     if (closestCostco) targetBounds.extend([closestCostco.lat, closestCostco.lng])
+    // Include the nearest ER pin so the auto-placed marker is in view.
+    if (analysisResults.nearestER) {
+      targetBounds.extend([analysisResults.nearestER.lat, analysisResults.nearestER.lng])
+    }
     // Noise has no specific pin — extend by 5 mi from address so the
     // corridor heatmap area is visible.
     if (noiseDetected) {
