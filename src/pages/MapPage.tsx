@@ -3459,9 +3459,9 @@ function MapPage() {
 
     // Pan/zoom to encompass the address plus all visible analysis pins.
     // Strategy: build asymmetric bounds from actual pin positions and call
-    // fitBounds with maxZoom = currentZoom. That gives us:
-    //   - never zoom IN  → user's chosen zoom is preserved when pins fit
-    //   - zoom OUT only as far as needed if pins don't fit at current zoom
+    // fitBounds with maxZoom = 14. That gives us:
+    //   - zoom IN  up to z14 if everything fits at a tighter zoom
+    //   - zoom OUT only as far as needed if pins don't fit at z14
     //   - re-centers as needed so the address and all pins are visible
     const targetBounds = L.latLngBounds([center, center])
     for (const s of analysisResults.superfunds) targetBounds.extend([s.lat, s.lng])
@@ -3493,10 +3493,10 @@ function MapPage() {
     map.fitBounds(targetBounds, {
       paddingTopLeft: topLeft,
       paddingBottomRight: bottomRight,
-      maxZoom: currentZoom,
+      maxZoom: 14,
     })
     const newZoom = map.getZoom()
-    dbg('analysis', `fit analysis pins; zoom ${currentZoom} → ${newZoom}${newZoom === currentZoom ? ' (preserved)' : ''}`)
+    dbg('analysis', `fit analysis pins; zoom ${currentZoom} → ${newZoom}`)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisResults.loading])
 
