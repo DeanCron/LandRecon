@@ -94,14 +94,10 @@ const LEGEND_STOPS = LEGEND_BANDS
 
 const SUPERFUND_ICON = L.divIcon({
   className: 'superfund-marker',
-  html: `<svg viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#DC267F" stroke="#fff" stroke-width="1.5"/>
-    <circle cx="12" cy="12" r="6" fill="#fff"/>
-    <text x="12" y="15.5" text-anchor="middle" font-size="10" font-weight="700" fill="#DC267F" font-family="system-ui, sans-serif">!</text>
-  </svg>`,
-  iconSize: [26, 34],
-  iconAnchor: [13, 34],
-  popupAnchor: [0, -30],
+  html: `<div class="superfund-marker-inner" aria-hidden="true">☢️</div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+  popupAnchor: [0, -16],
 })
 
 type GeoJSONCoord = number[]
@@ -2795,12 +2791,7 @@ function MapPage() {
             {superfundVisible && (
               <div className="superfund-legend">
                 <div className="legend-swatch-row">
-                  <span className="legend-pin" aria-hidden="true">
-                    <svg width="14" height="18" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="#DC267F" stroke="#fff" strokeWidth="1.5"/>
-                      <circle cx="12" cy="12" r="6" fill="#fff"/>
-                    </svg>
-                  </span>
+                  <span className="legend-pin" aria-hidden="true">☢️</span>
                   <span>NPL Superfund Site</span>
                 </div>
               </div>

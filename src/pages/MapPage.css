@@ -507,21 +507,34 @@
   align-items: center;
   justify-content: center;
   width: 18px;
+  font-size: 14px;
+  line-height: 1;
   flex-shrink: 0;
 }
 
-/* Superfund map markers (DivIcon) */
+/* Superfund map markers (DivIcon) — emoji centered on site location */
 .superfund-marker {
   background: none !important;
   border: none !important;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
-  transition: transform 0.15s ease;
-  transform-origin: 50% 100%;
 }
 
-.superfund-marker:hover {
-  transform: scale(1.18);
-  z-index: 1000;
+.superfund-marker-inner {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 45%, rgba(255, 255, 255, 0) 70%);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  transition: transform 0.15s ease;
+  cursor: pointer;
+}
+
+.superfund-marker:hover .superfund-marker-inner {
+  transform: scale(1.2);
 }
 
 .legend-dot {
