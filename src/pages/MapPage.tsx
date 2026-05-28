@@ -4261,8 +4261,8 @@ function MapPage() {
                             <button
                               className="analysis-flyto-btn"
                               onClick={() => flyToWithAddress(s.lat, s.lng)}
-                              title="Show on map with your address"
-                              aria-label={`Show ${s.name} on map`}
+                              title="Fly to location"
+                              aria-label={`Fly to ${s.name}`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
@@ -4473,8 +4473,8 @@ function MapPage() {
                             <button
                               className="analysis-flyto-btn"
                               onClick={() => flyToWithAddress(dc.lat, dc.lng)}
-                              title="Show on map with your address"
-                              aria-label={`Show ${dc.name || 'data center'} on map`}
+                              title="Fly to location"
+                              aria-label={`Fly to ${dc.name || 'data center'}`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
@@ -4534,8 +4534,8 @@ function MapPage() {
                             <button
                               className="analysis-flyto-btn"
                               onClick={() => flyToWithAddress(m.lat, m.lng)}
-                              title="Show on map with your address"
-                              aria-label={`Show ${m.name} on map`}
+                              title="Fly to location"
+                              aria-label={`Fly to ${m.name}`}
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" />
