@@ -56,15 +56,27 @@ async function getGoogleTileSession(mapType: string, styles?: Record<string, unk
   const body: Record<string, unknown> = { mapType, language: 'en-US', region: 'US' }
   if (styles?.length) body.styles = styles
 
-  const res = await fetch(
-    `https://tile.googleapis.com/v1/createSession?key=${GOOGLE_MAPS_KEY}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-  )
-  if (!res.ok) throw new Error(`Google Tiles API: ${res.status}`)
-  const data = await res.json()
-  dbg('tiles', 'Session created, expires:', new Date(parseInt(data.expiry) * 1000).toISOString())
-  googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
-  return data.session
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(
+        `https://tile.googleapis.com/v1/createSession?key=${GOOGLE_MAPS_KEY}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      )
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`Google Tiles API ${res.status}: ${text.slice(0, 200)}`)
+      }
+      const data = await res.json()
+      dbg('tiles', 'Session created, expires:', new Date(parseInt(data.expiry) * 1000).toISOString())
+      googleSessionCache.set(key, { token: data.session, expiry: parseInt(data.expiry) })
+      return data.session
+    } catch (e) {
+      lastErr = e
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 500))
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Google Tiles session failed')
 }
 
 interface BaseMapDef {
@@ -1813,13 +1825,14 @@ function MapPage() {
           baseLayer.addTo(map)
           baseLayerRef.current = baseLayer
         }).catch((err) => {
-          console.error('Google Tiles API failed:', err)
-          dbg('init', 'Falling back to direct Google tile URL')
-          const fallback = L.tileLayer(
-            `https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`,
-            { attribution: '&copy; Google Maps', maxZoom: 21, subdomains: '0123' },
-          ).addTo(map)
-          baseLayerRef.current = fallback
+          // No fallback: the legacy mt.google.com endpoint doesn't honor style
+          // customizations and would silently bring POIs back. Better to leave
+          // the map without a base layer and log the actual error so it's
+          // diagnosable. Most common cause: missing VITE_GOOGLE_MAPS_KEY.
+          console.error('[LandRecon] Failed to create Google Maps tile session.', err)
+          if (!GOOGLE_MAPS_KEY) {
+            console.error('[LandRecon] VITE_GOOGLE_MAPS_KEY is empty in this build — base tiles cannot load.')
+          }
         })
 
         L.control.zoom({ position: 'topright' }).addTo(map)
