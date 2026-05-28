@@ -616,6 +616,29 @@ const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   I: { label: 'Tribal Land', desc: 'Site located on or affecting tribal lands' },
 }
 
+// Easter egg: tag the address pin with a friendly name when the searched
+// address is a recognized variant of 50 East 16th Street, Chicago, IL 60616.
+function addressNickname(address: string): string | null {
+  const norm = address.toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
+  const hasNum = /(^|\s)50(\s|$)/.test(norm)
+  const hasDir = /\b(e|east)\b/.test(norm)
+  const hasStreet = /\b16(th)?\s*(st|street)\b/.test(norm)
+  const hasChicago = /\bchicago\b/.test(norm)
+  const hasZip = /\b60616\b/.test(norm)
+  if (hasNum && hasDir && hasStreet && (hasChicago || hasZip)) return "Harlow's Place"
+  return null
+}
+
+function homeTooltipHtml(address: string): string {
+  const escapeHtml = (s: string) => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  const nickname = addressNickname(address)
+  const addr = escapeHtml(address)
+  if (!nickname) return addr
+  return `<strong>${escapeHtml(nickname)}</strong><br/>${addr}`
+}
+
 function superfundTooltip(props: Record<string, string | null>): string {
   const name = props.SITE_NAME || 'Superfund Site'
   const city = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
@@ -2418,7 +2441,7 @@ function MapPage() {
             highlightMarkerRef.current = null
           }
           homeMarkerRef.current = L.marker([lat, lng], { icon: houseIcon })
-            .bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
+            .bindTooltip(homeTooltipHtml(address), { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
             .addTo(map)
           // Reset loaded-bounds so layers refetch when we land at the new viewport.
           airportLoadedBoundsRef.current = null
@@ -2468,7 +2491,7 @@ function MapPage() {
         })
 
         homeMarkerRef.current = L.marker([lat, lng], { icon: houseIcon })
-          .bindTooltip(address, { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
+          .bindTooltip(homeTooltipHtml(address), { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
           .addTo(map)
 
         // Defer noise layer creation until the user toggles it on — the
