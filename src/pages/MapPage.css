@@ -142,6 +142,62 @@
   margin-top: 6px;
 }
 
+.dev-todos-popup {
+  max-width: 540px;
+  width: calc(100% - 32px);
+}
+.dev-todos-summary {
+  margin: 4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.dev-todos-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.dev-todo-item {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--color-surface, #fff);
+}
+.dev-todo-item.done .dev-todo-label {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+.dev-todo-item label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.dev-todo-item input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.dev-todo-label {
+  flex: 1;
+}
+.dev-todo-note {
+  margin: 4px 0 0 24px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.dev-todos-hint {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
 .header-address {
   display: flex;
   align-items: center;

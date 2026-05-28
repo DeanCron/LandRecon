@@ -233,6 +233,29 @@ function parseCostcoAddress(addr: string): { street: string; locality: string } 
 const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v2:'
 const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
+// Developer todo list, shown via the hidden Experimental menu. Edit this
+// array to update the list; checkbox state for each id is persisted in
+// localStorage under DEV_TODOS_KEY, so existing checks stick across deploys.
+interface DevTodo { id: string; label: string; note?: string }
+const DEV_TODOS: DevTodo[] = [
+  { id: 'crowd-tune', label: 'Tune Crowd Magnets filters once we see more sample addresses' },
+  { id: 'secret-mounts', label: 'Switch VITE_* keys to Docker --secret mounts (kill the SecretsUsedInArgOrEnv warnings)' },
+  { id: 'buildx-v6', label: 'Bump docker/build-push-action@v5 → @v6 to reduce "unknown blob" flakes' },
+  { id: 'mobile-polish', label: 'Mobile: verify analysis panel + layer panel ergonomics on small screens' },
+  { id: 'grade-rebalance', label: 'Revisit Location Grade weights now that Crowd Magnets is included' },
+]
+const DEV_TODOS_KEY = 'lr_dev_todos'
+
+function readDevTodoChecks(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(DEV_TODOS_KEY)
+    return raw ? JSON.parse(raw) as Record<string, boolean> : {}
+  } catch { return {} }
+}
+function writeDevTodoChecks(state: Record<string, boolean>) {
+  try { localStorage.setItem(DEV_TODOS_KEY, JSON.stringify(state)) } catch { /* ignore */ }
+}
+
 interface CachedAnalysisPayload {
   ts: number
   data: {
@@ -1185,6 +1208,17 @@ function MapPage() {
   // Experimental feature flags (persisted in localStorage)
   const [expMenuOpen, setExpMenuOpen] = useState(false)
   const expMenuRef = useRef<HTMLDivElement>(null)
+  const [devTodosOpen, setDevTodosOpen] = useState(false)
+  const [devTodoChecks, setDevTodoChecks] = useState<Record<string, boolean>>(() => readDevTodoChecks())
+
+  const toggleDevTodo = (id: string) => {
+    setDevTodoChecks((prev) => {
+      const next = { ...prev, [id]: !prev[id] }
+      writeDevTodoChecks(next)
+      return next
+    })
+  }
+  const remainingDevTodos = DEV_TODOS.filter((t) => !devTodoChecks[t.id]).length
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
@@ -1218,6 +1252,10 @@ function MapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (devTodosOpen) {
+        setDevTodosOpen(false)
+        return
+      }
       if (shareModalOpen) {
         setShareModalOpen(false)
         return
@@ -1239,7 +1277,7 @@ function MapPage() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [shareModalOpen, analysisDetail, expMenuOpen, layerPanelOpen])
+  }, [shareModalOpen, analysisDetail, expMenuOpen, layerPanelOpen, devTodosOpen])
 
   // Show FAB tooltip hints once on mobile, dismiss on first tap
   const buildShareUrl = useCallback((): string => {
@@ -3170,6 +3208,13 @@ function MapPage() {
               <button type="button" className="exp-menu-action" onClick={replayTour}>
                 ▶ Replay guided tour
               </button>
+              <button
+                type="button"
+                className="exp-menu-action"
+                onClick={() => { setExpMenuOpen(false); setDevTodosOpen(true) }}
+              >
+                📋 Dev todos{remainingDevTodos > 0 ? ` (${remainingDevTodos})` : ''}
+              </button>
               <div className="exp-menu-hint">Changes take effect on reload</div>
             </div>
           )}
@@ -4383,6 +4428,37 @@ function MapPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {devTodosOpen && (
+        <div className="analysis-detail-overlay" onClick={() => setDevTodosOpen(false)}>
+          <div className="analysis-detail-popup dev-todos-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="dev-todos-title">
+            <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
+            <h3 id="dev-todos-title">📋 Dev todos</h3>
+            <p className="dev-todos-summary">
+              {remainingDevTodos === 0
+                ? 'All caught up — nice.'
+                : `${remainingDevTodos} of ${DEV_TODOS.length} remaining`}
+            </p>
+            <ul className="dev-todos-list">
+              {DEV_TODOS.map((t) => {
+                const done = !!devTodoChecks[t.id]
+                return (
+                  <li key={t.id} className={`dev-todo-item${done ? ' done' : ''}`}>
+                    <label>
+                      <input type="checkbox" checked={done} onChange={() => toggleDevTodo(t.id)} />
+                      <span className="dev-todo-label">{t.label}</span>
+                    </label>
+                    {t.note && <div className="dev-todo-note">{t.note}</div>}
+                  </li>
+                )
+              })}
+            </ul>
+            <div className="dev-todos-hint">
+              Checks are saved in this browser ({DEV_TODOS_KEY}). Items live in source.
+            </div>
           </div>
         </div>
       )}
