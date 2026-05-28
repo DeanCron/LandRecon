@@ -232,7 +232,7 @@ function parseCostcoAddress(addr: string): { street: string; locality: string } 
 // Per-tab cache of completed analyses keyed by quantized coordinates
 // (~110 m precision). Re-running for an address near a prior one returns
 // instantly with no Google/EPA/ArcGIS calls.
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v2:'
+const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v3:'
 const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
 // Developer todo list, shown via the hidden Experimental menu. DEV_TODOS
