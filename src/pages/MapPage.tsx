@@ -869,6 +869,7 @@ function computeLocationGrade(results: {
   costcoLoading?: boolean
   dataCenters: unknown[]
   nearestER: { distanceMi: number } | null
+  crowdMagnets: unknown[]
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] = []
 
@@ -908,6 +909,15 @@ function computeLocationGrade(results: {
   const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
   const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
   breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail })
+
+  // Crowd magnets
+  const cmCount = results.crowdMagnets.length
+  const cmSev = crowdMagnetsSeverity(cmCount)
+  const cmScore = cmSev === 'clear' ? 0 : cmSev === 'warning' ? 1 : 2
+  const cmDetail = cmCount === 0
+    ? `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`
+    : `${cmCount} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
+  breakdown.push({ label: 'Crowd Magnets', icon: '🎟️', score: cmScore, max: 2, detail: cmDetail })
 
   // Emergency Room
   const erDist = results.nearestER?.distanceMi ?? null
