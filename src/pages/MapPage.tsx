@@ -4589,7 +4589,6 @@ function MapPage() {
             <div className="dev-todos-hint">
               {devTodoSync === 'loading' && 'Loading from server…'}
               {devTodoSync === 'saving' && 'Saving…'}
-              {devTodoSync === 'idle' && 'Synced to server. Persists across browsers and devices.'}
               {devTodoSync === 'offline' && 'Server unreachable — saved to this browser only.'}
             </div>
           </div>
