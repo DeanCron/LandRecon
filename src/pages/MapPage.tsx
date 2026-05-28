@@ -895,6 +895,7 @@ async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
 const COSTCO_GREEN_RADIUS_MI = 30
 const ER_ANALYSIS_RADIUS_MI = 15
+const SUPERFUND_ANALYSIS_RADIUS_MI = 3
 
 function getExpFlag(key: string, fallback: boolean): boolean {
   const v = localStorage.getItem(key)
@@ -963,7 +964,7 @@ function computeLocationGrade(results: {
   // Superfund
   const sfSev = superfundSeverity(results.superfunds)
   const sfScore = sfSev === 'clear' ? 0 : sfSev === 'warning' ? 1 : 2
-  const sfDetail = results.superfunds.length === 0 ? 'None within 5 mi'
+  const sfDetail = results.superfunds.length === 0 ? `None within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi`
     : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
   breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 2, detail: sfDetail })
 
@@ -2047,10 +2048,10 @@ function MapPage() {
         } finally { markDone('noise') }
       })(),
 
-      // Check Superfund sites within 5 miles
+      // Check Superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI miles
       (async () => {
         try {
-        const radiusDeg = (5 * milesToMeters) / 111320
+        const radiusDeg = (SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
         const params = new URLSearchParams({
           where: "NPL_STATUS_CODE <> 'D'",
@@ -2078,7 +2079,7 @@ function MapPage() {
           if (cLat == null || cLon == null) continue
           const dist = location.distanceTo(L.latLng(cLat, cLon))
           const distMi = dist / milesToMeters
-          if (distMi <= 5) {
+          if (distMi <= SUPERFUND_ANALYSIS_RADIUS_MI) {
             const statusCode = feat.attributes?.NPL_STATUS_CODE || ''
             const statusLabel = NPL_STATUS_INFO[statusCode]?.label || statusCode
             const urlAlias = feat.attributes?.URL_ALIAS_TXT || ''
@@ -3303,8 +3304,8 @@ function MapPage() {
       if (layer) {
         layer.addTo(map)
         superfundLoadedBoundsRef.current = null
-        // Only load superfund sites within 5mi radius with distance filter
-        const radiusDeg = (5 * milesToMeters) / 111320
+        // Only load superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI mi radius with distance filter
+        const radiusDeg = (SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const constrainedBounds = L.latLngBounds(
           [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
           [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
@@ -3329,7 +3330,7 @@ function MapPage() {
             const within: GeoJSON.Feature<GeoJSON.Point>[] = []
             for (const pt of points.features) {
               const [lon, lat] = pt.geometry.coordinates
-              if (center.distanceTo(L.latLng(lat, lon)) <= 5 * milesToMeters) {
+              if (center.distanceTo(L.latLng(lat, lon)) <= SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) {
                 within.push(pt)
               }
             }
@@ -3338,7 +3339,7 @@ function MapPage() {
             superfundLoadedBoundsRef.current = constrainedBounds
           })
           .catch(() => {})
-        // Don't attach moveend — keep constrained to 5mi
+        // Don't attach moveend — keep constrained to SUPERFUND_ANALYSIS_RADIUS_MI mi
         setSuperfundVisible(true)
       }
     }
@@ -4145,8 +4146,8 @@ function MapPage() {
                   <div className="analysis-detail">
                     <strong>Superfund Sites</strong>
                     <p>{pSF ? 'Checking…' : (analysisResults.superfunds.length > 0
-                      ? `${analysisResults.superfunds.length} within 5 mi`
-                      : 'No Superfund sites within 5 miles')}</p>
+                      ? `${analysisResults.superfunds.length} within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi`
+                      : `No Superfund sites within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles`)}</p>
                   </div>
                   {pSF && <div className="analysis-card-spinner" aria-hidden="true" />}
                 </div>
@@ -4323,9 +4324,9 @@ function MapPage() {
                         2: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.'
                       },
                       'Superfund Sites': {
-                        0: 'No EPA Superfund sites were found within 5 miles. This area is clear of known hazardous waste cleanup activity.',
+                        0: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
                         1: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
-                        2: 'One or more active Superfund sites are within 5 miles. Active sites may pose environmental or health risks and could affect property values.'
+                        2: `One or more active Superfund sites are within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. Active sites may pose environmental or health risks and could affect property values.`
                       },
                       'Nearest Costco': {
                         0: 'A Costco is right there. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
@@ -4483,7 +4484,7 @@ function MapPage() {
                   </>
                 ) : (
                   <>
-                    <p className="analysis-expand-level clear">No EPA Superfund sites found within 5 miles of this address.</p>
+                    <p className="analysis-expand-level clear">No EPA Superfund sites found within {SUPERFUND_ANALYSIS_RADIUS_MI} miles of this address.</p>
                     <div className="analysis-expand-rec">
                       <strong>Why this matters</strong>
                       <p>
