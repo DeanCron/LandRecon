@@ -617,15 +617,34 @@ const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
 }
 
 // Easter egg: tag the address pin with a friendly name when the searched
-// address is a recognized variant of 50 East 16th Street, Chicago, IL 60616.
+// address matches a known location. Each entry's `match` predicate runs
+// against a normalized lowercase version of the address.
+const ADDRESS_NICKNAMES: { nickname: string; match: (norm: string) => boolean }[] = [
+  {
+    nickname: "Harlow's Place",
+    // 50 East 16th Street, Chicago, IL 60616
+    match: (n) =>
+      /(^|\s)50(\s|$)/.test(n) &&
+      /\b(e|east)\b/.test(n) &&
+      /\b16(th)?\s*(st|street)\b/.test(n) &&
+      (/\bchicago\b/.test(n) || /\b60616\b/.test(n)),
+  },
+  {
+    nickname: "Ryder's Place",
+    // 4245 Persimmon Road, Lancaster, SC 29720
+    match: (n) =>
+      /(^|\s)4245(\s|$)/.test(n) &&
+      /\bpersimmon\b/.test(n) &&
+      /\b(rd|road)\b/.test(n) &&
+      (/\blancaster\b/.test(n) || /\b29720\b/.test(n)),
+  },
+]
+
 function addressNickname(address: string): string | null {
   const norm = address.toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
-  const hasNum = /(^|\s)50(\s|$)/.test(norm)
-  const hasDir = /\b(e|east)\b/.test(norm)
-  const hasStreet = /\b16(th)?\s*(st|street)\b/.test(norm)
-  const hasChicago = /\bchicago\b/.test(norm)
-  const hasZip = /\b60616\b/.test(norm)
-  if (hasNum && hasDir && hasStreet && (hasChicago || hasZip)) return "Harlow's Place"
+  for (const entry of ADDRESS_NICKNAMES) {
+    if (entry.match(norm)) return entry.nickname
+  }
   return null
 }
 
