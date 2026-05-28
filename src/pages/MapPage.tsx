@@ -1464,27 +1464,31 @@ function MapPage() {
     for (const el of panels) {
       const r = el.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) continue
-      const overlapLeft = Math.max(r.left, mapRect.left)
-      const overlapRight = Math.min(r.right, mapRect.right)
-      const overlapTop = Math.max(r.top, mapRect.top)
-      const overlapBottom = Math.min(r.bottom, mapRect.bottom)
-      if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) continue
-      if (overlapRight >= mapRect.right - 1) {
-        padRight = Math.max(padRight, mapRect.right - overlapLeft + 16)
-      }
-      if (overlapBottom >= mapRect.bottom - 1) {
-        padBottom = Math.max(padBottom, mapRect.bottom - overlapTop + 16)
-      }
-      if (overlapLeft <= mapRect.left + 1) {
-        padLeft = Math.max(padLeft, overlapRight - mapRect.left + 16)
-      }
-      if (overlapTop <= mapRect.top + 1) {
-        padTop = Math.max(padTop, overlapBottom - mapRect.top + 16)
+      // Skip panels that don't actually overlap the map (e.g. hidden mobile sheet)
+      if (r.right <= mapRect.left || r.left >= mapRect.right) continue
+      if (r.bottom <= mapRect.top || r.top >= mapRect.bottom) continue
+      // Classify the panel by the map edge it sits closest to, then reserve
+      // padding on that edge equal to the panel's intrusion + a 16px gap.
+      const distRight = mapRect.right - r.right
+      const distBottom = mapRect.bottom - r.bottom
+      const distLeft = r.left - mapRect.left
+      const distTop = r.top - mapRect.top
+      const minDist = Math.min(distRight, distBottom, distLeft, distTop)
+      if (minDist === distRight) {
+        padRight = Math.max(padRight, mapRect.right - r.left + 16)
+      } else if (minDist === distBottom) {
+        padBottom = Math.max(padBottom, mapRect.bottom - r.top + 16)
+      } else if (minDist === distLeft) {
+        padLeft = Math.max(padLeft, r.right - mapRect.left + 16)
+      } else {
+        padTop = Math.max(padTop, r.bottom - mapRect.top + 16)
       }
     }
     // Guard against padding so large it can't fit anything.
     padRight = Math.min(padRight, Math.max(base, mapRect.width - 80))
     padBottom = Math.min(padBottom, Math.max(base, mapRect.height - 80))
+    padLeft = Math.min(padLeft, Math.max(base, mapRect.width - 80))
+    padTop = Math.min(padTop, Math.max(base, mapRect.height - 80))
     return { topLeft: [padLeft, padTop], bottomRight: [padRight, padBottom] }
   }, [])
 
