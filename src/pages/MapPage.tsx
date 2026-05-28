@@ -3397,7 +3397,7 @@ function MapPage() {
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
         {status === 'ready' && analysisResults.loading && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
           const done = checks.filter((k) => analysisProgress[k] === 'done').length
           const total = checks.length
           const pct = Math.round((done / total) * 100)
@@ -3458,7 +3458,7 @@ function MapPage() {
       >
         <span className="fab-label">Report</span>
         {analysisResults.loading && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er'] as const
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
           const done = checks.filter((k) => analysisProgress[k] === 'done').length
           return (
             <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
