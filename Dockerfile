@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.6
+
 # Build stage - compile React frontend
 FROM node:20-alpine AS frontend-build
 WORKDIR /app
@@ -6,15 +8,21 @@ RUN npm ci
 COPY index.html vite.config.ts tsconfig*.json ./
 COPY src/ src/
 COPY public/ public/
-ARG VITE_TOMTOM_API_KEY
-ENV VITE_TOMTOM_API_KEY=$VITE_TOMTOM_API_KEY
-ARG VITE_GOOGLE_MAPS_KEY
-ENV VITE_GOOGLE_MAPS_KEY=$VITE_GOOGLE_MAPS_KEY
 ARG VITE_NOISE_PMTILES_URL
 ENV VITE_NOISE_PMTILES_URL=$VITE_NOISE_PMTILES_URL
 ARG BUILD_GIT_HASH
 ENV BUILD_GIT_HASH=$BUILD_GIT_HASH
-RUN npm run build
+
+# Vite needs these as env vars at build time, but we don't want them
+# in image layers or `docker history`. BuildKit secrets are mounted
+# only for the duration of this single RUN — they never persist into
+# the final image. The `|| true` fallbacks let local builds without
+# secrets still produce a working image (with empty keys).
+RUN --mount=type=secret,id=VITE_TOMTOM_API_KEY \
+    --mount=type=secret,id=VITE_GOOGLE_MAPS_KEY \
+    VITE_TOMTOM_API_KEY="$(cat /run/secrets/VITE_TOMTOM_API_KEY 2>/dev/null || true)" \
+    VITE_GOOGLE_MAPS_KEY="$(cat /run/secrets/VITE_GOOGLE_MAPS_KEY 2>/dev/null || true)" \
+    npm run build
 
 # Runtime stage - pure static SPA on nginx, with a tiny Node sidecar for
 # the Dev Todos JSON endpoint. The Flask + GDAL tile server was retired
