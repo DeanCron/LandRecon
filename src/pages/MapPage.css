@@ -2219,8 +2219,8 @@
   display: none;
 }
 
-/* ── Layer-visibility hint toast ───────────────────── */
-.layer-hint-toast {
+/* ── Map toast (transit status, etc.) ──────────────── */
+.map-toast {
   position: fixed;
   top: 76px;
   left: 50%;
@@ -2237,32 +2237,16 @@
   font-size: 0.85rem;
   z-index: 1500;
   max-width: calc(100vw - 24px);
-  animation: layerHintIn 0.2s ease;
+  animation: mapToastIn 0.2s ease;
 }
 
-.layer-hint-text {
+.map-toast-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.layer-hint-action {
-  background: #3b82f6;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 5px 11px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.layer-hint-action:hover {
-  background: #2563eb;
-}
-
-.layer-hint-dismiss {
+.map-toast-dismiss {
   background: transparent;
   color: var(--color-text-muted, #888);
   border: none;
@@ -2273,20 +2257,16 @@
   flex-shrink: 0;
 }
 
-.layer-hint-dismiss:hover {
+.map-toast-dismiss:hover {
   color: var(--color-text, #e0e0e0);
 }
 
-@keyframes layerHintIn {
+@keyframes mapToastIn {
   from { opacity: 0; transform: translate(-50%, -8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* ── Transit loading / error toast ─────────────────── */
-.transit-status-toast {
-  top: 132px;  /* sit below the layer-hint toast if both are visible */
-}
-
 .transit-status-error {
   border-color: #dc2626;
   background: linear-gradient(0deg, rgba(220,38,38,0.08), rgba(220,38,38,0.08)), var(--color-surface, #1e1e2e);
@@ -2322,17 +2302,14 @@
 }
 
 @media (max-width: 768px) {
-  .layer-hint-toast {
+  .map-toast {
     top: 64px;
     font-size: 0.8rem;
     gap: 8px;
     padding: 7px 8px 7px 12px;
   }
-  .layer-hint-text {
+  .map-toast-text {
     white-space: normal;
-  }
-  .transit-status-toast {
-    top: 110px;
   }
 }
 

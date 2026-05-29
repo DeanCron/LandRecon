@@ -1254,21 +1254,6 @@ function MapPage() {
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
 
-  // Inline tip shown when a user toggles a point-based layer on but no items
-  // of that layer fall inside the current map viewport (e.g. they're zoomed
-  // into a small radius and the nearest Costco is 20 mi away). Lets them
-  // opt-in to a zoom-out instead of doing it for them.
-  const [layerHint, setLayerHint] = useState<{
-    layerLabel: string
-    targets: Array<{ lat: number; lng: number }>
-  } | null>(null)
-  // Mirror of the active hint targets so pan/zoom can re-evaluate "are any
-  // items in view?" without having to know which layer the user toggled.
-  const layerHintTargetsRef = useRef<{
-    layerLabel: string
-    targets: Array<{ lat: number; lng: number }>
-  } | null>(null)
-
   // Mobile bottom sheet drag state
   const sheetRef = useRef<HTMLElement>(null)
   const sheetDragRef = useRef<{ startY: number; startH: number } | null>(null)
@@ -2715,35 +2700,6 @@ function MapPage() {
     }
   }
 
-  // Auto-dismiss the layer-hint toast after a few seconds so it doesn't
-  // linger on the map indefinitely.
-  useEffect(() => {
-    if (!layerHint) return
-    const t = setTimeout(() => setLayerHint(null), 8000)
-    return () => clearTimeout(t)
-  }, [layerHint])
-
-  // Re-evaluate the layer-hint on pan/zoom so it can appear when the user
-  // pans away from items and disappear when they pan back.
-  useEffect(() => {
-    if (status !== 'ready') return
-    const map = mapRef.current
-    if (!map) return
-    const recheck = () => {
-      const cfg = layerHintTargetsRef.current
-      if (!cfg) return
-      const bounds = map.getBounds()
-      const inView = cfg.targets.some((p) => bounds.contains([p.lat, p.lng]))
-      if (inView) {
-        setLayerHint(null)
-      } else {
-        setLayerHint({ layerLabel: cfg.layerLabel, targets: cfg.targets })
-      }
-    }
-    map.on('moveend', recheck)
-    return () => { map.off('moveend', recheck) }
-  }, [status])
-
   // Auto-dismiss the transit error toast after a few seconds (loading toast
   // is cleared by the load completion path itself).
   useEffect(() => {
@@ -2751,67 +2707,6 @@ function MapPage() {
     const t = setTimeout(() => setTransitStatus(null), 6000)
     return () => clearTimeout(t)
   }, [transitStatus])
-
-  // After a layer is toggled on, check whether any of its items fall inside
-  // the current viewport. If not, surface a small "Show nearest" tip instead
-  // of silently leaving the user staring at an empty map. Stores the target
-  // set so we can re-check on pan/zoom too.
-  const checkLayerInView = useCallback(
-    (layerLabel: string, items: Array<{ lat: number; lng: number }>) => {
-      const map = mapRef.current
-      if (!map || items.length === 0) {
-        layerHintTargetsRef.current = null
-        setLayerHint(null)
-        return
-      }
-      layerHintTargetsRef.current = { layerLabel, targets: items }
-      const bounds = map.getBounds()
-      const inView = items.some((p) => bounds.contains([p.lat, p.lng]))
-      if (inView) {
-        setLayerHint(null)
-      } else {
-        setLayerHint({ layerLabel, targets: items })
-      }
-    },
-    [],
-  )
-
-  // Helper used in each layer's OFF branch so the next pan doesn't re-pop
-  // the toast for a layer the user just hid.
-  const clearLayerHint = useCallback(() => {
-    layerHintTargetsRef.current = null
-    setLayerHint(null)
-  }, [])
-
-  // Zoom out to include the home pin (if any) and the closest item of the
-  // currently-hinted layer to the map center.
-  const flyToLayerHint = useCallback(() => {
-    const map = mapRef.current
-    if (!map || !layerHint) return
-    const targets = layerHint.targets
-    const center = map.getCenter()
-    let closest = targets[0]
-    let bestDist = Infinity
-    for (const t of targets) {
-      const d = Math.hypot(t.lat - center.lat, t.lng - center.lng)
-      if (d < bestDist) {
-        bestDist = d
-        closest = t
-      }
-    }
-    const home = homeMarkerRef.current?.getLatLng()
-    if (home) {
-      map.flyToBounds(L.latLngBounds([home, [closest.lat, closest.lng]]), {
-        padding: [60, 60],
-        maxZoom: 13,
-        duration: 0.6,
-      })
-    } else {
-      map.flyTo([closest.lat, closest.lng], 13, { duration: 0.6 })
-    }
-    setLayerHint(null)
-    layerHintTargetsRef.current = null
-  }, [layerHint])
 
   const toggleNoise = async () => {
     const map = mapRef.current
@@ -2878,7 +2773,6 @@ function MapPage() {
     if (costcoVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleCostcoMove)
-      clearLayerHint()
     } else {
       layer.addTo(map)
       costcoLoadedBoundsRef.current = null
@@ -2886,11 +2780,6 @@ function MapPage() {
       layer.clearLayers()
       loadCostcoLabels(map, layer)
       map.on('moveend', handleCostcoMove)
-      const targets: Array<{ lat: number; lng: number }> = []
-      if (analysisResults.costco) targets.push({ lat: analysisResults.costco.lat, lng: analysisResults.costco.lng })
-      for (const c of analysisResults.costcoNearby) targets.push({ lat: c.lat, lng: c.lng })
-      if (analysisResults.costcoNearestBeyond) targets.push({ lat: analysisResults.costcoNearestBeyond.lat, lng: analysisResults.costcoNearestBeyond.lng })
-      checkLayerInView('Costco', targets)
     }
     setCostcoVisible(!costcoVisible)
   }
@@ -2981,12 +2870,10 @@ function MapPage() {
       map.off('moveend', handleDataCenterMove)
       layer.clearLayers()
       dataCenterSubLayersRef.current = null
-      clearLayerHint()
     } else {
       layer.addTo(map)
       loadDataCenters(map, layer)
       map.on('moveend', handleDataCenterMove)
-      checkLayerInView('Data Centers', analysisResults.dataCenters.map((d) => ({ lat: d.lat, lng: d.lng })))
     }
     setDataCenterVisible(!dataCenterVisible)
   }
@@ -3137,14 +3024,10 @@ function MapPage() {
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
       emsKnownIdsRef.current.clear()
-      clearLayerHint()
     } else {
       layer.addTo(map)
       loadEmsData(map, layer)
       map.on('moveend', handleEmsMove)
-      const targets: Array<{ lat: number; lng: number }> = []
-      if (analysisResults.nearestER) targets.push({ lat: analysisResults.nearestER.lat, lng: analysisResults.nearestER.lng })
-      checkLayerInView('Emergency Services', targets)
     }
     setEmsVisible(!emsVisible)
   }
@@ -3238,12 +3121,10 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
-      clearLayerHint()
     } else {
       layer.addTo(map)
       loadCrowdData(map, layer)
       map.on('moveend', handleCrowdMove)
-      checkLayerInView('Crowd Magnets', analysisResults.crowdMagnets.map((m) => ({ lat: m.lat, lng: m.lng })))
     }
     setCrowdVisible(!crowdVisible)
   }
@@ -3312,13 +3193,11 @@ function MapPage() {
     if (superfundVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleSuperfundMove)
-      clearLayerHint()
     } else {
       layer.addTo(map)
       superfundLoadedBoundsRef.current = null
       loadSuperfundData(map, layer)
       map.on('moveend', handleSuperfundMove)
-      checkLayerInView('Superfund sites', analysisResults.superfunds.map((s) => ({ lat: s.lat, lng: s.lng })))
     }
     setSuperfundVisible(!superfundVisible)
   }
@@ -4056,42 +3935,21 @@ function MapPage() {
         )}
       </div>
 
-      {/* Layer-visibility hint toast: shown when a user enables a layer
-          whose items are all outside the current viewport. */}
-      {layerHint && (
-        <div className="layer-hint-toast" role="status">
-          <span className="layer-hint-text">
-            No <strong>{layerHint.layerLabel}</strong> in view at this zoom
-          </span>
-          <button type="button" className="layer-hint-action" onClick={flyToLayerHint}>
-            Show nearest
-          </button>
-          <button
-            type="button"
-            className="layer-hint-dismiss"
-            onClick={clearLayerHint}
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
       {/* Transit loading / error toast — shown when the user enables Public
           Transit. Loading clears automatically on success; on failure the
           layer is auto-unchecked and an error message stays for a few seconds. */}
       {transitStatus && (
         <div
-          className={`layer-hint-toast transit-status-toast transit-status-${transitStatus.kind}`}
+          className={`map-toast transit-status-toast transit-status-${transitStatus.kind}`}
           role={transitStatus.kind === 'error' ? 'alert' : 'status'}
         >
           {transitStatus.kind === 'loading' && <span className="transit-spinner" aria-hidden="true" />}
           {transitStatus.kind === 'error' && <span className="transit-status-icon" aria-hidden="true">⚠️</span>}
-          <span className="layer-hint-text">{transitStatus.text}</span>
+          <span className="map-toast-text">{transitStatus.text}</span>
           {transitStatus.kind === 'error' && (
             <button
               type="button"
-              className="layer-hint-dismiss"
+              className="map-toast-dismiss"
               onClick={() => setTransitStatus(null)}
               aria-label="Dismiss"
             >
