@@ -507,67 +507,65 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 }
 
 
-const TRANSIT_QUERIES: Record<TransitStop['type'], string[]> = {
-  rail: ['train stations', 'rail stations'],
-  subway: ['subway stations', 'light rail stations'],
-  tram: ['tram stops', 'streetcar stops'],
-  bus: ['bus stations', 'bus stops'],
-}
+async function fetchTransitFromOverpass(
+  bbox: string,
+  opts: { rail: boolean; bus: boolean },
+): Promise<Array<{ id: string; stop: TransitStop }>> {
+  const parts: string[] = []
+  if (opts.rail) {
+    parts.push(`node["railway"~"^(station|halt|tram_stop)$"](${bbox});`)
+    parts.push(`node["station"~"^(subway|light_rail)$"](${bbox});`)
+  }
+  if (opts.bus) {
+    parts.push(`node["highway"="bus_stop"](${bbox});`)
+    parts.push(`node["amenity"="bus_station"](${bbox});`)
+  }
+  if (parts.length === 0) return []
+  const query = `[out:json][timeout:25];(${parts.join('')});out;`
 
-async function fetchTransitFromGoogle(
-  center: { lat: number; lng: number },
-  radiusM: number,
-  type: TransitStop['type'],
-): Promise<TransitStop[]> {
-  const queries = TRANSIT_QUERIES[type]
-  dbg('transit', `Fetching ${type} (${queries.length} queries) radius=${Math.round(radiusM)}m center=${center.lat.toFixed(4)},${center.lng.toFixed(4)}`)
-  const allPlaces: TransitStop[] = []
-  const seen = new Set<string>()
-  await Promise.all(
-    queries.map(async (query) => {
-      try {
-        const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-            'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
-          },
-          body: JSON.stringify({
-            textQuery: query,
-            locationBias: {
-              circle: {
-                center: { latitude: center.lat, longitude: center.lng },
-                radius: radiusM,
-              },
-            },
-            maxResultCount: 20,
-          }),
-        })
-        if (!res.ok) {
-          dbg('transit', `Query "${query}" failed: ${res.status}`)
-          return
-        }
-        const data = await res.json()
-        const count = (data.places || []).length
-        dbg('transit', `Query "${query}" → ${count} results`)
-        for (const p of data.places || []) {
-          if (seen.has(p.id)) continue
-          seen.add(p.id)
-          const loc = p.location
-          if (!loc) continue
-          allPlaces.push({
-            lat: loc.latitude,
-            lon: loc.longitude,
-            name: p.displayName?.text || '',
-            type,
-          })
-        }
-      } catch { /* ignore */ }
+  dbg('transit', `Fetching transit stops bbox=${bbox} rail=${opts.rail} bus=${opts.bus}`)
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'data=' + encodeURIComponent(query),
+  })
+  if (!res.ok) {
+    dbg('transit', `Overpass (stops) returned ${res.status}`)
+    return []
+  }
+  const data = await res.json()
+  const out: Array<{ id: string; stop: TransitStop }> = []
+  for (const el of data.elements as Array<{
+    type: string
+    id: number
+    lat?: number
+    lon?: number
+    tags?: Record<string, string>
+  }>) {
+    if (el.type !== 'node' || typeof el.lat !== 'number' || typeof el.lon !== 'number') continue
+    const tags = el.tags || {}
+    let type: TransitStop['type']
+    if (tags.highway === 'bus_stop' || tags.amenity === 'bus_station') {
+      type = 'bus'
+    } else if (tags.railway === 'tram_stop') {
+      type = 'tram'
+    } else if (tags.station === 'subway' || tags.subway === 'yes') {
+      type = 'subway'
+    } else {
+      // railway=station or halt (commuter / intercity / light rail)
+      type = 'rail'
+    }
+    out.push({
+      id: `node/${el.id}`,
+      stop: {
+        lat: el.lat,
+        lon: el.lon,
+        name: tags.name || tags['name:en'] || '',
+        type,
+      },
     })
-  )
-  dbg('transit', `${type} total unique: ${allPlaces.length}`)
-  return allPlaces
+  }
+  return out
 }
 
 function transitPopup(stop: TransitStop): string {
@@ -1130,7 +1128,9 @@ function MapPage() {
   const nearestErMarkerRef = useRef<L.Marker | null>(null)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
-  const transitPreloadedRef = useRef(false)
+  const transitStopsKnownIdsRef = useRef<Set<string>>(new Set())
+  const transitStopsLoadingRef = useRef(false)
+  const transitBusStopsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const initialUrlStateAppliedRef = useRef(false)
   // Monotonic counter so an in-flight analysis can detect that the user has
   // since kicked off a newer one and silently discard its (now-stale) results.
@@ -1826,32 +1826,43 @@ function MapPage() {
   }, [])
 
   const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    const bounds = map.getBounds()
-    const loaded = transitLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('transit', 'Skipping — bounds already loaded'); return }
-    dbg('transit', 'Loading transit data…')
+    if (transitStopsLoadingRef.current) return
+    // Same gate as the line layer — at very low zoom the bbox is huge.
+    if (map.getZoom() < 10) return
 
+    let bounds = map.getBounds().pad(0.3)
+    const latSpan = bounds.getNorth() - bounds.getSouth()
+    const lngSpan = bounds.getEast() - bounds.getWest()
+    const MAX_SPAN_DEG = 0.4
+    if (latSpan > MAX_SPAN_DEG || lngSpan > MAX_SPAN_DEG) {
+      const c = map.getCenter()
+      const half = MAX_SPAN_DEG / 2
+      bounds = L.latLngBounds([c.lat - half, c.lng - half], [c.lat + half, c.lng + half])
+    }
+
+    const railLoaded = transitLoadedBoundsRef.current
+    const busLoaded = transitBusStopsLoadedBoundsRef.current
+    const needRail = !railLoaded || !railLoaded.contains(bounds)
+    // Bus stops are very dense; only include them once the user has zoomed in
+    // enough that the dots aren't a wall. The line layer uses the same gate.
+    const needBus =
+      transitSubVisibleRef.current.bus &&
+      map.getZoom() >= 13 &&
+      (!busLoaded || !busLoaded.contains(bounds))
+
+    if (!needRail && !needBus) {
+      dbg('transit', 'Skipping — bounds already loaded')
+      return
+    }
+
+    dbg('transit', `Loading transit stops (rail=${needRail}, bus=${needBus})…`)
     setTransitLoading(true)
+    transitStopsLoadingRef.current = true
     try {
-      // On first load, preload the full 50km radius around the target location
-      // instead of just the visible viewport
-      const target = targetLocationRef.current
-      const isPreload = !transitPreloadedRef.current && target
-      const searchCenter = isPreload ? target : map.getCenter()
-      const radiusM = isPreload
-        ? 50000
-        : Math.min(Math.max(searchCenter.distanceTo(bounds.pad(0.3).getNorthEast()), 16093), 50000)
-
-      if (isPreload) {
-        dbg('transit', `Preloading full 50km radius around target (${target.lat.toFixed(4)}, ${target.lng.toFixed(4)})`)
-        transitPreloadedRef.current = true
-      }
-
-      const googleStops = await Promise.all(
-        (['rail', 'subway', 'tram', 'bus'] as const).map((t) =>
-          fetchTransitFromGoogle({ lat: searchCenter.lat, lng: searchCenter.lng }, radiusM, t).catch(() => [] as TransitStop[])
-        ),
-      )
+      const sw = bounds.getSouthWest()
+      const ne = bounds.getNorthEast()
+      const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+      const stops = await fetchTransitFromOverpass(bbox, { rail: needRail, bus: needBus })
 
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
@@ -1868,35 +1879,35 @@ function MapPage() {
           }
         }
       }
-      for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
-        subLayers[t].clearLayers()
+
+      const known = transitStopsKnownIdsRef.current
+      let added = 0
+      for (const { id, stop } of stops) {
+        if (known.has(id)) continue
+        known.add(id)
+        const color = TRANSIT_COLORS[stop.type]
+        const size = stop.type === 'bus' ? 10 : 14
+        L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
+          .bindPopup(transitPopup(stop), { maxWidth: 260 })
+          .addTo(subLayers[stop.type])
+        added++
       }
 
-      const seen = new Set<string>()
-      for (const stops of googleStops) {
-        for (const stop of stops) {
-          const key = `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)}`
-          if (seen.has(key)) continue
-          seen.add(key)
-          const color = TRANSIT_COLORS[stop.type]
-          const size = stop.type === 'bus' ? 10 : 14
-          L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
-            .bindPopup(transitPopup(stop), { maxWidth: 260 })
-            .addTo(subLayers[stop.type])
-        }
+      if (needRail) {
+        transitLoadedBoundsRef.current = railLoaded
+          ? railLoaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
+          : bounds
       }
-
-      // Store the actual coverage area (circle from search center, not padded bounds)
-      // so zooming out beyond the searched radius triggers a reload
-      const covDeg = radiusM / 111320
-      transitLoadedBoundsRef.current = L.latLngBounds(
-        [searchCenter.lat - covDeg, searchCenter.lng - covDeg * 1.3],
-        [searchCenter.lat + covDeg, searchCenter.lng + covDeg * 1.3],
-      )
-      dbg('transit', `Rendered ${seen.size} unique transit stops (radius=${Math.round(radiusM)}m, center=${searchCenter.lat.toFixed(4)},${searchCenter.lng.toFixed(4)})`)
+      if (needBus) {
+        transitBusStopsLoadedBoundsRef.current = busLoaded
+          ? busLoaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
+          : bounds
+      }
+      dbg('transit', `Added ${added} new stops (total known: ${known.size})`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
     } finally {
+      transitStopsLoadingRef.current = false
       setTransitLoading(false)
     }
   }, [])
@@ -2447,6 +2458,22 @@ function MapPage() {
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
           transitLoadedBoundsRef.current = null
+          transitBusStopsLoadedBoundsRef.current = null
+          transitStopsKnownIdsRef.current.clear()
+          transitLinesLoadedBoundsRef.current = null
+          transitLinesKnownIdsRef.current.clear()
+          busLinesLoadedBoundsRef.current = null
+          busLinesKnownIdsRef.current.clear()
+          if (transitSubLayersRef.current) {
+            for (const t of Object.keys(transitSubLayersRef.current) as TransitStop['type'][]) {
+              transitSubLayersRef.current[t].clearLayers()
+            }
+          }
+          if (transitLineLayersRef.current) {
+            for (const t of ['rail', 'subway', 'tram', 'bus'] as const) {
+              transitLineLayersRef.current[t].clearLayers()
+            }
+          }
           costcoLoadedBoundsRef.current = null
           costcoKnownIdsRef.current.clear()
           emsLoadedBoundsRef.current = null
@@ -2632,6 +2659,8 @@ function MapPage() {
       busLinesKnownIdsRef.current.clear()
       transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
+      transitBusStopsLoadedBoundsRef.current = null
+      transitStopsKnownIdsRef.current.clear()
       costcoLayerRef.current = null
       costcoLoadedBoundsRef.current = null
       costcoKnownIdsRef.current.clear()
@@ -3450,14 +3479,9 @@ function MapPage() {
         loadTransitLines(map)
         loadBusLines(map)
       }
-      transitLoadedBoundsRef.current = null
-      // Sync sublayer visibility with current sub-toggle state
-      const subLayers = transitSubLayersRef.current
-      if (subLayers) {
-        for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
-          subLayers[t].clearLayers()
-        }
-      }
+      // Don't reset cached bounds or clear sub-layers — accumulated stops
+      // and the dedupe set are preserved across toggle on/off. The fetcher
+      // below will be a no-op if the current viewport is already covered.
       loadTransitData(map, layer)
       map.on('moveend', handleTransitMove)
     }
@@ -3477,8 +3501,8 @@ function MapPage() {
 
     if (nowVisible) {
       subLayers[type].addTo(parentLayer)
-      // Reload to populate the sublayer if it was emptied
-      transitLoadedBoundsRef.current = null
+      // loadTransitData will decide whether a fetch is actually needed
+      // (e.g. bus may need a fetch even if rail bounds already cover the box).
       loadTransitData(map, parentLayer)
     } else {
       parentLayer.removeLayer(subLayers[type])
