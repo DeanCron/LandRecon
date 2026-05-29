@@ -22,6 +22,7 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
   const [active, setActive] = useState(false)
   const [step, setStep] = useState(0)
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [viewport, setViewport] = useState({ w: typeof window !== 'undefined' ? window.innerWidth : 1024, h: typeof window !== 'undefined' ? window.innerHeight : 768 })
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -33,11 +34,16 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
 
   const measureTarget = useCallback(() => {
     if (!active || step >= steps.length) return
+    setViewport({ w: window.innerWidth, h: window.innerHeight })
     const el = document.querySelector(steps[step].selector) as HTMLElement | null
     if (el) {
       const r = el.getBoundingClientRect()
-      setRect(r)
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      // If the target is entirely off-screen (e.g. a panel that hasn't
+      // slid in yet), don't pin a highlight to an invisible location.
+      const onScreen = r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
+      setRect(onScreen ? r : null)
+      // scrollIntoView is a no-op for fixed elements but harmless otherwise.
+      if (onScreen) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     } else {
       setRect(null)
     }
@@ -46,9 +52,20 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
   useEffect(() => {
     if (!active) return
     steps[step]?.beforeShow?.()
+    // Measure immediately for steps that don't need panel transitions, then
+    // again after the longest reasonable transition (panel slide-in ~280ms)
+    // so panel-targeted steps land on the final on-screen rect.
     measureTarget()
+    const t1 = setTimeout(measureTarget, 120)
+    const t2 = setTimeout(measureTarget, 380)
     window.addEventListener('resize', measureTarget)
-    return () => window.removeEventListener('resize', measureTarget)
+    window.addEventListener('orientationchange', measureTarget)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      window.removeEventListener('resize', measureTarget)
+      window.removeEventListener('orientationchange', measureTarget)
+    }
   }, [active, step, measureTarget, steps])
 
   const finish = useCallback(() => {
@@ -78,39 +95,55 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
 
   const pad = 8
   const current = steps[step]
-  const tooltipW = 320
+  const isMobile = viewport.w <= 768
+  const margin = 16
+  const tooltipW = Math.min(320, viewport.w - margin * 2)
+  const tooltipApproxH = 180
 
-  let tooltipStyle: React.CSSProperties = {}
+  let tooltipStyle: React.CSSProperties = { width: tooltipW }
   if (rect) {
     const cx = rect.left + rect.width / 2
     const cy = rect.top + rect.height / 2
-    const spaceRight = window.innerWidth - rect.right
+    const spaceRight = viewport.w - rect.right
     const spaceLeft = rect.left
-    const spaceBottom = window.innerHeight - rect.bottom
+    const spaceBottom = viewport.h - rect.bottom
     const spaceTop = rect.top
 
-    let pos = current.position || 'bottom'
+    // On mobile, never use left/right — there's never room for a side tooltip
+    // next to a panel that spans the full width.
+    let pos: 'top' | 'bottom' | 'left' | 'right' = current.position || 'bottom'
+    if (isMobile && (pos === 'left' || pos === 'right')) pos = 'bottom'
     if (pos === 'left' && spaceLeft < tooltipW + 30) pos = spaceRight > tooltipW + 30 ? 'right' : 'bottom'
     if (pos === 'right' && spaceRight < tooltipW + 30) pos = spaceLeft > tooltipW + 30 ? 'left' : 'bottom'
-    if (pos === 'bottom' && spaceBottom < 200) pos = 'top'
-    if (pos === 'top' && spaceTop < 200) pos = 'bottom'
+    if (pos === 'bottom' && spaceBottom < tooltipApproxH + margin) pos = spaceTop > tooltipApproxH + margin ? 'top' : 'bottom'
+    if (pos === 'top' && spaceTop < tooltipApproxH + margin) pos = spaceBottom > tooltipApproxH + margin ? 'bottom' : 'top'
 
+    const clampX = (x: number) => Math.max(margin, Math.min(x, viewport.w - tooltipW - margin))
     switch (pos) {
-      case 'bottom':
-        tooltipStyle = { top: rect.bottom + pad + 8, left: Math.max(12, Math.min(cx - tooltipW / 2, window.innerWidth - tooltipW - 16)) }
+      case 'bottom': {
+        const top = Math.min(rect.bottom + pad + 8, viewport.h - tooltipApproxH - margin)
+        tooltipStyle = { width: tooltipW, top, left: clampX(cx - tooltipW / 2) }
         break
-      case 'top':
-        tooltipStyle = { bottom: window.innerHeight - rect.top + pad + 8, left: Math.max(12, Math.min(cx - tooltipW / 2, window.innerWidth - tooltipW - 16)) }
+      }
+      case 'top': {
+        const bottom = Math.min(viewport.h - rect.top + pad + 8, viewport.h - tooltipApproxH - margin)
+        tooltipStyle = { width: tooltipW, bottom, left: clampX(cx - tooltipW / 2) }
         break
+      }
       case 'left':
-        tooltipStyle = { top: Math.max(12, Math.min(cy - 60, window.innerHeight - 220)), right: window.innerWidth - rect.left + pad + 8 }
+        tooltipStyle = { width: tooltipW, top: Math.max(margin, Math.min(cy - 60, viewport.h - tooltipApproxH - margin)), right: viewport.w - rect.left + pad + 8 }
         break
       case 'right':
-        tooltipStyle = { top: Math.max(12, Math.min(cy - 60, window.innerHeight - 220)), left: rect.right + pad + 8 }
+        tooltipStyle = { width: tooltipW, top: Math.max(margin, Math.min(cy - 60, viewport.h - tooltipApproxH - margin)), left: rect.right + pad + 8 }
         break
     }
   } else {
-    tooltipStyle = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
+    // No measurable target — dock the tooltip at the bottom-center of the
+    // viewport on mobile (clearer than a center-screen modal that hides the
+    // panel underneath) and center on desktop.
+    tooltipStyle = isMobile
+      ? { width: tooltipW, bottom: margin + 16, left: Math.max(margin, (viewport.w - tooltipW) / 2) }
+      : { width: tooltipW, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
   }
 
   return (

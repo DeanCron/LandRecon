@@ -4980,36 +4980,42 @@ function MapPage() {
               title: '📍 Change Address',
               content: 'Click here to search a different U.S. address. Start typing and pick from the suggestions to instantly analyze a new location.',
               position: 'bottom',
+              beforeShow: () => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) },
             },
             {
               selector: '.layer-panel',
               title: '🗺️ Show on Map',
               content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more.',
               position: 'right',
+              beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
             },
             {
               selector: '.analysis-panel',
               title: '📊 Neighborhood Report',
               content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout.',
               position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) },
             },
             {
               selector: '.analysis-score-bar',
               title: '🏆 Location Score',
               content: 'Your overall location grade based on all categories combined. Click it to see a full breakdown explaining how each factor contributed to the score.',
               position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
             },
             {
               selector: '.analysis-card',
               title: '🔍 Category Details',
               content: 'Click any category card to open a detailed flyout to the left with findings, recommendations, and links. The chevron indicates it\'s expandable.',
               position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
             },
             {
               selector: '.map-container',
               title: '🌍 Interactive Map',
               content: 'Explore the map freely — zoom, pan, and click on markers for more info. Layer data updates automatically as you navigate.',
               position: 'top',
+              beforeShow: () => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) },
             },
           ]}
         />
