@@ -2462,7 +2462,7 @@ function MapPage() {
           map.flyTo([lat, lng], 13, { duration: 0.5 })
           setStatus('ready')
           runLocationAnalysis(lat, lng)
-          setTimeout(() => map.invalidateSize(), 0)
+          requestAnimationFrame(() => map.invalidateSize())
           return
         }
 
@@ -2543,7 +2543,7 @@ function MapPage() {
         // Run location analysis
         runLocationAnalysis(lat, lng)
 
-        setTimeout(() => map.invalidateSize(), 0)
+        requestAnimationFrame(() => map.invalidateSize())
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return
@@ -2560,7 +2560,39 @@ function MapPage() {
   // This keeps layer toggle state and zoom intact when the user changes the
   // analyzed address from the header.
   useEffect(() => {
+    // Keep Leaflet in sync with the real container size. Mobile browsers
+    // resize the visual viewport when the URL bar collapses, when the soft
+    // keyboard appears, or on orientation change, and panel/sheet toggles
+    // can resize the map area on desktop too. Without this, the initial
+    // tile grid is the only thing that renders and the rest of the map
+    // stays gray.
+    const container = mapContainer.current
+    let rafId = 0
+    const scheduleInvalidate = () => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        mapRef.current?.invalidateSize()
+      })
+    }
+    const ro = typeof ResizeObserver !== 'undefined' && container
+      ? new ResizeObserver(scheduleInvalidate)
+      : null
+    if (ro && container) ro.observe(container)
+    window.addEventListener('resize', scheduleInvalidate)
+    window.addEventListener('orientationchange', scheduleInvalidate)
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    vv?.addEventListener('resize', scheduleInvalidate)
+    vv?.addEventListener('scroll', scheduleInvalidate)
+
     return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      ro?.disconnect()
+      window.removeEventListener('resize', scheduleInvalidate)
+      window.removeEventListener('orientationchange', scheduleInvalidate)
+      vv?.removeEventListener('resize', scheduleInvalidate)
+      vv?.removeEventListener('scroll', scheduleInvalidate)
+
       baseLayerRef.current = null
       noiseLayerRef.current = null
       airportLayerRef.current = null
