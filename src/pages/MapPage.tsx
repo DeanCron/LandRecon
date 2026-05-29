@@ -1143,7 +1143,7 @@ function MapPage() {
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
   const [transitSubVisible, setTransitSubVisible] = useState<Record<TransitStop['type'], boolean>>({
-    rail: true, subway: true, tram: true, bus: true,
+    rail: true, subway: true, tram: true, bus: false,
   })
   const transitSubVisibleRef = useRef(transitSubVisible)
   const [costcoVisible, setCostcoVisible] = useState(false)
@@ -3477,7 +3477,7 @@ function MapPage() {
           if (transitSubVisibleRef.current[t]) lineLayers[t].addTo(map)
         }
         loadTransitLines(map)
-        loadBusLines(map)
+        if (transitSubVisibleRef.current.bus) loadBusLines(map)
       }
       // Don't reset cached bounds or clear sub-layers — accumulated stops
       // and the dedupe set are preserved across toggle on/off. The fetcher
