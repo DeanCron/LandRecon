@@ -14,7 +14,7 @@ export interface SavedAnalysisSnippet {
 
 const RECENT_KEY = 'lr_recent_searches'
 const SAVED_KEY = 'lr_saved_analyses'
-const RECENT_MAX = 10
+const RECENT_MAX = 5
 
 export function loadRecentSearches(): RecentSearch[] {
   try {
@@ -22,7 +22,7 @@ export function loadRecentSearches(): RecentSearch[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed
+    const cleaned = parsed
       .filter(
         (r): r is RecentSearch =>
           r && typeof r.address === 'string' && typeof r.timestamp === 'number',
@@ -33,6 +33,23 @@ export function loadRecentSearches(): RecentSearch[] {
         grade: typeof r.grade === 'string' ? r.grade : undefined,
         gradeColor: typeof r.gradeColor === 'string' ? r.gradeColor : undefined,
       }))
+    // Collapse duplicates from any older storage where dedup wasn't enforced.
+    // Newest occurrence wins (input is ordered newest-first), but if an older
+    // copy carries a grade the newer entry is missing, promote that.
+    const seen = new Map<string, RecentSearch>()
+    for (const r of cleaned) {
+      const key = r.address.toLowerCase()
+      const existing = seen.get(key)
+      if (!existing) {
+        seen.set(key, r)
+      } else {
+        if (!existing.grade && r.grade) {
+          existing.grade = r.grade
+          existing.gradeColor = r.gradeColor
+        }
+      }
+    }
+    return Array.from(seen.values()).slice(0, RECENT_MAX)
   } catch {
     return []
   }
