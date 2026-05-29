@@ -2518,17 +2518,20 @@ function MapPage() {
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
-        // OpenPTMap transit-lines overlay: transparent raster tiles drawn on
-        // top of the basemap that show transit routes (bus / tram / subway /
-        // rail / ferry) plus station glyphs. Added to the map only when the
-        // user toggles the Transit layer on.
+        // OpenRailwayMap transit-lines overlay: transparent raster tiles
+        // drawn on top of the basemap that show rail / subway / tram /
+        // light-rail routes plus station glyphs — similar to the Google Maps
+        // transit layer for rail-based transit. (Google Places station pins
+        // continue to cover bus / ferry stations on top.) Added to the map
+        // only when the user toggles the Transit layer on.
         transitLinesLayerRef.current = L.tileLayer(
-          'https://www.openptmap.org/tiles/{z}/{x}/{y}.png',
+          'https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
           {
-            opacity: 0.85,
-            maxZoom: 17,
+            subdomains: ['a', 'b', 'c'],
+            opacity: 0.9,
+            maxZoom: 19,
             attribution:
-              '&copy; <a href="https://www.openptmap.org/">OpenPTMap</a> (CC-BY-SA), &copy; OpenStreetMap contributors',
+              '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a> (CC-BY-SA), &copy; OpenStreetMap contributors',
             errorTileUrl: '',
           },
         )
