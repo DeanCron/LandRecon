@@ -1247,6 +1247,15 @@ function MapPage() {
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
 
+  // Inline tip shown when a user toggles a point-based layer on but no items
+  // of that layer fall inside the current map viewport (e.g. they're zoomed
+  // into a small radius and the nearest Costco is 20 mi away). Lets them
+  // opt-in to a zoom-out instead of doing it for them.
+  const [layerHint, setLayerHint] = useState<{
+    layerLabel: string
+    targets: Array<{ lat: number; lng: number }>
+  } | null>(null)
+
   // Mobile bottom sheet drag state
   const sheetRef = useRef<HTMLElement>(null)
   const sheetDragRef = useRef<{ startY: number; startH: number } | null>(null)
@@ -2660,6 +2669,64 @@ function MapPage() {
     }
   }
 
+  // Auto-dismiss the layer-hint toast after a few seconds so it doesn't
+  // linger on the map indefinitely.
+  useEffect(() => {
+    if (!layerHint) return
+    const t = setTimeout(() => setLayerHint(null), 8000)
+    return () => clearTimeout(t)
+  }, [layerHint])
+
+  // After a layer is toggled on, check whether any of its items fall inside
+  // the current viewport. If not, surface a small "Show nearest" tip instead
+  // of silently leaving the user staring at an empty map.
+  const checkLayerInView = useCallback(
+    (layerLabel: string, items: Array<{ lat: number; lng: number }>) => {
+      const map = mapRef.current
+      if (!map || items.length === 0) {
+        setLayerHint(null)
+        return
+      }
+      const bounds = map.getBounds()
+      const inView = items.some((p) => bounds.contains([p.lat, p.lng]))
+      if (inView) {
+        setLayerHint(null)
+      } else {
+        setLayerHint({ layerLabel, targets: items })
+      }
+    },
+    [],
+  )
+
+  // Zoom out to include the home pin (if any) and the closest item of the
+  // currently-hinted layer to the map center.
+  const flyToLayerHint = useCallback(() => {
+    const map = mapRef.current
+    if (!map || !layerHint) return
+    const targets = layerHint.targets
+    const center = map.getCenter()
+    let closest = targets[0]
+    let bestDist = Infinity
+    for (const t of targets) {
+      const d = Math.hypot(t.lat - center.lat, t.lng - center.lng)
+      if (d < bestDist) {
+        bestDist = d
+        closest = t
+      }
+    }
+    const home = homeMarkerRef.current?.getLatLng()
+    if (home) {
+      map.flyToBounds(L.latLngBounds([home, [closest.lat, closest.lng]]), {
+        padding: [60, 60],
+        maxZoom: 13,
+        duration: 0.6,
+      })
+    } else {
+      map.flyTo([closest.lat, closest.lng], 13, { duration: 0.6 })
+    }
+    setLayerHint(null)
+  }, [layerHint])
+
   const toggleNoise = async () => {
     const map = mapRef.current
     const airportLayer = airportLayerRef.current
@@ -2725,6 +2792,7 @@ function MapPage() {
     if (costcoVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleCostcoMove)
+      setLayerHint(null)
     } else {
       layer.addTo(map)
       costcoLoadedBoundsRef.current = null
@@ -2732,6 +2800,11 @@ function MapPage() {
       layer.clearLayers()
       loadCostcoLabels(map, layer)
       map.on('moveend', handleCostcoMove)
+      const targets: Array<{ lat: number; lng: number }> = []
+      if (analysisResults.costco) targets.push({ lat: analysisResults.costco.lat, lng: analysisResults.costco.lng })
+      for (const c of analysisResults.costcoNearby) targets.push({ lat: c.lat, lng: c.lng })
+      if (analysisResults.costcoNearestBeyond) targets.push({ lat: analysisResults.costcoNearestBeyond.lat, lng: analysisResults.costcoNearestBeyond.lng })
+      checkLayerInView('Costco', targets)
     }
     setCostcoVisible(!costcoVisible)
   }
@@ -2822,10 +2895,12 @@ function MapPage() {
       map.off('moveend', handleDataCenterMove)
       layer.clearLayers()
       dataCenterSubLayersRef.current = null
+      setLayerHint(null)
     } else {
       layer.addTo(map)
       loadDataCenters(map, layer)
       map.on('moveend', handleDataCenterMove)
+      checkLayerInView('Data Centers', analysisResults.dataCenters.map((d) => ({ lat: d.lat, lng: d.lng })))
     }
     setDataCenterVisible(!dataCenterVisible)
   }
@@ -2976,10 +3051,14 @@ function MapPage() {
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
       emsKnownIdsRef.current.clear()
+      setLayerHint(null)
     } else {
       layer.addTo(map)
       loadEmsData(map, layer)
       map.on('moveend', handleEmsMove)
+      const targets: Array<{ lat: number; lng: number }> = []
+      if (analysisResults.nearestER) targets.push({ lat: analysisResults.nearestER.lat, lng: analysisResults.nearestER.lng })
+      checkLayerInView('Emergency Services', targets)
     }
     setEmsVisible(!emsVisible)
   }
@@ -3073,10 +3152,12 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
+      setLayerHint(null)
     } else {
       layer.addTo(map)
       loadCrowdData(map, layer)
       map.on('moveend', handleCrowdMove)
+      checkLayerInView('Crowd Magnets', analysisResults.crowdMagnets.map((m) => ({ lat: m.lat, lng: m.lng })))
     }
     setCrowdVisible(!crowdVisible)
   }
@@ -3145,11 +3226,13 @@ function MapPage() {
     if (superfundVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleSuperfundMove)
+      setLayerHint(null)
     } else {
       layer.addTo(map)
       superfundLoadedBoundsRef.current = null
       loadSuperfundData(map, layer)
       map.on('moveend', handleSuperfundMove)
+      checkLayerInView('Superfund sites', analysisResults.superfunds.map((s) => ({ lat: s.lat, lng: s.lng })))
     }
     setSuperfundVisible(!superfundVisible)
   }
@@ -3659,6 +3742,27 @@ function MapPage() {
           </div>
         )}
       </div>
+
+      {/* Layer-visibility hint toast: shown when a user enables a layer
+          whose items are all outside the current viewport. */}
+      {layerHint && (
+        <div className="layer-hint-toast" role="status">
+          <span className="layer-hint-text">
+            No <strong>{layerHint.layerLabel}</strong> in view at this zoom
+          </span>
+          <button type="button" className="layer-hint-action" onClick={flyToLayerHint}>
+            Show nearest
+          </button>
+          <button
+            type="button"
+            className="layer-hint-dismiss"
+            onClick={() => setLayerHint(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Mobile floating action buttons */}
       <button
