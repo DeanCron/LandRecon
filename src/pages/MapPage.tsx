@@ -1082,6 +1082,7 @@ function MapPage() {
   const superfundLayerRef = useRef<L.GeoJSON | null>(null)
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
+  const transitLinesLayerRef = useRef<L.TileLayer | null>(null)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
@@ -2508,6 +2509,21 @@ function MapPage() {
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
+        // OpenPTMap transit-lines overlay: transparent raster tiles drawn on
+        // top of the basemap that show transit routes (bus / tram / subway /
+        // rail / ferry) plus station glyphs. Added to the map only when the
+        // user toggles the Transit layer on.
+        transitLinesLayerRef.current = L.tileLayer(
+          'https://www.openptmap.org/tiles/{z}/{x}/{y}.png',
+          {
+            opacity: 0.85,
+            maxZoom: 17,
+            attribution:
+              '&copy; <a href="https://www.openptmap.org/">OpenPTMap</a> (CC-BY-SA), &copy; OpenStreetMap contributors',
+            errorTileUrl: '',
+          },
+        )
+
         // Create Costco label layer (not added to map until toggled on)
         costcoLayerRef.current = L.layerGroup()
 
@@ -2597,6 +2613,7 @@ function MapPage() {
       superfundLayerRef.current = null
       superfundLoadedBoundsRef.current = null
       transitLayerRef.current = null
+      transitLinesLayerRef.current = null
       transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
       costcoLayerRef.current = null
@@ -3154,10 +3171,13 @@ function MapPage() {
     if (!map || !layer) return
     dbg('toggle', `transit → ${transitVisible ? 'OFF' : 'ON'}`)
 
+    const linesLayer = transitLinesLayerRef.current
     if (transitVisible) {
       map.removeLayer(layer)
+      if (linesLayer) map.removeLayer(linesLayer)
       map.off('moveend', handleTransitMove)
     } else {
+      if (linesLayer) linesLayer.addTo(map)
       layer.addTo(map)
       transitLoadedBoundsRef.current = null
       // Sync sublayer visibility with current sub-toggle state
