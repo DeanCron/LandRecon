@@ -1114,7 +1114,6 @@ function MapPage() {
   const nearestErMarkerRef = useRef<L.Marker | null>(null)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
-  const highlightMarkerRef = useRef<L.Marker | null>(null)
   const transitPreloadedRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
   // Monotonic counter so an in-flight analysis can detect that the user has
@@ -1529,36 +1528,17 @@ function MapPage() {
   }, [computeFitPadding])
 
   // When the detail flyout closes, restore the pre-flyout view (saved on
-  // the first "show on map" click inside the flyout) and tear down any
-  // highlight pin. If the user never clicked "show on map", saved view is
-  // null and the map is left exactly where it is.
+  // the first "show on map" click inside the flyout). If the user never
+  // clicked "show on map", saved view is null and the map is left exactly
+  // where it is.
   useEffect(() => {
     if (analysisDetail !== null) return
     const saved = savedMapViewRef.current
     savedMapViewRef.current = null
-    if (highlightMarkerRef.current) {
-      highlightMarkerRef.current.remove()
-      highlightMarkerRef.current = null
-    }
     if (saved && mapRef.current) {
       mapRef.current.flyTo(saved.center, saved.zoom, { duration: 0.5 })
     }
   }, [analysisDetail])
-
-  const showHighlightPin = useCallback((lat: number, lng: number, _label: string) => {
-    if (!mapRef.current) return
-    if (highlightMarkerRef.current) {
-      highlightMarkerRef.current.remove()
-    }
-    const icon = L.divIcon({
-      className: 'highlight-pin',
-      html: `<div class="highlight-pin-inner">🏥</div>`,
-      iconSize: [48, 48],
-      iconAnchor: [24, 24],
-    })
-    highlightMarkerRef.current = L.marker([lat, lng], { icon }).addTo(mapRef.current)
-    flyToWithAddress(lat, lng)
-  }, [flyToWithAddress])
 
   const cancelEditingAddress = useCallback(() => {
     setEditingAddress(false)
@@ -2441,10 +2421,6 @@ function MapPage() {
             homeMarkerRef.current.remove()
             homeMarkerRef.current = null
           }
-          if (highlightMarkerRef.current) {
-            highlightMarkerRef.current.remove()
-            highlightMarkerRef.current = null
-          }
           homeMarkerRef.current = L.marker([lat, lng], { icon: houseIcon })
             .bindTooltip(homeTooltipHtml(address), { direction: 'top', offset: [0, -18], className: 'location-tooltip' })
             .addTo(map)
@@ -2620,7 +2596,6 @@ function MapPage() {
       crowdKnownIdsRef.current.clear()
       nearestErMarkerRef.current = null
       homeMarkerRef.current = null
-      highlightMarkerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
     }
@@ -4872,7 +4847,18 @@ function MapPage() {
                       )}
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
-                        <button className="analysis-flyto-link" onClick={() => showHighlightPin(analysisResults.nearestER!.lat, analysisResults.nearestER!.lng, analysisResults.nearestER!.name)}>
+                        <button
+                          className="analysis-flyto-link"
+                          onClick={() => {
+                            const map = mapRef.current
+                            const er = analysisResults.nearestER
+                            if (!map || !er) return
+                            if (!savedMapViewRef.current) {
+                              savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
+                            }
+                            map.flyTo([er.lat, er.lng], 15, { duration: 0.5 })
+                          }}
+                        >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                             <circle cx="12" cy="10" r="3" />
