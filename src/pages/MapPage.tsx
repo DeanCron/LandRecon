@@ -530,8 +530,7 @@ async function fetchTransitFromOverpass(
     body: 'data=' + encodeURIComponent(query),
   })
   if (!res.ok) {
-    dbg('transit', `Overpass (stops) returned ${res.status}`)
-    return []
+    throw new Error(`Overpass (stops) HTTP ${res.status}`)
   }
   const data = await res.json()
   const out: Array<{ id: string; stop: TransitStop }> = []
@@ -1142,6 +1141,8 @@ function MapPage() {
   const [superfundLoading, setSuperfundLoading] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
+  const [transitStatus, setTransitStatus] = useState<{ kind: 'loading' | 'error'; text: string } | null>(null)
+  const transitInitRunIdRef = useRef(0)
   const [transitSubVisible, setTransitSubVisible] = useState<Record<TransitStop['type'], boolean>>({
     rail: true, subway: true, tram: true, bus: false,
   })
@@ -1825,10 +1826,10 @@ function MapPage() {
     }
   }, [])
 
-  const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    if (transitStopsLoadingRef.current) return
+  const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
+    if (transitStopsLoadingRef.current) return true
     // Same gate as the line layer — at very low zoom the bbox is huge.
-    if (map.getZoom() < 10) return
+    if (map.getZoom() < 10) return true
 
     let bounds = map.getBounds().pad(0.3)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -1852,12 +1853,13 @@ function MapPage() {
 
     if (!needRail && !needBus) {
       dbg('transit', 'Skipping — bounds already loaded')
-      return
+      return true
     }
 
     dbg('transit', `Loading transit stops (rail=${needRail}, bus=${needBus})…`)
     setTransitLoading(true)
     transitStopsLoadingRef.current = true
+    let ok = true
     try {
       const sw = bounds.getSouthWest()
       const ne = bounds.getNorthEast()
@@ -1906,10 +1908,12 @@ function MapPage() {
       dbg('transit', `Added ${added} new stops (total known: ${known.size})`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
+      ok = false
     } finally {
       transitStopsLoadingRef.current = false
       setTransitLoading(false)
     }
+    return ok
   }, [])
 
   const runLocationAnalysis = useCallback(async (lat: number, lng: number, opts?: { force?: boolean }) => {
@@ -2713,6 +2717,14 @@ function MapPage() {
     return () => clearTimeout(t)
   }, [layerHint])
 
+  // Auto-dismiss the transit error toast after a few seconds (loading toast
+  // is cleared by the load completion path itself).
+  useEffect(() => {
+    if (transitStatus?.kind !== 'error') return
+    const t = setTimeout(() => setTransitStatus(null), 6000)
+    return () => clearTimeout(t)
+  }, [transitStatus])
+
   // After a layer is toggled on, check whether any of its items fall inside
   // the current viewport. If not, surface a small "Show nearest" tip instead
   // of silently leaving the user staring at an empty map.
@@ -3287,13 +3299,13 @@ function MapPage() {
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
   // per-type LayerGroups. Re-fetches incrementally as the user pans/zooms.
-  const loadTransitLines = useCallback(async (map: L.Map) => {
+  const loadTransitLines = useCallback(async (map: L.Map): Promise<boolean> => {
     const layers = transitLineLayersRef.current
-    if (!layers) return
-    if (transitLinesLoadingRef.current) return
+    if (!layers) return true
+    if (transitLinesLoadingRef.current) return true
     // At very low zoom the bounding box becomes huge and Overpass would
     // return tens of thousands of ways — skip rather than hammer the API.
-    if (map.getZoom() < 10) return
+    if (map.getZoom() < 10) return true
 
     let bounds = map.getBounds().pad(0.5)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -3308,7 +3320,7 @@ function MapPage() {
     }
 
     const loaded = transitLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) return true
 
     const sw = bounds.getSouthWest()
     const ne = bounds.getNorthEast()
@@ -3327,6 +3339,7 @@ function MapPage() {
 
     dbg('transit', `Fetching commuter/subway/tram lines for bbox=${bbox}`)
     transitLinesLoadingRef.current = true
+    let ok = true
     try {
       const res = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
@@ -3334,8 +3347,7 @@ function MapPage() {
         body: 'data=' + encodeURIComponent(query),
       })
       if (!res.ok) {
-        dbg('transit', `Overpass returned ${res.status}`)
-        return
+        throw new Error(`Overpass (lines) HTTP ${res.status}`)
       }
       const data = await res.json()
       const known = transitLinesKnownIdsRef.current
@@ -3370,18 +3382,20 @@ function MapPage() {
         : bounds
     } catch (err) {
       console.warn('Transit line fetch failed:', err)
+      ok = false
     } finally {
       transitLinesLoadingRef.current = false
     }
+    return ok
   }, [])
 
-  const loadBusLines = useCallback(async (map: L.Map) => {
+  const loadBusLines = useCallback(async (map: L.Map): Promise<boolean> => {
     const layers = transitLineLayersRef.current
-    if (!layers) return
-    if (busLinesLoadingRef.current) return
+    if (!layers) return true
+    if (busLinesLoadingRef.current) return true
     // Bus lines ride on streets and would create a tangle at city-wide zoom;
     // only fetch when the user has zoomed in to a neighborhood-level view.
-    if (map.getZoom() < 13) return
+    if (map.getZoom() < 13) return true
 
     let bounds = map.getBounds().pad(0.25)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -3396,7 +3410,7 @@ function MapPage() {
     }
 
     const loaded = busLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return
+    if (loaded && loaded.contains(bounds)) return true
 
     const sw = bounds.getSouthWest()
     const ne = bounds.getNorthEast()
@@ -3410,6 +3424,7 @@ function MapPage() {
 
     dbg('transit', `Fetching bus route ways for bbox=${bbox}`)
     busLinesLoadingRef.current = true
+    let ok = true
     try {
       const res = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
@@ -3417,8 +3432,7 @@ function MapPage() {
         body: 'data=' + encodeURIComponent(query),
       })
       if (!res.ok) {
-        dbg('transit', `Overpass (bus) returned ${res.status}`)
-        return
+        throw new Error(`Overpass (bus) HTTP ${res.status}`)
       }
       const data = await res.json()
       const known = busLinesKnownIdsRef.current
@@ -3449,9 +3463,11 @@ function MapPage() {
         : bounds
     } catch (err) {
       console.warn('Bus line fetch failed:', err)
+      ok = false
     } finally {
       busLinesLoadingRef.current = false
     }
+    return ok
   }, [])
 
   const toggleTransit = () => {
@@ -3462,6 +3478,9 @@ function MapPage() {
 
     const lineLayers = transitLineLayersRef.current
     if (transitVisible) {
+      // Invalidate any in-flight init so a late failure won't pop a toast
+      // for a layer the user already turned off.
+      transitInitRunIdRef.current++
       map.removeLayer(layer)
       if (lineLayers) {
         for (const t of ['rail', 'subway', 'tram', 'bus'] as const) {
@@ -3469,23 +3488,51 @@ function MapPage() {
         }
       }
       map.off('moveend', handleTransitMove)
-    } else {
-      layer.addTo(map)
-      // Attach line layers for each sub-type that's currently on.
+      setTransitVisible(false)
+      setTransitStatus(null)
+      return
+    }
+
+    // ON branch
+    layer.addTo(map)
+    if (lineLayers) {
+      for (const t of ['rail', 'subway', 'tram', 'bus'] as const) {
+        if (transitSubVisibleRef.current[t]) lineLayers[t].addTo(map)
+      }
+    }
+    map.on('moveend', handleTransitMove)
+    setTransitVisible(true)
+    setTransitStatus({ kind: 'loading', text: 'Loading transit data…' })
+
+    const runId = ++transitInitRunIdRef.current
+    const tasks: Promise<boolean>[] = [
+      loadTransitData(map, layer),
+      loadTransitLines(map),
+    ]
+    if (transitSubVisibleRef.current.bus) tasks.push(loadBusLines(map))
+
+    Promise.all(tasks).then((results) => {
+      // Stale callback — user has already toggled off or re-toggled.
+      if (runId !== transitInitRunIdRef.current) return
+      const allOk = results.every(Boolean)
+      if (allOk) {
+        setTransitStatus(null)
+        return
+      }
+      // Initial load failed — revert the toggle so the user can retry.
+      map.removeLayer(layer)
       if (lineLayers) {
         for (const t of ['rail', 'subway', 'tram', 'bus'] as const) {
-          if (transitSubVisibleRef.current[t]) lineLayers[t].addTo(map)
+          map.removeLayer(lineLayers[t])
         }
-        loadTransitLines(map)
-        if (transitSubVisibleRef.current.bus) loadBusLines(map)
       }
-      // Don't reset cached bounds or clear sub-layers — accumulated stops
-      // and the dedupe set are preserved across toggle on/off. The fetcher
-      // below will be a no-op if the current viewport is already covered.
-      loadTransitData(map, layer)
-      map.on('moveend', handleTransitMove)
-    }
-    setTransitVisible(!transitVisible)
+      map.off('moveend', handleTransitMove)
+      setTransitVisible(false)
+      setTransitStatus({
+        kind: 'error',
+        text: "Couldn't load transit data. Please try again in a moment.",
+      })
+    })
   }
 
   const toggleTransitSub = (type: TransitStop['type']) => {
@@ -3992,6 +4039,30 @@ function MapPage() {
         </div>
       )}
 
+      {/* Transit loading / error toast — shown when the user enables Public
+          Transit. Loading clears automatically on success; on failure the
+          layer is auto-unchecked and an error message stays for a few seconds. */}
+      {transitStatus && (
+        <div
+          className={`layer-hint-toast transit-status-toast transit-status-${transitStatus.kind}`}
+          role={transitStatus.kind === 'error' ? 'alert' : 'status'}
+        >
+          {transitStatus.kind === 'loading' && <span className="transit-spinner" aria-hidden="true" />}
+          {transitStatus.kind === 'error' && <span className="transit-status-icon" aria-hidden="true">⚠️</span>}
+          <span className="layer-hint-text">{transitStatus.text}</span>
+          {transitStatus.kind === 'error' && (
+            <button
+              type="button"
+              className="layer-hint-dismiss"
+              onClick={() => setTransitStatus(null)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Mobile floating action buttons */}
       <button
         className="layer-toggle-btn"
@@ -4077,7 +4148,7 @@ function MapPage() {
               />
               <span className="layer-label">
                 Public Transit
-                {transitLoading && <span className="layer-loading"> ⏳</span>}
+                {transitLoading && <span className="transit-spinner transit-spinner-inline" aria-label="Loading" />}
               </span>
             </label>
             {transitVisible && (

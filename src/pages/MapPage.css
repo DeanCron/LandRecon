@@ -2282,6 +2282,45 @@
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* ── Transit loading / error toast ─────────────────── */
+.transit-status-toast {
+  top: 132px;  /* sit below the layer-hint toast if both are visible */
+}
+
+.transit-status-error {
+  border-color: #dc2626;
+  background: linear-gradient(0deg, rgba(220,38,38,0.08), rgba(220,38,38,0.08)), var(--color-surface, #1e1e2e);
+}
+
+.transit-status-icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.transit-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: transitSpin 0.7s linear infinite;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.transit-spinner-inline {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  margin-left: 6px;
+  vertical-align: -2px;
+}
+
+@keyframes transitSpin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 768px) {
   .layer-hint-toast {
     top: 64px;
@@ -2291,6 +2330,9 @@
   }
   .layer-hint-text {
     white-space: normal;
+  }
+  .transit-status-toast {
+    top: 110px;
   }
 }
 
