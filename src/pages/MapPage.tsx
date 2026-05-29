@@ -2475,6 +2475,20 @@ function MapPage() {
 
         createBaseLayer('street').then((baseLayer) => {
           dbg('init', 'Base layer created (Google Tiles)')
+          // Surface tile fetch failures (e.g., API-key referrer restriction
+          // rejecting the request, network error, 403/429 from Google) into
+          // the visible error overlay. Otherwise the map just stays gray
+          // and there's no way to diagnose it on a device without DevTools.
+          let tileErrorReported = false
+          baseLayer.on('tileerror', (e: L.TileErrorEvent) => {
+            if (tileErrorReported) return
+            tileErrorReported = true
+            const url = (e as unknown as { tile?: HTMLImageElement }).tile?.src || ''
+            const detail = url ? ` (${url.split('?')[0]})` : ''
+            console.error('[LandRecon] Map tile failed to load.', e)
+            setStatus('error')
+            setErrorMsg(`Map tiles failed to load${detail}. This usually means the Google Maps API key is restricted to a different domain, or the Map Tiles API isn't enabled.`)
+          })
           baseLayer.addTo(map)
           baseLayerRef.current = baseLayer
         }).catch((err) => {
@@ -2483,9 +2497,12 @@ function MapPage() {
           // the map without a base layer and log the actual error so it's
           // diagnosable. Most common cause: missing VITE_GOOGLE_MAPS_KEY.
           console.error('[LandRecon] Failed to create Google Maps tile session.', err)
-          if (!GOOGLE_MAPS_KEY) {
-            console.error('[LandRecon] VITE_GOOGLE_MAPS_KEY is empty in this build — base tiles cannot load.')
-          }
+          const reason = err instanceof Error ? err.message : String(err)
+          const hint = !GOOGLE_MAPS_KEY
+            ? 'VITE_GOOGLE_MAPS_KEY is empty in this build.'
+            : 'Check the Google Maps API key restrictions and that the Map Tiles API is enabled.'
+          setStatus('error')
+          setErrorMsg(`Couldn't start a Google Maps tile session: ${reason}. ${hint}`)
         })
 
         L.control.zoom({ position: 'topright' }).addTo(map)
