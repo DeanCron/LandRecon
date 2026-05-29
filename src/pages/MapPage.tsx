@@ -1082,7 +1082,10 @@ function MapPage() {
   const superfundLayerRef = useRef<L.GeoJSON | null>(null)
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
-  const transitLinesLayerRef = useRef<L.TileLayer | null>(null)
+  const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram', L.LayerGroup> | null>(null)
+  const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const transitLinesKnownIdsRef = useRef<Set<string>>(new Set())
+  const transitLinesLoadingRef = useRef(false)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
@@ -2518,23 +2521,16 @@ function MapPage() {
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
-        // OpenRailwayMap transit-lines overlay: transparent raster tiles
-        // drawn on top of the basemap that show rail / subway / tram /
-        // light-rail routes plus station glyphs — similar to the Google Maps
-        // transit layer for rail-based transit. (Google Places station pins
-        // continue to cover bus / ferry stations on top.) Added to the map
-        // only when the user toggles the Transit layer on.
-        transitLinesLayerRef.current = L.tileLayer(
-          'https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
-          {
-            subdomains: ['a', 'b', 'c'],
-            opacity: 0.9,
-            maxZoom: 19,
-            attribution:
-              '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a> (CC-BY-SA), &copy; OpenStreetMap contributors',
-            errorTileUrl: '',
-          },
-        )
+        // Transit line vector layers — one LayerGroup per rail-based sub-type.
+        // Lines are fetched from Overpass on demand and rendered as colored
+        // polylines so that unchecking a sub-type hides its lines too. Bus
+        // routes are excluded because they ride along every road they touch
+        // and would be visually overwhelming.
+        transitLineLayersRef.current = {
+          rail: L.layerGroup(),
+          subway: L.layerGroup(),
+          tram: L.layerGroup(),
+        }
 
         // Create Costco label layer (not added to map until toggled on)
         costcoLayerRef.current = L.layerGroup()
@@ -2625,7 +2621,9 @@ function MapPage() {
       superfundLayerRef.current = null
       superfundLoadedBoundsRef.current = null
       transitLayerRef.current = null
-      transitLinesLayerRef.current = null
+      transitLineLayersRef.current = null
+      transitLinesLoadedBoundsRef.current = null
+      transitLinesKnownIdsRef.current.clear()
       transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
       costcoLayerRef.current = null
@@ -3251,20 +3249,114 @@ function MapPage() {
     [loadSuperfundData],
   )
 
+  // Fetch rail / subway / tram polylines from Overpass for the current
+  // viewport (capped if the viewport is huge) and render them into the
+  // per-type LayerGroups. Re-fetches incrementally as the user pans/zooms.
+  const loadTransitLines = useCallback(async (map: L.Map) => {
+    const layers = transitLineLayersRef.current
+    if (!layers) return
+    if (transitLinesLoadingRef.current) return
+    // At very low zoom the bounding box becomes huge and Overpass would
+    // return tens of thousands of ways — skip rather than hammer the API.
+    if (map.getZoom() < 10) return
+
+    let bounds = map.getBounds().pad(0.5)
+    const latSpan = bounds.getNorth() - bounds.getSouth()
+    const lngSpan = bounds.getEast() - bounds.getWest()
+    // Cap the fetch area at ~30km on a side so a zoomed-out view still
+    // returns quickly with data around the current center.
+    const MAX_SPAN_DEG = 0.4
+    if (latSpan > MAX_SPAN_DEG || lngSpan > MAX_SPAN_DEG) {
+      const c = map.getCenter()
+      const half = MAX_SPAN_DEG / 2
+      bounds = L.latLngBounds([c.lat - half, c.lng - half], [c.lat + half, c.lng + half])
+    }
+
+    const loaded = transitLinesLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) return
+
+    const sw = bounds.getSouthWest()
+    const ne = bounds.getNorthEast()
+    const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    const query =
+      `[out:json][timeout:25];` +
+      `way["railway"~"^(rail|light_rail|subway|tram)$"](${bbox});` +
+      `out geom;`
+
+    dbg('transit', `Fetching rail/subway/tram lines for bbox=${bbox}`)
+    transitLinesLoadingRef.current = true
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query),
+      })
+      if (!res.ok) {
+        dbg('transit', `Overpass returned ${res.status}`)
+        return
+      }
+      const data = await res.json()
+      const known = transitLinesKnownIdsRef.current
+      let added = 0
+      for (const el of data.elements as Array<{
+        type: string
+        id: number
+        tags?: Record<string, string>
+        geometry?: Array<{ lat: number; lon: number }>
+      }>) {
+        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue
+        const id = `way/${el.id}`
+        if (known.has(id)) continue
+        const railwayTag = el.tags?.railway
+        let type: 'rail' | 'subway' | 'tram'
+        if (railwayTag === 'subway') type = 'subway'
+        else if (railwayTag === 'tram') type = 'tram'
+        else type = 'rail' // rail + light_rail both → rail
+        const coords: [number, number][] = el.geometry.map((p) => [p.lat, p.lon])
+        L.polyline(coords, {
+          color: TRANSIT_COLORS[type],
+          weight: type === 'rail' ? 3 : 2.5,
+          opacity: 0.8,
+          smoothFactor: 1.5,
+        }).addTo(layers[type])
+        known.add(id)
+        added++
+      }
+      dbg('transit', `Rendered ${added} new line segments (total known: ${known.size})`)
+      transitLinesLoadedBoundsRef.current = loaded
+        ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
+        : bounds
+    } catch (err) {
+      console.warn('Transit line fetch failed:', err)
+    } finally {
+      transitLinesLoadingRef.current = false
+    }
+  }, [])
+
   const toggleTransit = () => {
     const map = mapRef.current
     const layer = transitLayerRef.current
     if (!map || !layer) return
     dbg('toggle', `transit → ${transitVisible ? 'OFF' : 'ON'}`)
 
-    const linesLayer = transitLinesLayerRef.current
+    const lineLayers = transitLineLayersRef.current
     if (transitVisible) {
       map.removeLayer(layer)
-      if (linesLayer) map.removeLayer(linesLayer)
+      if (lineLayers) {
+        for (const t of ['rail', 'subway', 'tram'] as const) {
+          map.removeLayer(lineLayers[t])
+        }
+      }
       map.off('moveend', handleTransitMove)
     } else {
-      if (linesLayer) linesLayer.addTo(map)
       layer.addTo(map)
+      // Attach line layers for each rail-based sub-type that's currently on.
+      if (lineLayers) {
+        for (const t of ['rail', 'subway', 'tram'] as const) {
+          if (transitSubVisibleRef.current[t]) lineLayers[t].addTo(map)
+        }
+        loadTransitLines(map)
+      }
       transitLoadedBoundsRef.current = null
       // Sync sublayer visibility with current sub-toggle state
       const subLayers = transitSubLayersRef.current
@@ -3298,6 +3390,18 @@ function MapPage() {
     } else {
       parentLayer.removeLayer(subLayers[type])
     }
+
+    // Mirror the toggle on the corresponding line layer for rail-based types.
+    // Bus has no line layer (bus routes ride along every road they touch).
+    const lineLayers = transitLineLayersRef.current
+    if (lineLayers && type !== 'bus') {
+      if (nowVisible) {
+        lineLayers[type].addTo(map)
+        loadTransitLines(map)
+      } else {
+        map.removeLayer(lineLayers[type])
+      }
+    }
   }
 
   const handleTransitMove = useCallback(
@@ -3306,9 +3410,10 @@ function MapPage() {
       const layer = transitLayerRef.current
       if (map && layer) {
         loadTransitData(map, layer)
+        loadTransitLines(map)
       }
     }, 250),
-    [loadTransitData],
+    [loadTransitData, loadTransitLines],
   )
 
   const toggleTraffic = () => {
