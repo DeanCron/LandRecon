@@ -3278,12 +3278,19 @@ function MapPage() {
     const sw = bounds.getSouthWest()
     const ne = bounds.getNorthEast()
     const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    // Light rail / subway / tram are passenger by definition; for heavy rail
+    // we only include ways that are members of a route=train relation
+    // (commuter / intercity), which excludes freight-only mainlines, yards
+    // and industrial spurs.
     const query =
       `[out:json][timeout:25];` +
-      `way["railway"~"^(rail|light_rail|subway|tram)$"](${bbox});` +
+      `way["railway"~"^(light_rail|subway|tram)$"](${bbox});` +
+      `out geom;` +
+      `rel["route"="train"](${bbox});` +
+      `way(r)["railway"~"^(rail|light_rail|narrow_gauge)$"](${bbox});` +
       `out geom;`
 
-    dbg('transit', `Fetching rail/subway/tram lines for bbox=${bbox}`)
+    dbg('transit', `Fetching commuter/subway/tram lines for bbox=${bbox}`)
     transitLinesLoadingRef.current = true
     try {
       const res = await fetch('https://overpass-api.de/api/interpreter', {
