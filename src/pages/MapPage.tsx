@@ -1506,26 +1506,19 @@ function MapPage() {
     return { topLeft: [padLeft, padTop], bottomRight: [padRight, padBottom] }
   }, [])
 
+  // Center the map on a single target (used by the "Show on map" / reticle
+  // buttons in the analysis flyouts). Previously this bounds-fit home +
+  // target, which placed the center halfway between them and zoomed way
+  // out when the target was far away. The user always wants the clicked
+  // location centered, not a home-vs-target overview.
   const flyToWithAddress = useCallback((lat: number, lng: number) => {
     const map = mapRef.current
     if (!map) return
-    const home = targetLocationRef.current
     if (!savedMapViewRef.current) {
       savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
     }
-    if (home) {
-      const bounds = L.latLngBounds([[home.lat, home.lng], [lat, lng]])
-      const { topLeft, bottomRight } = computeFitPadding()
-      map.flyToBounds(bounds, {
-        paddingTopLeft: topLeft,
-        paddingBottomRight: bottomRight,
-        maxZoom: 15,
-        duration: 0.5,
-      })
-    } else {
-      map.flyTo([lat, lng], 15, { duration: 0.5 })
-    }
-  }, [computeFitPadding])
+    map.flyTo([lat, lng], 15, { duration: 0.5 })
+  }, [])
 
   // When the detail flyout closes, restore the pre-flyout view (saved on
   // the first "show on map" click inside the flyout). If the user never
