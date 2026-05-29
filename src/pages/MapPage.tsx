@@ -1262,6 +1262,12 @@ function MapPage() {
     layerLabel: string
     targets: Array<{ lat: number; lng: number }>
   } | null>(null)
+  // Mirror of the active hint targets so pan/zoom can re-evaluate "are any
+  // items in view?" without having to know which layer the user toggled.
+  const layerHintTargetsRef = useRef<{
+    layerLabel: string
+    targets: Array<{ lat: number; lng: number }>
+  } | null>(null)
 
   // Mobile bottom sheet drag state
   const sheetRef = useRef<HTMLElement>(null)
@@ -2717,6 +2723,27 @@ function MapPage() {
     return () => clearTimeout(t)
   }, [layerHint])
 
+  // Re-evaluate the layer-hint on pan/zoom so it can appear when the user
+  // pans away from items and disappear when they pan back.
+  useEffect(() => {
+    if (status !== 'ready') return
+    const map = mapRef.current
+    if (!map) return
+    const recheck = () => {
+      const cfg = layerHintTargetsRef.current
+      if (!cfg) return
+      const bounds = map.getBounds()
+      const inView = cfg.targets.some((p) => bounds.contains([p.lat, p.lng]))
+      if (inView) {
+        setLayerHint(null)
+      } else {
+        setLayerHint({ layerLabel: cfg.layerLabel, targets: cfg.targets })
+      }
+    }
+    map.on('moveend', recheck)
+    return () => { map.off('moveend', recheck) }
+  }, [status])
+
   // Auto-dismiss the transit error toast after a few seconds (loading toast
   // is cleared by the load completion path itself).
   useEffect(() => {
@@ -2727,14 +2754,17 @@ function MapPage() {
 
   // After a layer is toggled on, check whether any of its items fall inside
   // the current viewport. If not, surface a small "Show nearest" tip instead
-  // of silently leaving the user staring at an empty map.
+  // of silently leaving the user staring at an empty map. Stores the target
+  // set so we can re-check on pan/zoom too.
   const checkLayerInView = useCallback(
     (layerLabel: string, items: Array<{ lat: number; lng: number }>) => {
       const map = mapRef.current
       if (!map || items.length === 0) {
+        layerHintTargetsRef.current = null
         setLayerHint(null)
         return
       }
+      layerHintTargetsRef.current = { layerLabel, targets: items }
       const bounds = map.getBounds()
       const inView = items.some((p) => bounds.contains([p.lat, p.lng]))
       if (inView) {
@@ -2745,6 +2775,13 @@ function MapPage() {
     },
     [],
   )
+
+  // Helper used in each layer's OFF branch so the next pan doesn't re-pop
+  // the toast for a layer the user just hid.
+  const clearLayerHint = useCallback(() => {
+    layerHintTargetsRef.current = null
+    setLayerHint(null)
+  }, [])
 
   // Zoom out to include the home pin (if any) and the closest item of the
   // currently-hinted layer to the map center.
@@ -2773,6 +2810,7 @@ function MapPage() {
       map.flyTo([closest.lat, closest.lng], 13, { duration: 0.6 })
     }
     setLayerHint(null)
+    layerHintTargetsRef.current = null
   }, [layerHint])
 
   const toggleNoise = async () => {
@@ -2840,7 +2878,7 @@ function MapPage() {
     if (costcoVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleCostcoMove)
-      setLayerHint(null)
+      clearLayerHint()
     } else {
       layer.addTo(map)
       costcoLoadedBoundsRef.current = null
@@ -2943,7 +2981,7 @@ function MapPage() {
       map.off('moveend', handleDataCenterMove)
       layer.clearLayers()
       dataCenterSubLayersRef.current = null
-      setLayerHint(null)
+      clearLayerHint()
     } else {
       layer.addTo(map)
       loadDataCenters(map, layer)
@@ -3099,7 +3137,7 @@ function MapPage() {
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
       emsKnownIdsRef.current.clear()
-      setLayerHint(null)
+      clearLayerHint()
     } else {
       layer.addTo(map)
       loadEmsData(map, layer)
@@ -3200,7 +3238,7 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
-      setLayerHint(null)
+      clearLayerHint()
     } else {
       layer.addTo(map)
       loadCrowdData(map, layer)
@@ -3274,7 +3312,7 @@ function MapPage() {
     if (superfundVisible) {
       map.removeLayer(layer)
       map.off('moveend', handleSuperfundMove)
-      setLayerHint(null)
+      clearLayerHint()
     } else {
       layer.addTo(map)
       superfundLoadedBoundsRef.current = null
@@ -4031,7 +4069,7 @@ function MapPage() {
           <button
             type="button"
             className="layer-hint-dismiss"
-            onClick={() => setLayerHint(null)}
+            onClick={clearLayerHint}
             aria-label="Dismiss"
           >
             ×
