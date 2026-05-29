@@ -1111,6 +1111,15 @@ function MapPage() {
     stadium: true, concert: true, park: true, raceway: true, themepark: true,
   })
   const crowdSubVisibleRef = useRef(crowdSubVisible)
+  // Analysis-highlight layer groups: one persistent L.layerGroup per category
+  // that holds only the items the analysis explicitly called out. Lives on the
+  // map independently of the user-toggleable main layers, so the "Show on Map"
+  // checkboxes stay user-controlled while the analysis still gets a visual
+  // representation. Re-populated on every successful analysis run.
+  const superfundAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
+  const costcoAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
+  const dataCenterAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
+  const crowdAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
   const nearestErMarkerRef = useRef<L.Marker | null>(null)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
@@ -2428,6 +2437,16 @@ function MapPage() {
           emsKnownIdsRef.current.clear()
           crowdLoadedBoundsRef.current = null
           crowdKnownIdsRef.current.clear()
+          // Clear analysis-highlight pins from the previous address so the
+          // map doesn't show stale markers while the new analysis runs.
+          superfundAnalysisLayerRef.current?.clearLayers()
+          costcoAnalysisLayerRef.current?.clearLayers()
+          dataCenterAnalysisLayerRef.current?.clearLayers()
+          crowdAnalysisLayerRef.current?.clearLayers()
+          if (nearestErMarkerRef.current) {
+            map.removeLayer(nearestErMarkerRef.current)
+            nearestErMarkerRef.current = null
+          }
           map.flyTo([lat, lng], 13, { duration: 0.5 })
           setStatus('ready')
           runLocationAnalysis(lat, lng)
@@ -2497,6 +2516,14 @@ function MapPage() {
         emsLayerRef.current = L.layerGroup()
 
         crowdLayerRef.current = L.layerGroup()
+
+        // Analysis-highlight layer groups: added to the map immediately so
+        // the analysis effect can drop pins into them without touching the
+        // user-toggleable main layers above. Empty until analysis runs.
+        superfundAnalysisLayerRef.current = L.layerGroup().addTo(map)
+        costcoAnalysisLayerRef.current = L.layerGroup().addTo(map)
+        dataCenterAnalysisLayerRef.current = L.layerGroup().addTo(map)
+        crowdAnalysisLayerRef.current = L.layerGroup().addTo(map)
 
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
@@ -2587,6 +2614,10 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
+      superfundAnalysisLayerRef.current = null
+      costcoAnalysisLayerRef.current = null
+      dataCenterAnalysisLayerRef.current = null
+      crowdAnalysisLayerRef.current = null
       nearestErMarkerRef.current = null
       homeMarkerRef.current = null
       mapRef.current?.remove()
@@ -3253,117 +3284,40 @@ function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
-  // Auto-enable layers when analysis finds warnings and zoom to show issues
+  // Drop "analysis highlight" pins on the map whenever analysis finishes.
+  // These live in their own layer groups (added at map init) so they do NOT
+  // flip the user-facing "Show on Map" toggles — those stay user-controlled.
+  // We just visually surface the items the report is calling out.
   useEffect(() => {
     if (analysisResults.loading) return
     const map = mapRef.current
     if (!map) return
 
-    const center = map.getCenter()
-    const milesToMeters = 1609.34
-    let noiseDetected = false
-
-    if (analysisResults.noiseLevel && !noiseVisible) {
-      const airportLayer = airportLayerRef.current
-      const noiseDeg = (5 * milesToMeters) / 111320
-      const noiseBounds = L.latLngBounds(
-        [center.lat - noiseDeg, center.lng - noiseDeg * 1.5],
-        [center.lat + noiseDeg, center.lng + noiseDeg * 1.5]
-      )
-      // The noise layer is created lazily on first need. If it hasn't been
-      // built yet, fetch the heavy module first, then add it.
-      const enableNoise = async () => {
-        if (!noiseLayerRef.current) {
-          const { createNoiseLayer } = await loadAirportNoiseModule()
-          noiseLayerRef.current = createNoiseLayer(NOISE_PMTILES_URL, { opacity: 0.7 })
-        }
-        const layer = noiseLayerRef.current as L.GridLayer
-        // Constrain noise tiles to the area around the location.
-        // protomaps-leaflet's `leafletLayer` extends L.GridLayer, so the
-        // GridLayer `bounds` option still filters which tiles get fetched.
-        ;(layer.options as L.GridLayerOptions).bounds = noiseBounds
-        layer.addTo(map)
-        if (airportLayer) {
-          airportLayer.addTo(map)
-          airportLoadedBoundsRef.current = null
-          airportKnownIdsRef.current.clear()
-          airportLayer.clearLayers()
-          // Only load airports within the noise area
-          const origGetBounds = map.getBounds.bind(map)
-          map.getBounds = () => noiseBounds
-          loadAirportLabels(map, airportLayer)
-          map.getBounds = origGetBounds
-          map.on('moveend', handleAirportMove)
-        }
-        setNoiseVisible(true)
-      }
-      void enableNoise()
-      noiseDetected = true
-    }
-
-    if (analysisResults.superfunds.length > 0 && !superfundVisible) {
-      const layer = superfundLayerRef.current
+    // Superfund highlights — pin every site within the analysis radius.
+    {
+      const layer = superfundAnalysisLayerRef.current
       if (layer) {
-        layer.addTo(map)
-        superfundLoadedBoundsRef.current = null
-        // Only load superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI mi radius with distance filter
-        const radiusDeg = (SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
-        const constrainedBounds = L.latLngBounds(
-          [center.lat - radiusDeg, center.lng - radiusDeg * 1.3],
-          [center.lat + radiusDeg, center.lng + radiusDeg * 1.3]
-        )
-        const env = `${constrainedBounds.getWest()},${constrainedBounds.getSouth()},${constrainedBounds.getEast()},${constrainedBounds.getNorth()}`
-        const params = new URLSearchParams({
-          where: "NPL_STATUS_CODE <> 'D'",
-          outFields: SUPERFUND_FIELDS,
-          geometry: env,
-          geometryType: 'esriGeometryEnvelope',
-          spatialRel: 'esriSpatialRelIntersects',
-          inSR: '4326',
-          outSR: '4326',
-          f: 'geojson',
-          resultRecordCount: '100',
-        })
-        fetch(`${SUPERFUND_API}?${params}`)
-          .then(res => res.ok ? res.json() : null)
-          .then((geojson: GeoJSON.FeatureCollection | null) => {
-            if (!geojson?.features) return
-            const points = superfundFeaturesToPoints(geojson)
-            const within: GeoJSON.Feature<GeoJSON.Point>[] = []
-            for (const pt of points.features) {
-              const [lon, lat] = pt.geometry.coordinates
-              if (center.distanceTo(L.latLng(lat, lon)) <= SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) {
-                within.push(pt)
-              }
-            }
-            layer.clearLayers()
-            layer.addData({ type: 'FeatureCollection', features: within } as GeoJSON.FeatureCollection)
-            superfundLoadedBoundsRef.current = constrainedBounds
-          })
-          .catch(() => {})
-        // Don't attach moveend — keep constrained to SUPERFUND_ANALYSIS_RADIUS_MI mi
-        setSuperfundVisible(true)
+        layer.clearLayers()
+        for (const s of analysisResults.superfunds) {
+          L.marker([s.lat, s.lng], { icon: SUPERFUND_ICON, riseOnHover: true })
+            .bindTooltip(s.name, { direction: 'top', offset: [0, -16] })
+            .addTo(layer)
+        }
       }
     }
 
-    // Auto-enable the Costco layer when analysis found at least one Costco
-    // (in-radius or the closest beyond range). Seeded directly from analysis
-    // results to avoid a second Places round-trip. Skip moveend so the view
-    // stays scoped to the analysis area like the other auto-enabled layers.
-    const costcoAutoMarkers = analysisResults.costcoNearby.length > 0
-      ? analysisResults.costcoNearby
-      : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
-    if (costcoAutoMarkers.length > 0 && !costcoVisible) {
-      const layer = costcoLayerRef.current
+    // Costco highlights — the closest in-radius costcos, or the nearest
+    // one beyond range if none are within the radius.
+    {
+      const layer = costcoAnalysisLayerRef.current
       if (layer) {
-        layer.addTo(map)
-        const known = costcoKnownIdsRef.current
-        for (const c of costcoAutoMarkers) {
-          if (known.has(c.osmId)) continue
-          const tooltipParts = ['Costco']
-          if (c.city) tooltipParts[0] = `Costco — ${c.city}`
+        layer.clearLayers()
+        const auto = analysisResults.costcoNearby.length > 0
+          ? analysisResults.costcoNearby
+          : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
+        for (const c of auto) {
+          const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
           if (c.address) tooltipParts.push(c.address)
-          const tooltip = tooltipParts.join('<br/>')
           const icon = L.divIcon({
             className: 'costco-label',
             html: `<div class="costco-pin">C</div>`,
@@ -3371,18 +3325,15 @@ function MapPage() {
             iconAnchor: [16, 16],
           })
           L.marker([c.lat, c.lng], { icon })
-            .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
+            .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
             .addTo(layer)
-          known.add(c.osmId)
         }
-        dbg('costco', `Seeded ${costcoAutoMarkers.length} Costco pin(s) from analysis`)
-        setCostcoVisible(true)
       }
     }
 
-    // Auto-place a single pin for the nearest ER from the analysis result.
-    // Distinct from the EMS layer (which dumps every hospital/fire/police in
-    // view) — this is one focused pin with an ER-specific icon.
+    // Nearest ER — single standalone marker. Distinct from the EMS layer
+    // (which is a separate user-toggleable thing), this is the one ER the
+    // report is highlighting.
     if (analysisResults.nearestER) {
       const existing = nearestErMarkerRef.current
       if (existing) {
@@ -3405,40 +3356,37 @@ function MapPage() {
       dbg('er', `Auto-pinned nearest ER: ${er.name} (${er.distanceMi} mi)`)
     }
 
-    if (analysisResults.dataCenters.length > 0 && !dataCenterVisible) {
-      const layer = dataCenterLayerRef.current
+    // Data Center highlights — pin every facility within the analysis radius.
+    {
+      const layer = dataCenterAnalysisLayerRef.current
       if (layer) {
-        layer.addTo(map)
-        loadDataCenters(map, layer, { center, radiusMi: DATA_CENTER_ANALYSIS_RADIUS_MI })
-        // Don't attach moveend — keep constrained to the analysis radius so the
-        // initial view matches the report (which only counts data centers within
-        // DATA_CENTER_ANALYSIS_RADIUS_MI mi). If the user wants viewport-based
-        // behavior they can toggle the layer off and back on.
-        setDataCenterVisible(true)
+        layer.clearLayers()
+        for (const dc of analysisResults.dataCenters) {
+          const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
+          const icon = L.divIcon({
+            className: 'dc-label',
+            html: `<div class="dc-pin" style="background:${color}">🏢</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          })
+          const lines = [dc.name || 'Data Center']
+          if (dc.operator) lines[0] += ` (${dc.operator})`
+          if (dc.city || dc.state) lines.push([dc.city, dc.state].filter(Boolean).join(', '))
+          lines.push(`Status: ${dc.status}`)
+          if (dc.mw) lines.push(`Capacity: ${dc.mw} MW`)
+          L.marker([dc.lat, dc.lng], { icon })
+            .bindTooltip(lines.join('<br/>'), { direction: 'top', offset: [0, -14] })
+            .addTo(layer)
+        }
       }
     }
 
-    if (analysisResults.crowdMagnets.length > 0 && !crowdVisible) {
-      const layer = crowdLayerRef.current
+    // Crowd Magnet highlights — pin every magnet within the analysis radius.
+    {
+      const layer = crowdAnalysisLayerRef.current
       if (layer) {
-        layer.addTo(map)
-        // Seed from already-loaded analysis results — avoids a second slow
-        // Overpass round-trip on auto-enable. Skip moveend for the same reason
-        // as data centers / Superfund (keep view constrained to analysis radius).
-        let subLayers = crowdSubLayersRef.current
-        if (!subLayers) {
-          subLayers = {} as Record<CrowdType, L.LayerGroup>
-          for (const t of CROWD_TYPES) subLayers[t] = L.layerGroup()
-          crowdSubLayersRef.current = subLayers
-          for (const t of CROWD_TYPES) {
-            if (crowdSubVisibleRef.current[t]) subLayers[t].addTo(layer)
-          }
-        }
-        const known = crowdKnownIdsRef.current
+        layer.clearLayers()
         for (const m of analysisResults.crowdMagnets) {
-          if (known.has(m.id)) continue
-          const sub = subLayers[m.type]
-          if (!sub) continue
           const color = CROWD_COLORS[m.type]
           const emoji = CROWD_ICONS[m.type]
           const icon = L.divIcon({
@@ -3449,15 +3397,14 @@ function MapPage() {
           })
           L.marker([m.lat, m.lng], { icon })
             .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
-            .addTo(sub)
-          known.add(m.id)
+            .addTo(layer)
         }
-        dbg('crowd', `Seeded ${analysisResults.crowdMagnets.length} crowd magnets from analysis`)
-        setCrowdVisible(true)
       }
     }
 
-    // Pan/zoom to encompass the address plus all visible analysis pins.
+    const center = map.getCenter()
+
+    // Pan/zoom to encompass the address plus all analysis pins.
     // Strategy: build asymmetric bounds from actual pin positions and call
     // fitBounds with maxZoom = 14. That gives us:
     //   - zoom IN  up to z14 if everything fits at a tighter zoom
@@ -3468,19 +3415,12 @@ function MapPage() {
     for (const dc of analysisResults.dataCenters) targetBounds.extend([dc.lat, dc.lng])
     for (const m of analysisResults.crowdMagnets) targetBounds.extend([m.lat, m.lng])
     // Include the closest Costco (in-radius or nearest-beyond) so the
-    // auto-enabled Costco pin is actually visible after the fit.
+    // highlighted Costco pin is actually visible after the fit.
     const closestCostco = analysisResults.costco ?? analysisResults.costcoNearestBeyond
     if (closestCostco) targetBounds.extend([closestCostco.lat, closestCostco.lng])
     // Include the nearest ER pin so the auto-placed marker is in view.
     if (analysisResults.nearestER) {
       targetBounds.extend([analysisResults.nearestER.lat, analysisResults.nearestER.lng])
-    }
-    // Noise has no specific pin — extend by 5 mi from address so the
-    // corridor heatmap area is visible.
-    if (noiseDetected) {
-      const noiseDeg = (5 * milesToMeters) / 111320
-      targetBounds.extend([center.lat - noiseDeg, center.lng - noiseDeg * 1.3])
-      targetBounds.extend([center.lat + noiseDeg, center.lng + noiseDeg * 1.3])
     }
 
     // Bail if no analysis pins/areas to fit (just the address).
