@@ -61,6 +61,32 @@
   display: block;
 }
 
+/* Shared trigger that wraps the desktop logo + mobile reticle. Acts as a
+   transparent button so the click target is properly focusable and
+   announces aria-haspopup/aria-expanded to assistive tech. */
+.map-header-exp-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  border-radius: 8px;
+}
+.map-header-exp-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Mobile-only reticle icon (hidden on desktop by default). */
+.map-header-reticle {
+  display: none;
+  width: 28px;
+  height: 28px;
+}
+
 /* Experimental features dropdown */
 .exp-menu {
   position: absolute;
@@ -2333,7 +2359,19 @@
   }
 
   .map-header-logo-wrapper {
+    display: flex;
+  }
+  .map-header-logo {
     display: none;
+  }
+  .map-header-reticle {
+    display: block;
+    width: 32px;
+    height: 32px;
+  }
+  .map-header-exp-trigger {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .header-address {

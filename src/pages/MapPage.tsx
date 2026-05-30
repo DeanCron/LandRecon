@@ -3841,13 +3841,41 @@ function MapPage() {
           )}
         </div>
         <div className="map-header-logo-wrapper" ref={expMenuRef}>
-          <img
-            src={logo}
-            alt=""
-            className="map-header-logo"
+          <button
+            type="button"
+            className="map-header-exp-trigger"
             onClick={() => setExpMenuOpen((v) => !v)}
-            style={{ cursor: 'pointer' }}
-          />
+            aria-label="Experimental features"
+            aria-haspopup="menu"
+            aria-expanded={expMenuOpen}
+          >
+            <img src={logo} alt="" className="map-header-logo" />
+            <svg
+              className="map-header-reticle"
+              viewBox="0 0 64 64"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <g fill="none" strokeLinecap="round">
+                <g stroke="#3F4434" strokeWidth="9">
+                  <circle cx="32" cy="32" r="19" />
+                  <line x1="4" y1="32" x2="22" y2="32" />
+                  <line x1="42" y1="32" x2="60" y2="32" />
+                  <line x1="32" y1="4" x2="32" y2="22" />
+                  <line x1="32" y1="42" x2="32" y2="60" />
+                </g>
+                <g stroke="#F2EAD0" strokeWidth="5">
+                  <circle cx="32" cy="32" r="19" />
+                  <line x1="4" y1="32" x2="22" y2="32" />
+                  <line x1="42" y1="32" x2="60" y2="32" />
+                  <line x1="32" y1="4" x2="32" y2="22" />
+                  <line x1="32" y1="42" x2="32" y2="60" />
+                </g>
+              </g>
+              <circle cx="32" cy="32" r="4" fill="#3F4434" />
+              <circle cx="32" cy="32" r="2" fill="#F2EAD0" />
+            </svg>
+          </button>
           {expMenuOpen && (
             <div className="exp-menu">
               <div className="exp-menu-title">Experimental</div>
