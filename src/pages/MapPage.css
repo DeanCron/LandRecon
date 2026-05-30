@@ -61,11 +61,10 @@
   display: block;
 }
 
-/* Locked state: button still occupies its slot so the 5-tap unlock works,
-   but the icon and focus ring are invisible. Cursor is default so it
-   doesn't betray itself on hover. */
+/* Locked state: logo / reticle stays visible as plain branding (no pointer
+   cursor or aria role announcing a menu). The 5-tap-in-2s sequence is
+   still wired up; it just looks like a non-interactive logo until then. */
 .map-header-exp-trigger.is-locked {
-  opacity: 0;
   cursor: default;
 }
 .map-header-exp-trigger.is-locked:focus-visible {
