@@ -15,19 +15,25 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Opt-in to Node 24 for any action whose action.yml still declares an
+      # older Node runtime (e.g. azure/container-apps-deploy-action@v2 still
+      # ships as node16). This becomes the runner default on 2026-06-16 and
+      # silences the deprecation warning in the meantime.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -43,7 +49,7 @@ jobs:
             VITE_GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
 
       - name: Azure Login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
