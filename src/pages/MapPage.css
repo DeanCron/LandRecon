@@ -61,6 +61,17 @@
   display: block;
 }
 
+/* Locked state: button still occupies its slot so the 5-tap unlock works,
+   but the icon and focus ring are invisible. Cursor is default so it
+   doesn't betray itself on hover. */
+.map-header-exp-trigger.is-locked {
+  opacity: 0;
+  cursor: default;
+}
+.map-header-exp-trigger.is-locked:focus-visible {
+  outline: none;
+}
+
 /* Shared trigger that wraps the desktop logo + mobile reticle. Acts as a
    transparent button so the click target is properly focusable and
    announces aria-haspopup/aria-expanded to assistive tech. */

@@ -1295,6 +1295,70 @@ function MapPage() {
   // Experimental feature flags (persisted in localStorage)
   const [expMenuOpen, setExpMenuOpen] = useState(false)
   const expMenuRef = useRef<HTMLDivElement>(null)
+
+  // The experimental menu is gated so casual visitors never see the trigger.
+  // Two ways to unlock (persists in localStorage as `lr_exp_unlock`):
+  //   1. Visit any URL with `?dev=1` once. `?dev=0` re-locks.
+  //   2. Tap the (invisible) trigger spot 5 times within 2 seconds.
+  // This is obscurity, not real security — any determined user can flip the
+  // localStorage value in DevTools. The goal is to keep the menu invisible
+  // to random visitors of the production site.
+  const [expUnlocked, setExpUnlocked] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const dev = params.get('dev')
+      if (dev === '1') {
+        window.localStorage.setItem('lr_exp_unlock', '1')
+        return true
+      }
+      if (dev === '0') {
+        window.localStorage.removeItem('lr_exp_unlock')
+        return false
+      }
+      return window.localStorage.getItem('lr_exp_unlock') === '1'
+    } catch {
+      return false
+    }
+  })
+  const unlockTapsRef = useRef<{ count: number; firstAt: number }>({ count: 0, firstAt: 0 })
+
+  // Strip the `dev` param from the URL after we've consumed it so it isn't
+  // accidentally shared via the address bar / share sheet.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('dev')) {
+      params.delete('dev')
+      const qs = params.toString()
+      const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+      window.history.replaceState({}, '', newUrl)
+    }
+  }, [])
+
+  const handleExpTriggerClick = useCallback(() => {
+    if (expUnlocked) {
+      setExpMenuOpen((v) => !v)
+      return
+    }
+    const now = Date.now()
+    const state = unlockTapsRef.current
+    if (now - state.firstAt > 2000) {
+      state.count = 1
+      state.firstAt = now
+    } else {
+      state.count += 1
+    }
+    if (state.count >= 5) {
+      try { window.localStorage.setItem('lr_exp_unlock', '1') } catch { /* private mode */ }
+      setExpUnlocked(true)
+      setExpMenuOpen(true)
+      state.count = 0
+      state.firstAt = 0
+      console.info('[LandRecon] Experimental menu unlocked. Visit /?dev=0 to re-lock.')
+    }
+  }, [expUnlocked])
+
   const [devTodosOpen, setDevTodosOpen] = useState(false)
   const [devTodoItems, setDevTodoItems] = useState<DevTodo[]>(() => readDevTodoItems())
   const [devTodoChecks, setDevTodoChecks] = useState<Record<string, boolean>>(() => readDevTodoChecks())
@@ -3843,11 +3907,13 @@ function MapPage() {
         <div className="map-header-logo-wrapper" ref={expMenuRef}>
           <button
             type="button"
-            className="map-header-exp-trigger"
-            onClick={() => setExpMenuOpen((v) => !v)}
-            aria-label="Experimental features"
-            aria-haspopup="menu"
-            aria-expanded={expMenuOpen}
+            className={`map-header-exp-trigger${expUnlocked ? '' : ' is-locked'}`}
+            onClick={handleExpTriggerClick}
+            aria-label={expUnlocked ? 'Experimental features' : ''}
+            aria-haspopup={expUnlocked ? 'menu' : undefined}
+            aria-expanded={expUnlocked ? expMenuOpen : undefined}
+            aria-hidden={expUnlocked ? undefined : true}
+            tabIndex={expUnlocked ? 0 : -1}
           >
             <img src={logo} alt="" className="map-header-logo" />
             <svg
@@ -3876,7 +3942,7 @@ function MapPage() {
               <circle cx="32" cy="32" r="2" fill="#F2EAD0" />
             </svg>
           </button>
-          {expMenuOpen && (
+          {expUnlocked && expMenuOpen && (
             <div className="exp-menu">
               <div className="exp-menu-title">Experimental</div>
               <label className="exp-menu-item">
