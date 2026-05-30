@@ -34,6 +34,12 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   -webkit-text-size-adjust: 100%;
+  /* Stop iOS rubber-band + Android pull-to-refresh so the app feels native. */
+  overscroll-behavior: none;
+}
+
+html {
+  overscroll-behavior: none;
 }
 
 #root {

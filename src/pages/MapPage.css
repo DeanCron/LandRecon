@@ -4,6 +4,7 @@
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .map-header {
@@ -2609,6 +2610,16 @@
   /* Tighter overlay padding so popups have more usable width */
   .analysis-detail-overlay {
     padding: 12px;
+  }
+
+  /* Leaflet built-in controls — bump to 36px so they clear the
+     Apple HIG ≥44px target with padding, instead of the 26px default. */
+  .leaflet-touch .leaflet-bar a,
+  .leaflet-touch .leaflet-bar a:hover {
+    width: 36px;
+    height: 36px;
+    line-height: 36px;
+    font-size: 22px;
   }
 }
 
