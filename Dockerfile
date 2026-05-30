@@ -12,6 +12,11 @@ ARG VITE_NOISE_PMTILES_URL
 ENV VITE_NOISE_PMTILES_URL=$VITE_NOISE_PMTILES_URL
 ARG BUILD_GIT_HASH
 ENV BUILD_GIT_HASH=$BUILD_GIT_HASH
+# GA4 measurement ID is a public client-side identifier (it ships in the
+# HTML/JS), so it's a regular build-arg, not a secret. Leave unset to
+# disable analytics entirely.
+ARG VITE_GA_MEASUREMENT_ID
+ENV VITE_GA_MEASUREMENT_ID=$VITE_GA_MEASUREMENT_ID
 
 # Vite needs these as env vars at build time, but we don't want them
 # in image layers or `docker history`. BuildKit secrets are mounted

@@ -1,23 +1,39 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import { trackPageView } from './utils/analytics'
 
 const MapPage = lazy(() => import('./pages/MapPage'))
 
+// Fires a GA4 page_view on every React Router navigation. We strip query
+// params because address strings can be PII; the path alone (e.g. `/map`)
+// is the meaningful dimension. Title is the current document.title which
+// pages update via useEffect on mount.
+function AnalyticsTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname)
+  }, [location.pathname])
+  return null
+}
+
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route
-        path="/map"
-        element={
-          <Suspense fallback={<div style={{ color: 'var(--color-text)', padding: '2rem' }}>Loading map…</div>}>
-            <MapPage />
-          </Suspense>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <AnalyticsTracker />
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route
+          path="/map"
+          element={
+            <Suspense fallback={<div style={{ color: 'var(--color-text)', padding: '2rem' }}>Loading map…</div>}>
+              <MapPage />
+            </Suspense>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }
 

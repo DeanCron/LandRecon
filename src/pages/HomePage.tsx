@@ -11,6 +11,7 @@ import {
   type RecentSearch,
   type SavedAnalysisSnippet,
 } from '../utils/recentSearches'
+import { trackEvent } from '../utils/analytics'
 import './HomePage.css'
 
 declare const __BUILD_VERSION__: string
@@ -80,12 +81,13 @@ function HomePage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [recentOpen])
 
-  const goToAddress = (value: string) => {
+  const goToAddress = (value: string, source: 'typed' | 'suggestion' | 'locate' | 'recent' | 'saved' = 'typed') => {
     const trimmed = value.trim()
     if (!trimmed) return
     setShowSuggestions(false)
     setRecentOpen(false)
     setRecent(pushRecentSearch(trimmed))
+    trackEvent('address_search', { source })
     navigate(`/map?address=${encodeURIComponent(trimmed)}`)
   }
 
@@ -205,12 +207,12 @@ function HomePage() {
             const addr = data?.addresses?.[0]?.address?.freeformAddress
             if (addr) {
               setLocating(false)
-              goToAddress(addr)
+              goToAddress(addr, 'locate')
               return
             }
           }
           setLocating(false)
-          goToAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+          goToAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`, 'locate')
         } catch {
           setLocating(false)
           setLocateError('Could not look up your address. Try entering it manually.')
@@ -326,7 +328,7 @@ function HomePage() {
                   <button
                     type="button"
                     className="home-saved-go"
-                    onClick={() => goToAddress(s.address)}
+                    onClick={() => goToAddress(s.address, 'saved')}
                     title={s.address}
                   >
                     <span
@@ -410,7 +412,7 @@ function HomePage() {
                         <button
                           type="button"
                           className="home-recent-go"
-                          onClick={() => goToAddress(item.address)}
+                          onClick={() => goToAddress(item.address, 'recent')}
                           title={item.address}
                         >
                           <span className="home-recent-address">{item.address}</span>

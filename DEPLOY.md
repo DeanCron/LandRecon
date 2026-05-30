@@ -34,6 +34,7 @@ serves static files. All "live" map data is fetched from third-party APIs
 docker build \
   --build-arg VITE_TOMTOM_API_KEY=your-tomtom-key \
   --build-arg VITE_GOOGLE_MAPS_KEY=your-google-key \
+  --build-arg VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX \
   -t landrecon .
 
 # Run
@@ -112,6 +113,7 @@ In GitHub repo → Settings → Secrets and variables → Actions:
 | `AZURE_CONTAINER_APP_NAME` | `landrecon` |
 | `AZURE_RESOURCE_GROUP` | `LandRecon-RG` |
 | `NOISE_PMTILES_URL` | Public URL of the uploaded PMTiles archive, e.g. `https://landreconstorage.blob.core.windows.net/tiles/airport-noise.pmtiles`. Leave blank to fall back to the bundled `/data/airport-noise.pmtiles` copy. |
+| `GA_MEASUREMENT_ID` | Optional. Google Analytics 4 Measurement ID (`G-XXXXXXXXXX`). Leave blank to disable analytics — the gtag script will not be loaded and no events will be sent. |
 
 ---
 

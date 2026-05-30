@@ -10,6 +10,7 @@ import logo from '../assets/landrecon-logo.webp'
 import GuidedTour from '../components/GuidedTour'
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
+import { trackEvent } from '../utils/analytics'
 import { LEGEND_BANDS } from '../noise/legend'
 import type { DistrictLayerId } from '../utils/districtsLayer'
 import { DISTRICT_LAYER_LABELS, marginToColor, loadDistrictLayer } from '../utils/districtsLayer'
@@ -1521,7 +1522,43 @@ function MapPage() {
     setShareCopied(false)
     setShareLongUrl(url)
     setShareUrl(url)
-  }, [buildShareUrl])
+    trackEvent('share_click', {
+      layer_count: [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible].filter(Boolean).length,
+    })
+  }, [buildShareUrl, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
+
+  // GA4: emit one `layer_toggle` event per layer that changed state since
+  // the last render. Keeps the analytics call sites out of every toggle
+  // handler and is robust to new toggle paths (presets, share-link replay).
+  const prevLayerStateRef = useRef<Record<string, boolean>>({
+    noise: noiseVisible,
+    superfund: superfundVisible,
+    transit: transitVisible,
+    traffic: trafficVisible,
+    costco: costcoVisible,
+    datacenters: dataCenterVisible,
+    ems: emsVisible,
+    crowd: crowdVisible,
+  })
+  useEffect(() => {
+    const next: Record<string, boolean> = {
+      noise: noiseVisible,
+      superfund: superfundVisible,
+      transit: transitVisible,
+      traffic: trafficVisible,
+      costco: costcoVisible,
+      datacenters: dataCenterVisible,
+      ems: emsVisible,
+      crowd: crowdVisible,
+    }
+    const prev = prevLayerStateRef.current
+    for (const k of Object.keys(next)) {
+      if (prev[k] !== next[k]) {
+        trackEvent('layer_toggle', { layer: k, action: next[k] ? 'on' : 'off' })
+      }
+    }
+    prevLayerStateRef.current = next
+  }, [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
