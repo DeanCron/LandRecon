@@ -234,7 +234,7 @@ function HomePage() {
     <div className="home">
       <div className="home-content">
         <div className="home-icon">
-          <img src={logo} alt="Land Recon" width="480" height="102" />
+          <img src={logo} alt="Land Recon" width="480" height="102" decoding="async" />
         </div>
         <p className="home-subtitle">
           Smart neighborhood insights for any U.S. address

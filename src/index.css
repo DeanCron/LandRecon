@@ -15,6 +15,9 @@ input[type="submit"],
 input[type="button"],
 a {
   touch-action: manipulation;
+  /* Suppress iOS long-press callout (Save Image, Copy Link) on tap targets.
+   * Inputs/contenteditable are unaffected so text selection still works. */
+  -webkit-touch-callout: none;
 }
 
 :root {

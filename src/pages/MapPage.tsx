@@ -4027,7 +4027,7 @@ function MapPage() {
             aria-hidden={expUnlocked ? undefined : true}
             tabIndex={expUnlocked ? 0 : -1}
           >
-            <img src={logo} alt="" className="map-header-logo" />
+            <img src={logo} alt="" className="map-header-logo" decoding="async" />
             <svg
               className="map-header-reticle"
               viewBox="0 0 64 64"

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import MapPageSkeleton from './components/MapPageSkeleton'
 import { trackPageView } from './utils/analytics'
 
 const MapPage = lazy(() => import('./pages/MapPage'))
@@ -26,7 +27,7 @@ function App() {
         <Route
           path="/map"
           element={
-            <Suspense fallback={<div style={{ color: 'var(--color-text)', padding: '2rem' }}>Loading map…</div>}>
+            <Suspense fallback={<MapPageSkeleton />}>
               <MapPage />
             </Suspense>
           }
