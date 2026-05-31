@@ -1891,13 +1891,21 @@ function MapPage() {
           const { latitude, longitude } = pos.coords
           let resolved: string | null = null
           if (TOMTOM_API_KEY) {
-            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100`
+            // countrySet=US makes TomTom return zero addresses for
+            // coordinates outside the US so we can fail fast instead of
+            // resolving a foreign address that will then fail the main
+            // (US-restricted) geocode anyway.
+            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100&countrySet=US`
             const res = await fetch(url)
             const data = await res.json()
             resolved = data?.addresses?.[0]?.address?.freeformAddress ?? null
           }
           setLocating(false)
-          submitAddressChange(resolved || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+          if (!resolved) {
+            setErrorMsg('Land Recon currently supports US addresses only.')
+            return
+          }
+          submitAddressChange(resolved)
         } catch {
           setLocating(false)
         }
@@ -2688,7 +2696,7 @@ function MapPage() {
         const results = data.results
         if (!results || results.length === 0) {
           setStatus('error')
-          setErrorMsg('Address not found. Please try a different address.')
+          setErrorMsg('Address not found. Make sure it’s a valid US address — Land Recon currently supports US addresses only.')
           return
         }
 

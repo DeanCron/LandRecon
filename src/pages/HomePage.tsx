@@ -223,7 +223,11 @@ function HomePage() {
         try {
           const { latitude, longitude } = pos.coords
           if (TOMTOM_API_KEY) {
-            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100`
+            // countrySet=US makes TomTom return zero addresses for
+            // coordinates outside the US so we can refuse fast with a
+            // clear message instead of routing the user into a geocode
+            // that will fail anyway.
+            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100&countrySet=US`
             const res = await fetch(url)
             const data = await res.json()
             const addr = data?.addresses?.[0]?.address?.freeformAddress
@@ -232,9 +236,12 @@ function HomePage() {
               goToAddress(addr, 'locate')
               return
             }
+            setLocating(false)
+            setLocateError('Land Recon currently supports US addresses only.')
+            return
           }
           setLocating(false)
-          goToAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`, 'locate')
+          setLocateError('Could not look up your address. Try entering it manually.')
         } catch {
           setLocating(false)
           setLocateError('Could not look up your address. Try entering it manually.')
