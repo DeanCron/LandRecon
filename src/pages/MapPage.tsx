@@ -4404,9 +4404,9 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Nearby & daily ── */}
+        {/* ── Everyday amenities ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">🛒 Nearby & daily</summary>
+          <summary className="layer-group-heading">🏪 Everyday amenities</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -4417,13 +4417,7 @@ function MapPage() {
               />
               <span className="layer-label">Costco</span>
             </label>
-          </div>
-        </details>
 
-        {/* ── Things to know ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">🤔 Things to know</summary>
-          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -4451,7 +4445,13 @@ function MapPage() {
                 ))}
               </div>
             )}
+          </div>
+        </details>
 
+        {/* ── Environmental ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🌍 Environmental</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -4499,7 +4499,13 @@ function MapPage() {
                 </div>
               </div>
             )}
+          </div>
+        </details>
 
+        {/* ── Development & infrastructure ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🏗️ Development & infrastructure</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -4524,7 +4530,13 @@ function MapPage() {
                 ))}
               </div>
             )}
+          </div>
+        </details>
 
+        {/* ── Crowds & venues ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🎟️ Crowds & venues</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -4552,7 +4564,13 @@ function MapPage() {
                 ))}
               </div>
             )}
+          </div>
+        </details>
 
+        {/* ── Surveillance ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">👁️ Surveillance</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
