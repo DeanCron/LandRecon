@@ -11,6 +11,7 @@ const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
 import { trackEvent } from '../utils/analytics'
+import { cachedPlacesSearchText, type PlacesSearchTextBody } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
 import type { DistrictLayerId } from '../utils/districtsLayer'
 import { DISTRICT_LAYER_LABELS, marginToColor, loadDistrictLayer } from '../utils/districtsLayer'
@@ -158,7 +159,7 @@ async function fetchCostcosViaPlaces(opts: {
   signal?: AbortSignal
 }): Promise<CostcoPlace[]> {
   if (!GOOGLE_MAPS_KEY) return []
-  const body: Record<string, unknown> = {
+  const body: PlacesSearchTextBody = {
     textQuery: 'Costco Wholesale',
     maxResultCount: 20,
   }
@@ -178,32 +179,28 @@ async function fetchCostcosViaPlaces(opts: {
     }
   }
 
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
-    },
-    body: JSON.stringify(body),
+  const data = await cachedPlacesSearchText({
+    body,
+    fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress',
+    apiKey: GOOGLE_MAPS_KEY,
     signal: opts.signal,
   })
-  if (!res.ok) throw new Error(`Places searchText: ${res.status}`)
-  const data = await res.json()
+  if (!data) return []
   const out: CostcoPlace[] = []
-  for (const p of data.places || []) {
-    const loc = p.location
+  for (const raw of (data.places || []) as Record<string, unknown>[]) {
+    const loc = raw.location as { latitude: number; longitude: number } | undefined
     if (!loc) continue
-    const name = (p.displayName?.text || 'Costco').trim()
+    const displayName = raw.displayName as { text?: string } | undefined
+    const name = (displayName?.text || 'Costco').trim()
     // The store warehouse always matches /costco/. Filter out adjacent
     // Costco Gas, Costco Tire Center, Costco Pharmacy, etc. so they don't
     // count as separate locations.
     if (!/costco/i.test(name)) continue
     if (/\b(gas|fuel|tire|pharmacy|optical|food court|hearing|liquor)\b/i.test(name)) continue
     out.push({
-      id: p.id,
+      id: raw.id as string,
       name,
-      addr: p.formattedAddress || '',
+      addr: (raw.formattedAddress as string) || '',
       lat: loc.latitude,
       lng: loc.longitude,
     })
@@ -2460,14 +2457,8 @@ function MapPage() {
         }
         await Promise.all(queries.map(async (query) => {
           try {
-            const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.types,places.primaryType',
-              },
-              body: JSON.stringify({
+            const data = await cachedPlacesSearchText({
+              body: {
                 textQuery: query,
                 locationBias: {
                   circle: {
@@ -2476,25 +2467,29 @@ function MapPage() {
                   },
                 },
                 maxResultCount: 10,
-              }),
+              },
+              fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress,places.types,places.primaryType',
+              apiKey: GOOGLE_MAPS_KEY,
               signal: AbortSignal.timeout(TIMEOUT),
             })
-            if (!res.ok) return
-            const data = await res.json()
-            for (const p of data.places || []) {
-              if (seen.has(p.id)) continue
-              seen.add(p.id)
-              const loc = p.location
+            if (!data) return
+            for (const raw of (data.places || []) as Record<string, unknown>[]) {
+              const id = raw.id as string
+              if (!id || seen.has(id)) continue
+              seen.add(id)
+              const loc = raw.location as { latitude: number; longitude: number } | undefined
               if (!loc) continue
-              const name = p.displayName?.text || 'Emergency Room'
-              const types: string[] = Array.isArray(p.types) ? p.types : []
-              if (!isLikelyER(name, types, p.primaryType)) continue
+              const displayName = raw.displayName as { text?: string } | undefined
+              const name = displayName?.text || 'Emergency Room'
+              const types: string[] = Array.isArray(raw.types) ? (raw.types as string[]) : []
+              const primaryType = raw.primaryType as string | undefined
+              if (!isLikelyER(name, types, primaryType)) continue
               const dist = location.distanceTo(L.latLng(loc.latitude, loc.longitude))
               const distMi = Math.round(dist / milesToMeters * 10) / 10
               if (distMi <= ER_ANALYSIS_RADIUS_MI) {
                 hits.push({
                   name,
-                  address: p.formattedAddress || '',
+                  address: (raw.formattedAddress as string) || '',
                   distanceMi: distMi,
                   lat: loc.latitude,
                   lng: loc.longitude,
@@ -3217,14 +3212,8 @@ function MapPage() {
       const results = await Promise.all(
         queryPairs.map(async ({ type, query }) => {
           try {
-            const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Api-Key': GOOGLE_MAPS_KEY,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.types',
-              },
-              body: JSON.stringify({
+            const data = await cachedPlacesSearchText({
+              body: {
                 textQuery: query,
                 locationBias: {
                   circle: {
@@ -3233,14 +3222,15 @@ function MapPage() {
                   },
                 },
                 maxResultCount: 20,
-              }),
+              },
+              fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress,places.types',
+              apiKey: GOOGLE_MAPS_KEY,
             })
-            if (!res.ok) {
-              console.warn(`EMS ${type} (${query}) search failed:`, res.status)
+            if (!data) {
+              console.warn(`EMS ${type} (${query}) search failed`)
               return []
             }
-            const data = await res.json()
-            return (data.places || []).map((p: Record<string, unknown>) => ({ ...p, _emsType: type }))
+            return (data.places || []).map((p): Record<string, unknown> => ({ ...(p as Record<string, unknown>), _emsType: type }))
           } catch (err) {
             console.warn(`EMS ${type} (${query}) search error:`, err)
             return []
