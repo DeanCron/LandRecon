@@ -6,6 +6,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
+import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker } from '../workers/overpassClient'
 const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
@@ -506,66 +507,10 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
   bus: 'Bus Stops',
 }
 
-
-async function fetchTransitFromOverpass(
-  bbox: string,
-  opts: { rail: boolean; bus: boolean },
-): Promise<Array<{ id: string; stop: TransitStop }>> {
-  const parts: string[] = []
-  if (opts.rail) {
-    parts.push(`node["railway"~"^(station|halt|tram_stop)$"](${bbox});`)
-    parts.push(`node["station"~"^(subway|light_rail)$"](${bbox});`)
-  }
-  if (opts.bus) {
-    parts.push(`node["highway"="bus_stop"](${bbox});`)
-    parts.push(`node["amenity"="bus_station"](${bbox});`)
-  }
-  if (parts.length === 0) return []
-  const query = `[out:json][timeout:25];(${parts.join('')});out;`
-
-  dbg('transit', `Fetching transit stops bbox=${bbox} rail=${opts.rail} bus=${opts.bus}`)
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(query),
-  })
-  if (!res.ok) {
-    throw new Error(`Overpass (stops) HTTP ${res.status}`)
-  }
-  const data = await res.json()
-  const out: Array<{ id: string; stop: TransitStop }> = []
-  for (const el of data.elements as Array<{
-    type: string
-    id: number
-    lat?: number
-    lon?: number
-    tags?: Record<string, string>
-  }>) {
-    if (el.type !== 'node' || typeof el.lat !== 'number' || typeof el.lon !== 'number') continue
-    const tags = el.tags || {}
-    let type: TransitStop['type']
-    if (tags.highway === 'bus_stop' || tags.amenity === 'bus_station') {
-      type = 'bus'
-    } else if (tags.railway === 'tram_stop') {
-      type = 'tram'
-    } else if (tags.station === 'subway' || tags.subway === 'yes') {
-      type = 'subway'
-    } else {
-      // railway=station or halt (commuter / intercity / light rail)
-      type = 'rail'
-    }
-    out.push({
-      id: `node/${el.id}`,
-      stop: {
-        lat: el.lat,
-        lon: el.lon,
-        name: tags.name || tags['name:en'] || '',
-        type,
-      },
-    })
-  }
-  return out
-}
+// fetchTransitFromOverpass / loadTransitLines / loadBusLines now offload
+// the network fetch + JSON.parse + element classification to a Web Worker
+// (see src/workers/overpassWorker.ts). The main thread only receives the
+// parsed, typed payload and creates the Leaflet polylines / markers.
 
 function transitPopup(stop: TransitStop): string {
   const label = TRANSIT_LABELS[stop.type]
@@ -2030,7 +1975,7 @@ function MapPage() {
       const sw = bounds.getSouthWest()
       const ne = bounds.getNorthEast()
       const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
-      const stops = await fetchTransitFromOverpass(bbox, { rail: needRail, bus: needBus })
+      const stops = await fetchStopsInWorker(bbox, { rail: needRail, bus: needBus })
 
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
@@ -3422,51 +3367,22 @@ function MapPage() {
     // we only include ways that are members of a route=train relation
     // (commuter / intercity), which excludes freight-only mainlines, yards
     // and industrial spurs.
-    const query =
-      `[out:json][timeout:25];` +
-      `way["railway"~"^(light_rail|subway|tram)$"](${bbox});` +
-      `out geom;` +
-      `rel["route"="train"](${bbox});` +
-      `way(r)["railway"~"^(rail|light_rail|narrow_gauge)$"](${bbox});` +
-      `out geom;`
-
     dbg('transit', `Fetching commuter/subway/tram lines for bbox=${bbox}`)
     transitLinesLoadingRef.current = true
     let ok = true
     try {
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-      })
-      if (!res.ok) {
-        throw new Error(`Overpass (lines) HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const lines = await fetchTransitLinesInWorker(bbox)
       const known = transitLinesKnownIdsRef.current
       let added = 0
-      for (const el of data.elements as Array<{
-        type: string
-        id: number
-        tags?: Record<string, string>
-        geometry?: Array<{ lat: number; lon: number }>
-      }>) {
-        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue
-        const id = `way/${el.id}`
-        if (known.has(id)) continue
-        const railwayTag = el.tags?.railway
-        let type: 'rail' | 'subway' | 'tram'
-        if (railwayTag === 'subway') type = 'subway'
-        else if (railwayTag === 'tram') type = 'tram'
-        else type = 'rail' // rail + light_rail both → rail
-        const coords: [number, number][] = el.geometry.map((p) => [p.lat, p.lon])
-        L.polyline(coords, {
-          color: TRANSIT_COLORS[type],
-          weight: type === 'rail' ? 3 : 2.5,
+      for (const line of lines) {
+        if (known.has(line.id)) continue
+        L.polyline(line.coords, {
+          color: TRANSIT_COLORS[line.type],
+          weight: line.type === 'rail' ? 3 : 2.5,
           opacity: 0.8,
           smoothFactor: 1.5,
-        }).addTo(layers[type])
-        known.add(id)
+        }).addTo(layers[line.type])
+        known.add(line.id)
         added++
       }
       dbg('transit', `Rendered ${added} new line segments (total known: ${known.size})`)
@@ -3509,37 +3425,16 @@ function MapPage() {
     const ne = bounds.getNorthEast()
     const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
     // Get road ways that are members of bus route relations in the bbox.
-    const query =
-      `[out:json][timeout:25];` +
-      `rel["route"="bus"](${bbox});` +
-      `way(r)["highway"](${bbox});` +
-      `out geom;`
-
     dbg('transit', `Fetching bus route ways for bbox=${bbox}`)
     busLinesLoadingRef.current = true
     let ok = true
     try {
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-      })
-      if (!res.ok) {
-        throw new Error(`Overpass (bus) HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const lines = await fetchBusLinesInWorker(bbox)
       const known = busLinesKnownIdsRef.current
       let added = 0
-      for (const el of data.elements as Array<{
-        type: string
-        id: number
-        geometry?: Array<{ lat: number; lon: number }>
-      }>) {
-        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue
-        const id = `bus/${el.id}`
-        if (known.has(id)) continue
-        const coords: [number, number][] = el.geometry.map((p) => [p.lat, p.lon])
-        L.polyline(coords, {
+      for (const line of lines) {
+        if (known.has(line.id)) continue
+        L.polyline(line.coords, {
           color: TRANSIT_COLORS.bus,
           weight: 1.5,
           opacity: 0.5,
@@ -3547,7 +3442,7 @@ function MapPage() {
           smoothFactor: 1.5,
           interactive: false,
         }).addTo(layers.bus)
-        known.add(id)
+        known.add(line.id)
         added++
       }
       dbg('transit', `Rendered ${added} new bus segments (total known: ${known.size})`)

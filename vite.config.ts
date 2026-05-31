@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const gitHash = process.env.BUILD_GIT_HASH || 'dev'
@@ -12,6 +13,10 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // React 19 compiler — auto-memoizes components/hooks, reducing the need
+    // for manual useCallback/useMemo wrapping. Runs as a Babel preset
+    // through @rolldown/plugin-babel.
+    babel({ presets: [reactCompilerPreset()] }),
     VitePWA({
       // Auto-update: a fresh SW is generated each build and replaces the
       // active one on next navigation. No prompt, no extra UI.
