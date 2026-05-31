@@ -17,6 +17,12 @@ const INDEX_HTML_PATH = process.env.OG_INDEX_HTML || '/usr/share/nginx/html/inde
 const FALLBACK_ORIGIN = (process.env.PUBLIC_ORIGIN
   || 'https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io').replace(/\/$/, '')
 
+// Per-request debug logging. Opt in by setting env LR_DEBUG_OG=1 on the
+// container (silent by default to avoid noisy stdout). Always-on errors
+// continue to go through console.error.
+const LR_DEBUG = process.env.LR_DEBUG_OG === '1' || process.env.LR_DEBUG === '1'
+function dbg(...args) { if (LR_DEBUG) console.debug('[og]', ...args) }
+
 // Derive the absolute origin from the incoming request so og:url and
 // og:image always match the host the crawler hit (works the moment a
 // custom domain is wired up — no redeploy needed). nginx is configured
@@ -125,13 +131,16 @@ async function loadIndexHtml() {
 }
 
 const server = createServer(async (req, res) => {
+  const t0 = Date.now()
   try {
     const url = req.url || ''
+    const ua = (req.headers['user-agent'] || '').slice(0, 80)
 
     if (url.startsWith('/og.png')) {
       const params = parseParams(url)
       const key = `${params.address}|${params.layers.join(',')}|${params.base}`
       let png = lruGet(pngCache, key)
+      const cacheHit = !!png
       if (!png) {
         const svg = addressSvg(params)
         png = await renderPng(svg)
@@ -142,7 +151,9 @@ const server = createServer(async (req, res) => {
         'Content-Length': png.length,
         'Cache-Control': 'public, max-age=86400, immutable',
       })
-      return res.end(png)
+      res.end(png)
+      dbg(`png ${cacheHit ? 'HIT ' : 'MISS'} addr="${params.address.slice(0,40)}" layers=${params.layers.length} base=${params.base} bytes=${png.length} ${Date.now() - t0}ms ua="${ua}"`)
+      return
     }
 
     if (url.startsWith('/share')) {
@@ -150,6 +161,7 @@ const server = createServer(async (req, res) => {
       const origin = originFromReq(req)
       const key = `${origin}|${params.address}|${params.layers.join(',')}|${params.base}`
       let html = lruGet(htmlCache, key)
+      const cacheHit = !!html
       if (!html) {
         const indexHtml = await loadIndexHtml()
         const qs = buildQuery(params)
@@ -163,11 +175,14 @@ const server = createServer(async (req, res) => {
         'Content-Length': Buffer.byteLength(html),
         'Cache-Control': 'public, max-age=3600',
       })
-      return res.end(html)
+      res.end(html)
+      dbg(`share ${cacheHit ? 'HIT ' : 'MISS'} addr="${params.address.slice(0,40)}" layers=${params.layers.length} base=${params.base} origin=${origin} bytes=${Buffer.byteLength(html)} ${Date.now() - t0}ms ua="${ua}"`)
+      return
     }
 
     res.writeHead(404, { 'Content-Type': 'text/plain' })
-    return res.end('Not found')
+    res.end('Not found')
+    dbg(`404 url=${url} ${Date.now() - t0}ms ua="${ua}"`)
   } catch (err) {
     console.error('[og] handler error:', err)
     res.writeHead(500, { 'Content-Type': 'text/plain' })
@@ -176,7 +191,7 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', async () => {
-  console.log(`[og] listening on 127.0.0.1:${PORT}; fallback origin = ${FALLBACK_ORIGIN}`)
+  console.log(`[og] listening on 127.0.0.1:${PORT}; fallback origin = ${FALLBACK_ORIGIN}; debug=${LR_DEBUG}`)
   // Pre-warm libvips/sharp + render the default brand card so the first
   // real crawler request doesn't pay the ~700ms cold-start cost. We also
   // seed the LRU with the default key so '/og.png' with no params is

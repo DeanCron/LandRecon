@@ -16,6 +16,11 @@ import './HomePage.css'
 
 declare const __BUILD_VERSION__: string
 
+// Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
+// Mirrors MapPage's pattern so flipping the flag once instruments both pages.
+const LR_DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('LR_DEBUG') === '1'
+function dbg(tag: string, ...args: unknown[]) { if (LR_DEBUG) console.debug(`[LR:${tag}]`, ...args) }
+
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 
 interface TomTomResult {
@@ -222,6 +227,7 @@ function HomePage() {
       async (pos) => {
         try {
           const { latitude, longitude } = pos.coords
+          dbg('geocode', `useMyLocation: got coords ${latitude.toFixed(4)},${longitude.toFixed(4)}`)
           if (TOMTOM_API_KEY) {
             // countrySet=US makes TomTom return zero addresses for
             // coordinates outside the US so we can refuse fast with a
@@ -231,18 +237,21 @@ function HomePage() {
             const res = await fetch(url)
             const data = await res.json()
             const addr = data?.addresses?.[0]?.address?.freeformAddress
+            dbg('geocode', `useMyLocation: reverseGeocode(US) ${addr ? 'resolved to "' + addr + '"' : 'returned no US address'}`)
             if (addr) {
               setLocating(false)
               goToAddress(addr, 'locate')
               return
             }
             setLocating(false)
+            dbg('geocode', 'useMyLocation: refusing — no US address at those coords')
             setLocateError('Land Recon currently supports US addresses only.')
             return
           }
           setLocating(false)
           setLocateError('Could not look up your address. Try entering it manually.')
-        } catch {
+        } catch (err) {
+          dbg('geocode', 'useMyLocation: reverseGeocode threw', err)
           setLocating(false)
           setLocateError('Could not look up your address. Try entering it manually.')
         }

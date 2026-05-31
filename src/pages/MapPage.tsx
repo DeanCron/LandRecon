@@ -1884,11 +1884,13 @@ function MapPage() {
 
   const useMyLocation = useCallback(() => {
     if (!('geolocation' in navigator)) return
+    dbg('geocode', 'useMyLocation: requesting browser position…')
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
           const { latitude, longitude } = pos.coords
+          dbg('geocode', `useMyLocation: got coords ${latitude.toFixed(4)},${longitude.toFixed(4)}`)
           let resolved: string | null = null
           if (TOMTOM_API_KEY) {
             // countrySet=US makes TomTom return zero addresses for
@@ -1899,18 +1901,24 @@ function MapPage() {
             const res = await fetch(url)
             const data = await res.json()
             resolved = data?.addresses?.[0]?.address?.freeformAddress ?? null
+            dbg('geocode', `useMyLocation: reverseGeocode(US) ${resolved ? 'resolved to "' + resolved + '"' : 'returned no US address'}`)
           }
           setLocating(false)
           if (!resolved) {
+            dbg('geocode', 'useMyLocation: refusing — no US address at those coords')
             setErrorMsg('Land Recon currently supports US addresses only.')
             return
           }
           submitAddressChange(resolved)
-        } catch {
+        } catch (err) {
+          dbg('geocode', 'useMyLocation: reverseGeocode threw', err)
           setLocating(false)
         }
       },
-      () => setLocating(false),
+      (err) => {
+        dbg('geocode', 'useMyLocation: geolocation rejected', err)
+        setLocating(false)
+      },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
     )
   }, [submitAddressChange])
