@@ -95,7 +95,7 @@ jobs:
               --container-name snapshots \
               --name "$blob_name" \
               --file "$gz" \
-              --content-cache "public, max-age=21600" \
+              --content-cache "public, max-age=86400, immutable" \
               --content-encoding "gzip" \
               --content-type "application/json; charset=utf-8" \
               --auth-mode login \
