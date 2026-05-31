@@ -2693,6 +2693,13 @@
     padding: 12px;
   }
 
+  /* Hide the +/- zoom control on phones — pinch is the native gesture
+   * and matches Google/Apple Maps. The bumped 36px sizing below still
+   * applies to the attribution / any other controls Leaflet adds. */
+  .leaflet-control-zoom {
+    display: none;
+  }
+
   /* Leaflet built-in controls — bump to 36px so they clear the
      Apple HIG ≥44px target with padding, instead of the 26px default. */
   .leaflet-touch .leaflet-bar a,
