@@ -10,7 +10,7 @@
 
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { addressSvg, renderPng, LAYER_LABELS, BASE_LABELS } from './render-og-image.mjs'
+import { addressSvg, defaultSvg, renderPng, LAYER_LABELS, BASE_LABELS } from './render-og-image.mjs'
 
 const PORT = Number(process.env.OG_PORT || 3002)
 const INDEX_HTML_PATH = process.env.OG_INDEX_HTML || '/usr/share/nginx/html/index.html'
@@ -101,6 +101,7 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
   out = setMeta(out, 'property', 'og:description', description)
   out = setMeta(out, 'property', 'og:url', pageUrl)
   out = setMeta(out, 'property', 'og:image', ogImageUrl)
+  out = setMeta(out, 'property', 'og:image:secure_url', ogImageUrl)
   out = setMeta(out, 'property', 'og:image:alt', address ? `Land Recon preview card for ${address}` : 'Land Recon preview card')
   out = setMeta(out, 'name', 'twitter:title', title)
   out = setMeta(out, 'name', 'twitter:description', description)
@@ -174,6 +175,18 @@ const server = createServer(async (req, res) => {
   }
 })
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
   console.log(`[og] listening on 127.0.0.1:${PORT}; fallback origin = ${FALLBACK_ORIGIN}`)
+  // Pre-warm libvips/sharp + render the default brand card so the first
+  // real crawler request doesn't pay the ~700ms cold-start cost. We also
+  // seed the LRU with the default key so '/og.png' with no params is
+  // served straight from memory.
+  try {
+    const t0 = Date.now()
+    const warmPng = await renderPng(defaultSvg())
+    lruSet(pngCache, '||street', warmPng)
+    console.log(`[og] pre-warm complete in ${Date.now() - t0}ms (${warmPng.length} bytes seeded)`)
+  } catch (err) {
+    console.error('[og] pre-warm failed (non-fatal):', err.message)
+  }
 })
