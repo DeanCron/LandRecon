@@ -517,7 +517,11 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 // DeFlock crowdsourcing project that supplies most of the underlying OSM
 // tags. Everything else (Motorola Vigilant, Genetec, Rekor, etc.) shares
 // a single neutral color.
-const CAMERA_COLORS = { flock: '#dc2626', other: '#6b7280' } as const
+//
+// Magenta + violet are deliberately picked outside the rest of the layer
+// palette (Wong colorblind-safe set + traffic gradient) so a camera pin
+// is never mistaken for transit, EMS, data centers, or crowd magnets.
+const CAMERA_COLORS = { flock: '#db2777', other: '#7c3aed' } as const
 
 interface CameraRecord {
   id: string
