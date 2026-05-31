@@ -43,13 +43,16 @@ function project(raw) {
   return out
 }
 
-const stops = await crawlConus({ buildQuery, project })
+const { items: stops, failed } = await crawlConus({ buildQuery, project })
 const byType = stops.reduce((acc, s) => { acc[s.type] = (acc[s.type] || 0) + 1; return acc }, {})
 
 await writeSnapshot('transit-stops-us', envelope({
   count: stops.length,
   kind: 'rail-subway-tram',  // explicitly NOT bus stops
+  partial: failed.length > 0,
+  failed_tiles: failed,
   stops,
 }))
 
 console.log(`  Breakdown: ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+if (failed.length > 5) process.exit(1)

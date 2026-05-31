@@ -72,12 +72,15 @@ function project(raw) {
   return out
 }
 
-const magnets = await crawlConus({ buildQuery, project })
+const { items: magnets, failed } = await crawlConus({ buildQuery, project })
 const byType = magnets.reduce((acc, m) => { acc[m.type] = (acc[m.type] || 0) + 1; return acc }, {})
 
 await writeSnapshot('crowd-us', envelope({
   count: magnets.length,
+  partial: failed.length > 0,
+  failed_tiles: failed,
   magnets,
 }))
 
 console.log(`  Breakdown: ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+if (failed.length > 5) process.exit(1)

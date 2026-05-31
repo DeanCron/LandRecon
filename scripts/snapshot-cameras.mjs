@@ -42,13 +42,19 @@ function project(raw) {
   return out
 }
 
-const cameras = await crawlConus({ buildQuery, project })
+const { items: cameras, failed } = await crawlConus({ buildQuery, project })
 const flock = cameras.filter((c) => c.isFlock).length
 const withDir = cameras.filter((c) => c.direction).length
 
 await writeSnapshot('cameras-us', envelope({
   count: cameras.length,
+  partial: failed.length > 0,
+  failed_tiles: failed,
   cameras,
 }))
 
 console.log(`  Flock: ${flock}; other: ${cameras.length - flock}; with direction: ${withDir}`)
+if (failed.length > 5) {
+  console.error(`Too many failed tiles (${failed.length}); exiting non-zero so upload step still runs but workflow flags failure`)
+  process.exit(1)
+}

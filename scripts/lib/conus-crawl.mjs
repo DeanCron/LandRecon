@@ -8,7 +8,11 @@
 import { writeFile, mkdir } from 'node:fs/promises'
 import { gzipSync } from 'node:zlib'
 
-const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter'
+const OVERPASS_ENDPOINTS = (process.env.OVERPASS_URL || [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+].join(',')).split(',').map((s) => s.trim()).filter(Boolean)
 const UA = 'LandRecon-Snapshotter/1.0 (+https://github.com/DeanCron/LandRecon)'
 
 // CONUS — lower-48 with small ocean margin so border tiles are inclusive.
@@ -21,12 +25,12 @@ export const CONUS = Object.freeze({
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
-async function postOverpass(query, label, maxRetries, backoff) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+async function fetchFromAnyEndpoint(query, label) {
+  let lastErr
+  for (const url of OVERPASS_ENDPOINTS) {
     try {
-      console.log(`[${label}] attempt ${attempt}/${maxRetries}`)
       const t0 = performance.now()
-      const res = await fetch(OVERPASS_URL, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -36,18 +40,34 @@ async function postOverpass(query, label, maxRetries, backoff) {
       })
       if (!res.ok) {
         const body = await res.text().catch(() => '')
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`)
+        lastErr = new Error(`HTTP ${res.status} at ${new URL(url).host}: ${body.slice(0, 120)}`)
+        console.warn(`[${label}] ${lastErr.message}`)
+        continue
       }
       const data = await res.json()
       const ms = Math.round(performance.now() - t0)
       const n = Array.isArray(data.elements) ? data.elements.length : 0
-      console.log(`[${label}] ok in ${ms}ms — ${n} elements`)
+      console.log(`[${label}] ok via ${new URL(url).host} in ${ms}ms — ${n} elements`)
+      return data
+    } catch (err) {
+      lastErr = err
+      console.warn(`[${label}] ${new URL(url).host} threw: ${err.message}`)
+    }
+  }
+  throw lastErr || new Error('All Overpass endpoints failed')
+}
+
+async function postOverpass(query, label, maxRetries, backoff) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[${label}] attempt ${attempt}/${maxRetries}`)
+      const data = await fetchFromAnyEndpoint(query, label)
       return data.elements || []
     } catch (err) {
       console.warn(`[${label}] attempt ${attempt} failed: ${err.message}`)
       if (attempt === maxRetries) throw err
       const wait = backoff * attempt
-      console.warn(`[${label}] backing off ${wait}ms`)
+      console.warn(`[${label}] backing off ${wait}ms before next attempt`)
       await sleep(wait)
     }
   }
@@ -55,7 +75,10 @@ async function postOverpass(query, label, maxRetries, backoff) {
 }
 
 /**
- * Crawl CONUS, returning a flat deduped array of projected records.
+ * Crawl CONUS, returning { items, failed } — fault-tolerant: a tile that
+ * exhausts retries on every endpoint is logged and the crawl continues.
+ * Caller decides what to do with the failed list (mark snapshot partial,
+ * hard-fail above some threshold, etc).
  *
  * @param {object} opts
  * @param {(bbox: string) => string} opts.buildQuery - Overpass QL for one tile
@@ -66,7 +89,7 @@ async function postOverpass(query, label, maxRetries, backoff) {
  * @param {number} [opts.maxRetries=3]
  * @param {number} [opts.backoff=30000]
  * @param {string} [opts.idKey='id']
- * @returns {Promise<any[]>}
+ * @returns {Promise<{items: any[], failed: Array<{tile: string, bbox: string, error: string}>}>}
  */
 export async function crawlConus(opts) {
   const {
@@ -81,6 +104,7 @@ export async function crawlConus(opts) {
   } = opts
 
   const all = []
+  const failed = []
   const seen = new Set()
   const latStep = (CONUS.north - CONUS.south) / rows
   const lngStep = (CONUS.east - CONUS.west) / cols
@@ -93,21 +117,30 @@ export async function crawlConus(opts) {
       const e = w + lngStep
       const bbox = `${s.toFixed(3)},${w.toFixed(3)},${n.toFixed(3)},${e.toFixed(3)}`
       const label = `r${r}c${c}`
-      const raw = await postOverpass(buildQuery(bbox), label, maxRetries, backoff)
-      const items = project(raw)
-      let added = 0
-      for (const it of items) {
-        const id = it[idKey]
-        if (id == null || seen.has(id)) continue
-        seen.add(id)
-        all.push(it)
-        added++
+      try {
+        const raw = await postOverpass(buildQuery(bbox), label, maxRetries, backoff)
+        const items = project(raw)
+        let added = 0
+        for (const it of items) {
+          const id = it[idKey]
+          if (id == null || seen.has(id)) continue
+          seen.add(id)
+          all.push(it)
+          added++
+        }
+        console.log(`[${label}] +${added} unique (${items.length - added} dup); running total ${all.length}`)
+      } catch (err) {
+        failed.push({ tile: label, bbox, error: String(err?.message || err) })
+        console.warn(`[${label}] FAILED after ${maxRetries} attempts on all endpoints — continuing. Snapshot will be marked partial.`)
       }
-      console.log(`[${label}] +${added} unique (${items.length - added} dup); running total ${all.length}`)
       if (r * cols + c < rows * cols - 1) await sleep(delayMs)
     }
   }
-  return all
+  if (failed.length > 0) {
+    console.warn(`\nCrawl finished with ${failed.length}/${rows * cols} failed tiles:`)
+    for (const f of failed) console.warn(`  ${f.tile} (${f.bbox}): ${f.error}`)
+  }
+  return { items: all, failed }
 }
 
 /**

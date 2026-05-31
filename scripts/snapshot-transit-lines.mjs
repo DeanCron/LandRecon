@@ -55,7 +55,7 @@ function project(raw) {
   return out
 }
 
-const lines = await crawlConus({
+const { items: lines, failed } = await crawlConus({
   buildQuery,
   project,
   rows: 6,
@@ -69,7 +69,11 @@ await writeSnapshot('transit-lines-us', envelope({
   count: lines.length,
   kind: 'rail-subway-tram',
   coords_format: 'flat-lat-lon-pairs',
+  partial: failed.length > 0,
+  failed_tiles: failed,
   lines,
 }))
 
 console.log(`  Breakdown: ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(', ')} (${totalPoints} total points)`)
+// 6x6 = 36 tiles; tolerate up to 10 misses before failing the script.
+if (failed.length > 10) process.exit(1)

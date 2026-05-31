@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 60
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v5
@@ -36,16 +36,48 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Fetch snapshots from Overpass
+      # Per-script steps with continue-on-error so one Overpass tile timeout
+      # doesn't kill the whole pipeline — we'd rather upload partial/stale
+      # snapshots than no snapshots. Each script also tolerates partial tile
+      # failures internally and writes the snapshot with a `partial: true`
+      # flag if any tile was lost.
+      - name: Snapshot cameras
+        run: node scripts/snapshot-cameras.mjs
+        continue-on-error: true
+
+      - name: Snapshot crowd magnets
+        run: node scripts/snapshot-crowd.mjs
+        continue-on-error: true
+
+      - name: Snapshot rail/subway/tram stops
+        run: node scripts/snapshot-transit-stops.mjs
+        continue-on-error: true
+
+      - name: Snapshot rail/subway/tram lines
+        run: node scripts/snapshot-transit-lines.mjs
+        continue-on-error: true
+
+      - name: Inventory built snapshots
+        id: inventory
         run: |
-          set -e
-          node scripts/snapshot-cameras.mjs
-          node scripts/snapshot-crowd.mjs
-          node scripts/snapshot-transit-stops.mjs
-          node scripts/snapshot-transit-lines.mjs
-          echo ""
-          echo "All snapshots:"
-          ls -lh dist-snapshots/
+          echo "Built snapshots:"
+          ls -lh dist-snapshots/ || true
+          expected=(cameras-us crowd-us transit-stops-us transit-lines-us)
+          missing=()
+          for name in "${expected[@]}"; do
+            if [ ! -s "dist-snapshots/$name.json.gz" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::warning::Missing snapshots (blob keeps prior version): ${missing[*]}"
+          fi
+          count=$(ls dist-snapshots/*.json.gz 2>/dev/null | wc -l)
+          echo "built_count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No snapshots built — nothing to upload"
+            exit 1
+          fi
 
       - name: Azure Login
         uses: azure/login@v3
