@@ -33,3 +33,4 @@ build/
 __pycache__/
 *.pyc
 scripts/generate-og-image.preview.svg
+test-og-*.png

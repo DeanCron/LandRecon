@@ -30,10 +30,19 @@ RUN --mount=type=secret,id=VITE_TOMTOM_API_KEY \
     npm run build
 
 # Runtime stage - pure static SPA on nginx, with a tiny Node sidecar for
-# the Dev Todos JSON endpoint. The Flask + GDAL tile server was retired
-# once airport noise moved to PMTiles served from blob storage.
+# the Dev Todos JSON endpoint AND the per-URL Open Graph image/HTML
+# rendering (crawler share-link previews).  The Flask + GDAL tile server
+# was retired once airport noise moved to PMTiles served from blob storage.
 FROM nginx:1.27-alpine AS runtime
-RUN apk add --no-cache nodejs
+RUN apk add --no-cache nodejs npm
+
+# Install only the runtime npm deps the sidecars need (currently just
+# sharp + its prebuilt linux-musl libvips binary). We bring package.json
+# but install with --omit=dev so we don't pull vite/typescript/etc.
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
 COPY server/ /app/server/
