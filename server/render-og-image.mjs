@@ -159,8 +159,13 @@ export function addressSvg({ address = '', layers = [], base = 'street' } = {}) 
   // longest line in the available width (rough proportional approximation,
   // good enough for an OG card with bold sans-serif).
   const CONTENT_W = 1020
-  const CHAR_W_RATIO = 0.55     // avg glyph width for bold system sans @ 1em
-  const targetSize = addressLines.length === 1 ? 80 : addressLines.length === 2 ? 64 : 52
+  // DejaVu Sans Bold (the Alpine runtime fallback) has wider glyphs than
+  // typical system sans. Empirically ~0.62-0.65 em per glyph at bold
+  // weight — using 0.55 like the Windows preview fonts under-shrinks
+  // and the address bleeds past the right edge. 0.66 keeps a 1-line
+  // 24-char address within the 1020px content width.
+  const CHAR_W_RATIO = 0.66
+  const targetSize = addressLines.length === 1 ? 76 : addressLines.length === 2 ? 64 : 52
   const longest = addressLines.reduce((m, l) => Math.max(m, l.length), 1)
   const widthCap = Math.floor(CONTENT_W / (longest * CHAR_W_RATIO))
   const addrFontSize = Math.max(34, Math.min(targetSize, widthCap))
