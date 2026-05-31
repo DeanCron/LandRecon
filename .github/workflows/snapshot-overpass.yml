@@ -1,0 +1,77 @@
+name: Snapshot Overpass datasets
+
+# Nightly Overpass crawl of every CONUS dataset that the client otherwise
+# fetches per-bbox at runtime. Each script writes its own gzipped JSON to
+# dist-snapshots/; the upload step pushes everything to the public
+# `snapshots` container on landreconstorage.
+#
+# Scripts run sequentially (not in parallel) to stay polite with the public
+# overpass-api.de endpoint. Total runtime ~10-25 min depending on tile
+# response times.
+#
+# To add a new dataset:
+#   1. Drop a new scripts/snapshot-{name}.mjs (use snapshot-cameras.mjs as
+#      a template — they all share scripts/lib/conus-crawl.mjs).
+#   2. Add `node scripts/snapshot-{name}.mjs` to the "Fetch snapshots" step.
+#   3. The upload step picks up the new dist-snapshots/{name}-us.json.gz
+#      automatically (glob upload), no workflow edits needed there.
+
+on:
+  schedule:
+    # Daily at 09:00 UTC (~04:00–05:00 ET). Off-peak for Overpass.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch snapshots from Overpass
+        run: |
+          set -e
+          node scripts/snapshot-cameras.mjs
+          node scripts/snapshot-crowd.mjs
+          node scripts/snapshot-transit-stops.mjs
+          node scripts/snapshot-transit-lines.mjs
+          echo ""
+          echo "All snapshots:"
+          ls -lh dist-snapshots/
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Upload snapshots to blob
+        run: |
+          set -e
+          for gz in dist-snapshots/*.json.gz; do
+            blob_name="$(basename "$gz" .gz)"   # cameras-us.json.gz -> cameras-us.json
+            echo "→ uploading $gz as snapshots/$blob_name"
+            az storage blob upload \
+              --account-name landreconstorage \
+              --container-name snapshots \
+              --name "$blob_name" \
+              --file "$gz" \
+              --content-cache "public, max-age=21600" \
+              --content-encoding "gzip" \
+              --content-type "application/json; charset=utf-8" \
+              --auth-mode login \
+              --overwrite
+          done
+          echo ""
+          echo "Snapshot URLs:"
+          for gz in dist-snapshots/*.json.gz; do
+            blob_name="$(basename "$gz" .gz)"
+            echo "  https://landreconstorage.blob.core.windows.net/snapshots/$blob_name"
+          done

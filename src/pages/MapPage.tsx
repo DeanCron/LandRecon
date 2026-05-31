@@ -523,55 +523,68 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 // is never mistaken for transit, EMS, data centers, or crowd magnets.
 const CAMERA_COLORS = { flock: '#db2777', other: '#7c3aed' } as const
 
-// Daily CONUS snapshot of ALPR cameras, hydrated by
-// .github/workflows/snapshot-cameras.yml and served from Azure Blob with
+// Daily CONUS snapshots of every Overpass dataset, hydrated by
+// .github/workflows/snapshot-overpass.yml and served from Azure Blob with
 // Content-Encoding: gzip (browser auto-decompresses). The client prefers
-// this over per-bbox live Overpass calls whenever the map center is inside
-// CONUS — collapses dozens of pan-driven 1–5s Overpass calls into one
-// CDN-cached fetch held in module-scope memory for the page session.
-const CAMERAS_SNAPSHOT_URL =
-  'https://landreconstorage.blob.core.windows.net/snapshots/cameras-us.json'
-const CAMERAS_CONUS_BOUNDS: [[number, number], [number, number]] = [
+// each over its per-bbox live Overpass call whenever the map center is
+// inside CONUS — collapses dozens of pan-driven 1–5s Overpass calls into
+// one CDN-cached fetch held in module-scope memory for the page session.
+const SNAPSHOT_BASE =
+  'https://landreconstorage.blob.core.windows.net/snapshots'
+const CONUS_BOUNDS: [[number, number], [number, number]] = [
   [24.5, -125.0],
   [49.4, -66.9],
 ]
 
-interface CameraSnapshot {
+interface SnapshotEnvelope {
   version: number
   generated_at: string
   region: string
   bbox: number[]
   count: number
-  cameras: CameraRecord[]
 }
 
-let camerasSnapshotCache: CameraSnapshot | null = null
-let camerasSnapshotPromise: Promise<CameraSnapshot | null> | null = null
+interface CameraSnapshot extends SnapshotEnvelope { cameras: CameraRecord[] }
+interface CrowdSnapshotPayload extends SnapshotEnvelope { magnets: CrowdMagnet[] }
+interface TransitStopsSnapshot extends SnapshotEnvelope { stops: SnapshotTransitStop[] }
+interface TransitLinesSnapshot extends SnapshotEnvelope { lines: SnapshotTransitLine[] }
 
-async function loadCamerasSnapshot(
-  log: (msg: string, ...rest: unknown[]) => void,
-): Promise<CameraSnapshot | null> {
-  if (camerasSnapshotCache) return camerasSnapshotCache
-  if (camerasSnapshotPromise) return camerasSnapshotPromise
-  camerasSnapshotPromise = (async () => {
+interface SnapshotTransitStop { id: string; type: 'rail' | 'subway' | 'tram'; lat: number; lon: number; name: string }
+interface SnapshotTransitLine { id: string; type: 'rail' | 'subway' | 'tram'; coords: number[] }
+
+// Factory: returns a memoized snapshot fetcher with single-flight semantics.
+// Multiple concurrent callers (e.g. layer toggle + URL replay) share one
+// in-flight Promise; subsequent callers get the resolved cache instantly.
+function makeSnapshotLoader<T>(filename: string, dbgLabel: string) {
+  let cache: T | null = null
+  let inFlight: Promise<T | null> | null = null
+  return function load(): Promise<T | null> {
+    if (cache) return Promise.resolve(cache)
+    if (inFlight) return inFlight
     const t0 = performance.now()
-    try {
-      const res = await fetch(CAMERAS_SNAPSHOT_URL, { cache: 'force-cache' })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const snap = (await res.json()) as CameraSnapshot
-      camerasSnapshotCache = snap
-      log(
-        `Snapshot loaded in ${(performance.now() - t0).toFixed(0)}ms — ${snap.count} cameras, generated ${snap.generated_at}`,
-      )
-      return snap
-    } catch (err) {
-      log('Snapshot fetch failed; will fall back to live Overpass:', err)
-      camerasSnapshotPromise = null
-      return null
-    }
-  })()
-  return camerasSnapshotPromise
+    inFlight = (async () => {
+      try {
+        const res = await fetch(`${SNAPSHOT_BASE}/${filename}`, { cache: 'force-cache' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const snap = (await res.json()) as T
+        cache = snap
+        const meta = snap as unknown as SnapshotEnvelope
+        dbg(dbgLabel, `Snapshot ${filename} loaded in ${(performance.now() - t0).toFixed(0)}ms — ${meta.count} records, generated ${meta.generated_at}`)
+        return snap
+      } catch (err) {
+        dbg(dbgLabel, `Snapshot ${filename} fetch failed; will fall back to live Overpass:`, err)
+        inFlight = null
+        return null
+      }
+    })()
+    return inFlight
+  }
 }
+
+const loadCamerasSnapshot = makeSnapshotLoader<CameraSnapshot>('cameras-us.json', 'cameras')
+const loadCrowdSnapshot = makeSnapshotLoader<CrowdSnapshotPayload>('crowd-us.json', 'crowd')
+const loadTransitStopsSnapshot = makeSnapshotLoader<TransitStopsSnapshot>('transit-stops-us.json', 'transit')
+const loadTransitLinesSnapshot = makeSnapshotLoader<TransitLinesSnapshot>('transit-lines-us.json', 'transit')
 
 interface CameraRecord {
   id: string
@@ -2105,7 +2118,36 @@ function MapPage() {
       const sw = bounds.getSouthWest()
       const ne = bounds.getNorthEast()
       const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
-      const stops = await fetchStopsInWorker(bbox, { rail: needRail, bus: needBus })
+
+      // Rail/subway/tram: try snapshot first if in CONUS, fall back to live.
+      // Bus: always live (snapshot intentionally excludes bus — too dense).
+      const stops: Array<{ id: string; stop: { lat: number; lon: number; name: string; type: 'rail' | 'subway' | 'tram' | 'bus' } }> = []
+      let railSource: 'snapshot' | 'live' | 'skipped' = 'skipped'
+      if (needRail) {
+        const center = map.getCenter()
+        const conus = L.latLngBounds(CONUS_BOUNDS)
+        let railStops: typeof stops = []
+        if (conus.contains(center)) {
+          const snap = await loadTransitStopsSnapshot()
+          if (snap) {
+            for (const s of snap.stops) {
+              if (!bounds.contains([s.lat, s.lon] as L.LatLngTuple)) continue
+              railStops.push({ id: s.id, stop: { lat: s.lat, lon: s.lon, name: s.name, type: s.type } })
+            }
+            railSource = 'snapshot'
+            dbg('transit', `Stops snapshot match: ${railStops.length} rail/subway/tram in viewport (of ${snap.count} CONUS total)`)
+          }
+        }
+        if (railSource !== 'snapshot') {
+          railStops = await fetchStopsInWorker(bbox, { rail: true, bus: false })
+          railSource = 'live'
+        }
+        stops.push(...railStops)
+      }
+      if (needBus) {
+        const busStops = await fetchStopsInWorker(bbox, { rail: false, bus: true })
+        stops.push(...busStops)
+      }
 
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
@@ -2147,7 +2189,7 @@ function MapPage() {
           ? busLoaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
           : bounds
       }
-      dbg('transit', `Added ${added} new stops (total known: ${known.size})`)
+      dbg('transit', `Added ${added} new stops (rail=${railSource}; total known: ${known.size})`)
     } catch (err) {
       console.error('Failed to load transit data:', err)
       ok = false
@@ -3331,12 +3373,12 @@ function MapPage() {
       // Falls back to live Overpass on snapshot fetch failure or whenever
       // the user is panning outside CONUS.
       const center = map.getCenter()
-      const conus = L.latLngBounds(CAMERAS_CONUS_BOUNDS)
+      const conus = L.latLngBounds(CONUS_BOUNDS)
       let cameras: CameraRecord[] = []
       let source: 'snapshot' | 'live' = 'live'
 
       if (conus.contains(center)) {
-        const snap = await loadCamerasSnapshot((msg, ...rest) => dbg('cameras', msg, ...rest))
+        const snap = await loadCamerasSnapshot()
         if (snap) {
           cameras = snap.cameras.filter((c) => bounds.contains([c.lat, c.lon] as L.LatLngTuple))
           source = 'snapshot'
@@ -3461,8 +3503,26 @@ function MapPage() {
         }
       }
 
+      // Prefer the daily CONUS snapshot when in-CONUS; fall back to live
+      // Overpass for the rest of the world (or on snapshot failure).
+      const center = map.getCenter()
+      const conus = L.latLngBounds(CONUS_BOUNDS)
+      let items: CrowdMagnet[] = []
+      let source: 'snapshot' | 'live' = 'live'
+      if (conus.contains(center)) {
+        const snap = await loadCrowdSnapshot()
+        if (snap) {
+          items = snap.magnets.filter((m) => padded.contains([m.lat, m.lng] as L.LatLngTuple))
+          source = 'snapshot'
+          dbg('crowd', `Snapshot match: ${items.length} magnets in viewport (of ${snap.count} CONUS total)`)
+        }
+      }
+      if (source === 'live') {
+        items = await fetchCrowdMagnets(padded)
+      }
+
       const known = crowdKnownIdsRef.current
-      const items = await fetchCrowdMagnets(padded)
+      let added = 0
       for (const m of items) {
         if (known.has(m.id)) continue
         const sub = subLayers[m.type]
@@ -3479,12 +3539,13 @@ function MapPage() {
           .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
           .addTo(sub)
         known.add(m.id)
+        added++
       }
 
       crowdLoadedBoundsRef.current = loaded
         ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
         : padded
-      dbg('crowd', `Total known crowd magnets: ${known.size}`)
+      dbg('crowd', `[${source}] Added ${added} new (total known: ${known.size})`)
     } catch (err) {
       console.warn('Crowd magnet fetch failed:', err)
     } finally {
@@ -3642,7 +3703,45 @@ function MapPage() {
     transitLinesLoadingRef.current = true
     let ok = true
     try {
-      const lines = await fetchTransitLinesInWorker(bbox)
+      // Snapshot first if in CONUS; fall back to live Overpass for the rest
+      // of the world or on snapshot failure. Snapshot ships coords in a
+      // packed flat [lat, lon, lat, lon, ...] layout to roughly halve
+      // gzip size — unflatten before handing to L.polyline.
+      const center = map.getCenter()
+      const conus = L.latLngBounds(CONUS_BOUNDS)
+      let lines: Array<{ id: string; type: 'rail' | 'subway' | 'tram'; coords: [number, number][] }> = []
+      let source: 'snapshot' | 'live' = 'live'
+      if (conus.contains(center)) {
+        const snap = await loadTransitLinesSnapshot()
+        if (snap) {
+          for (const l of snap.lines) {
+            // Cheap bbox prefilter on the first coord to skip continents-away
+            // lines without materializing pair arrays for every record.
+            if (l.coords.length < 4) continue
+            const lat0 = l.coords[0]
+            const lon0 = l.coords[1]
+            if (!bounds.contains([lat0, lon0] as L.LatLngTuple)) {
+              // Cheap fast-path miss; check the midpoint too since long
+              // intercity lines may exit and re-enter the viewport.
+              const midIdx = (l.coords.length >> 2) * 2
+              const latMid = l.coords[midIdx]
+              const lonMid = l.coords[midIdx + 1]
+              if (!bounds.contains([latMid, lonMid] as L.LatLngTuple)) continue
+            }
+            const pairs: [number, number][] = []
+            for (let i = 0; i < l.coords.length; i += 2) {
+              pairs.push([l.coords[i], l.coords[i + 1]])
+            }
+            lines.push({ id: l.id, type: l.type, coords: pairs })
+          }
+          source = 'snapshot'
+          dbg('transit', `Lines snapshot match: ${lines.length} lines in viewport (of ${snap.count} CONUS total)`)
+        }
+      }
+      if (source === 'live') {
+        lines = await fetchTransitLinesInWorker(bbox)
+      }
+
       const known = transitLinesKnownIdsRef.current
       let added = 0
       for (const line of lines) {
@@ -3656,7 +3755,7 @@ function MapPage() {
         known.add(line.id)
         added++
       }
-      dbg('transit', `Rendered ${added} new line segments (total known: ${known.size})`)
+      dbg('transit', `[${source}] Rendered ${added} new line segments (total known: ${known.size})`)
       transitLinesLoadedBoundsRef.current = loaded
         ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
         : bounds
