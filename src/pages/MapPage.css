@@ -939,6 +939,47 @@
   letter-spacing: 0.03em;
 }
 
+/* ALPR camera layer (Flock + others) */
+.transit-popup .transit-popup-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+
+.transit-popup .camera-popup-source {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+  font-size: 0.72rem;
+  color: #666;
+}
+
+.transit-popup .camera-popup-source a {
+  color: #555;
+  text-decoration: underline;
+}
+
+.camera-status {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #666;
+  font-style: italic;
+}
+
+.camera-attribution {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.7rem;
+  color: #777;
+  line-height: 1.3;
+}
+
+.camera-attribution a {
+  color: #555;
+  text-decoration: underline;
+}
+
 /* Superfund flyout — extra metadata rows under each site name */
 .analysis-superfund-meta {
   display: grid;

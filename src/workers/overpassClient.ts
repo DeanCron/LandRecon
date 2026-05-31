@@ -3,7 +3,7 @@
 // until a transit/lines layer is actually used.
 
 import OverpassWorker from './overpassWorker?worker'
-import type { StopResult, LineResult, BusLineResult } from './overpassWorker'
+import type { StopResult, LineResult, BusLineResult, CameraResult } from './overpassWorker'
 
 let worker: Worker | null = null
 let nextId = 1
@@ -31,7 +31,7 @@ function getWorker(): Worker {
   return worker
 }
 
-function call<T>(kind: 'stops' | 'lines' | 'bus', payload: unknown): Promise<T> {
+function call<T>(kind: 'stops' | 'lines' | 'bus' | 'cameras', payload: unknown): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const id = nextId++
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
@@ -49,4 +49,8 @@ export function fetchTransitLinesInWorker(bbox: string): Promise<LineResult[]> {
 
 export function fetchBusLinesInWorker(bbox: string): Promise<BusLineResult[]> {
   return call<BusLineResult[]>('bus', { bbox })
+}
+
+export function fetchCamerasInWorker(bbox: string): Promise<CameraResult[]> {
+  return call<CameraResult[]>('cameras', { bbox })
 }

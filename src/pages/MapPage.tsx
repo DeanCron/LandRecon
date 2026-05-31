@@ -6,7 +6,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
-import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker } from '../workers/overpassClient'
+import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker, fetchCamerasInWorker } from '../workers/overpassClient'
 const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
@@ -512,6 +512,46 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 // (see src/workers/overpassWorker.ts). The main thread only receives the
 // parsed, typed payload and creates the Leaflet polylines / markers.
 
+// ALPR (automatic license plate reader) cameras. Flock Safety gets its own
+// color because it's the most-deployed brand and the namesake of the
+// DeFlock crowdsourcing project that supplies most of the underlying OSM
+// tags. Everything else (Motorola Vigilant, Genetec, Rekor, etc.) shares
+// a single neutral color.
+const CAMERA_COLORS = { flock: '#dc2626', other: '#6b7280' } as const
+
+interface CameraRecord {
+  id: string
+  lat: number
+  lon: number
+  manufacturer: string
+  operator: string
+  direction: string
+  isFlock: boolean
+}
+
+function cameraPopup(c: CameraRecord): string {
+  const label = c.isFlock ? 'Flock Safety ALPR' : (c.manufacturer ? `${c.manufacturer} ALPR` : 'ALPR camera')
+  const color = c.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
+  const rows: string[] = []
+  if (c.operator) rows.push(`<div><strong>Operator:</strong> ${escapeHtml(c.operator)}</div>`)
+  if (c.direction) rows.push(`<div><strong>Direction:</strong> ${escapeHtml(c.direction)}</div>`)
+  const nodeId = c.id.replace(/^node\//, '')
+  return `
+    <div class="transit-popup">
+      <div class="transit-popup-title" style="color:${color}">${label}</div>
+      ${rows.join('')}
+      <div class="camera-popup-source">
+        Source: <a href="https://www.openstreetmap.org/node/${nodeId}" target="_blank" rel="noopener noreferrer">OSM node ${nodeId}</a>
+        &middot; <a href="https://deflock.me/" target="_blank" rel="noopener noreferrer">DeFlock</a>
+      </div>
+    </div>
+  `.trim()
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+}
+
 function transitPopup(stop: TransitStop): string {
   const label = TRANSIT_LABELS[stop.type]
   const color = TRANSIT_COLORS[stop.type]
@@ -606,7 +646,7 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd', 'cameras'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -617,11 +657,12 @@ type LayerStateSnapshot = {
   datacenters: boolean
   ems: boolean
   crowd: boolean
+  cameras: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, transit: false, traffic: false,
-  costco: false, datacenters: false, ems: false, crowd: false,
+  costco: false, datacenters: false, ems: false, crowd: false, cameras: false,
 }
 
 interface LayerPreset {
@@ -1088,6 +1129,12 @@ function MapPage() {
   const transitStopsKnownIdsRef = useRef<Set<string>>(new Set())
   const transitStopsLoadingRef = useRef(false)
   const transitBusStopsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  // ALPR camera layer (Flock + other manufacturers) — sourced from OSM via
+  // the DeFlock crowdsourcing project. Single cluster, no sub-types.
+  const camerasLayerRef = useRef<L.LayerGroup | null>(null)
+  const camerasLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const camerasKnownIdsRef = useRef<Set<string>>(new Set())
+  const camerasLoadingRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
   // Monotonic counter so an in-flight analysis can detect that the user has
   // since kicked off a newer one and silently discard its (now-stale) results.
@@ -1112,6 +1159,9 @@ function MapPage() {
   const [emsLoading, setEmsLoading] = useState(false)
   const [crowdVisible, setCrowdVisible] = useState(false)
   const [crowdLoading, setCrowdLoading] = useState(false)
+  const [camerasVisible, setCamerasVisible] = useState(false)
+  const [camerasLoading, setCamerasLoading] = useState(false)
+  const [camerasStatus, setCamerasStatus] = useState<{ kind: 'loading' | 'error' | 'empty'; text: string } | null>(null)
   // Voting districts — experimental layer set; each chamber loads lazily on
   // first toggle and is cached on the L.Map afterward.
   const districtLayerRefs = useRef<Record<DistrictLayerId, L.GeoJSON | null>>({
@@ -1504,10 +1554,11 @@ function MapPage() {
     if (dataCenterVisible) active.push('datacenters')
     if (emsVisible) active.push('ems')
     if (crowdVisible) active.push('crowd')
+    if (camerasVisible) active.push('cameras')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1518,7 +1569,7 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
     })
   }, [buildShareUrl, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
 
@@ -1534,6 +1585,7 @@ function MapPage() {
     datacenters: dataCenterVisible,
     ems: emsVisible,
     crowd: crowdVisible,
+    cameras: camerasVisible,
   })
   useEffect(() => {
     const next: Record<string, boolean> = {
@@ -1545,6 +1597,7 @@ function MapPage() {
       datacenters: dataCenterVisible,
       ems: emsVisible,
       crowd: crowdVisible,
+      cameras: camerasVisible,
     }
     const prev = prevLayerStateRef.current
     for (const k of Object.keys(next)) {
@@ -1553,7 +1606,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
+  }, [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2688,6 +2741,8 @@ function MapPage() {
 
         crowdLayerRef.current = L.layerGroup()
 
+        camerasLayerRef.current = L.layerGroup()
+
         // Analysis-highlight layer groups: added to the map immediately so
         // the analysis effect can drop pins into them without touching the
         // user-toggleable main layers above. Empty until analysis runs.
@@ -2792,6 +2847,9 @@ function MapPage() {
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
       crowdKnownIdsRef.current.clear()
+      camerasLayerRef.current = null
+      camerasLoadedBoundsRef.current = null
+      camerasKnownIdsRef.current.clear()
       superfundAnalysisLayerRef.current = null
       costcoAnalysisLayerRef.current = null
       dataCenterAnalysisLayerRef.current = null
@@ -3151,6 +3209,111 @@ function MapPage() {
       map.on('moveend', handleEmsMove)
     }
     setEmsVisible(!emsVisible)
+  }
+
+  // ── ALPR camera layer (Flock + others, sourced from OSM/DeFlock) ──
+  // Same shape as loadTransitData but with a single cluster group and no
+  // sub-types. Bbox-cached so panning within a previously-loaded area
+  // doesn't re-query Overpass.
+  const loadCamerasData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
+    if (camerasLoadingRef.current) return true
+    if (map.getZoom() < 10) {
+      setCamerasStatus({ kind: 'empty', text: 'Zoom in to load cameras' })
+      return true
+    }
+
+    let bounds = map.getBounds().pad(0.3)
+    const latSpan = bounds.getNorth() - bounds.getSouth()
+    const lngSpan = bounds.getEast() - bounds.getWest()
+    const MAX_SPAN_DEG = 0.5
+    if (latSpan > MAX_SPAN_DEG || lngSpan > MAX_SPAN_DEG) {
+      const c = map.getCenter()
+      const half = MAX_SPAN_DEG / 2
+      bounds = L.latLngBounds([c.lat - half, c.lng - half], [c.lat + half, c.lng + half])
+    }
+
+    const loaded = camerasLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('cameras', 'Skipping — bounds already loaded'); return true }
+
+    dbg('cameras', 'Loading ALPR cameras…')
+    camerasLoadingRef.current = true
+    setCamerasLoading(true)
+    setCamerasStatus({ kind: 'loading', text: 'Loading cameras…' })
+
+    let ok = true
+    try {
+      const sw = bounds.getSouthWest()
+      const ne = bounds.getNorthEast()
+      const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+      const cameras = await fetchCamerasInWorker(bbox)
+
+      // Lazy-create the cluster on first load. Use the Flock red as the
+      // cluster bubble color since it's the most visually obvious.
+      let cluster = layer.getLayers()[0] as L.LayerGroup | undefined
+      if (!cluster) {
+        cluster = await createClusterGroup(CAMERA_COLORS.flock)
+        cluster.addTo(layer)
+      }
+
+      const known = camerasKnownIdsRef.current
+      let added = 0
+      for (const cam of cameras) {
+        if (known.has(cam.id)) continue
+        known.add(cam.id)
+        const color = cam.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
+        L.marker([cam.lat, cam.lon], { icon: makeDotIcon(color, 12) })
+          .bindPopup(cameraPopup(cam), { maxWidth: 280 })
+          .addTo(cluster)
+        added++
+      }
+
+      camerasLoadedBoundsRef.current = loaded
+        ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
+        : bounds
+      dbg('cameras', `Added ${added} new cameras (total known: ${known.size})`)
+      if (known.size === 0) {
+        setCamerasStatus({ kind: 'empty', text: 'No mapped ALPR cameras in this area' })
+      } else {
+        setCamerasStatus(null)
+      }
+    } catch (err) {
+      console.warn('Camera fetch failed:', err)
+      setCamerasStatus({ kind: 'error', text: 'Failed to load cameras' })
+      ok = false
+    } finally {
+      camerasLoadingRef.current = false
+      setCamerasLoading(false)
+    }
+    return ok
+  }, [])
+
+  const handleCamerasMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = camerasLayerRef.current
+      if (map && layer) loadCamerasData(map, layer)
+    }, 250),
+    [loadCamerasData],
+  )
+
+  const toggleCameras = () => {
+    const map = mapRef.current
+    const layer = camerasLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `cameras → ${camerasVisible ? 'OFF' : 'ON'}`)
+    if (camerasVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleCamerasMove)
+      layer.clearLayers()
+      camerasLoadedBoundsRef.current = null
+      camerasKnownIdsRef.current.clear()
+      setCamerasStatus(null)
+    } else {
+      layer.addTo(map)
+      loadCamerasData(map, layer)
+      map.on('moveend', handleCamerasMove)
+    }
+    setCamerasVisible(!camerasVisible)
   }
 
   const toggleEmsSub = (type: EmsType) => {
@@ -3594,6 +3757,7 @@ function MapPage() {
     datacenters: dataCenterVisible,
     ems: emsVisible,
     crowd: crowdVisible,
+    cameras: camerasVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -3606,6 +3770,7 @@ function MapPage() {
       && s.datacenters === currentLayerSnapshot.datacenters
       && s.ems === currentLayerSnapshot.ems
       && s.crowd === currentLayerSnapshot.crowd
+      && s.cameras === currentLayerSnapshot.cameras
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -3623,6 +3788,7 @@ function MapPage() {
     setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
     setLayer(emsVisible, toggleEms, preset.state.ems)
     setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
+    setLayer(camerasVisible, toggleCameras, preset.state.cameras)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -3647,6 +3813,7 @@ function MapPage() {
     if (requested.has('datacenters')) toggleDataCenters()
     if (requested.has('ems')) toggleEms()
     if (requested.has('crowd')) toggleCrowd()
+    if (requested.has('cameras')) toggleCameras()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -4347,6 +4514,39 @@ function MapPage() {
                     <span style={{ opacity: crowdSubVisible[t] ? 1 : 0.5 }}>{CROWD_ICONS[t]} {CROWD_LABELS[t]}</span>
                   </label>
                 ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={camerasVisible}
+                onChange={toggleCameras}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                ALPR Cameras
+                {camerasLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {camerasVisible && (
+              <div className="dc-legend">
+                <label className="transit-sub-toggle" style={{ pointerEvents: 'none' }}>
+                  <span className="legend-dot" style={{ background: CAMERA_COLORS.flock }} />
+                  <span>Flock Safety</span>
+                </label>
+                <label className="transit-sub-toggle" style={{ pointerEvents: 'none' }}>
+                  <span className="legend-dot" style={{ background: CAMERA_COLORS.other }} />
+                  <span>Other ALPR brands</span>
+                </label>
+                {camerasStatus && (
+                  <div className="camera-status">
+                    {camerasStatus.text}
+                  </div>
+                )}
+                <div className="camera-attribution">
+                  Source: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors via <a href="https://deflock.me/" target="_blank" rel="noopener noreferrer">DeFlock</a>. Coverage varies by region.
+                </div>
               </div>
             )}
           </div>

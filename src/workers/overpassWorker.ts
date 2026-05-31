@@ -19,7 +19,18 @@ export interface StopResult { id: string; stop: { lat: number; lon: number; name
 export interface LineResult { id: string; type: TransitLineType; coords: [number, number][] }
 export interface BusLineResult { id: string; coords: [number, number][] }
 
-type Kind = 'stops' | 'lines' | 'bus'
+export interface CameraResult {
+  id: string
+  lat: number
+  lon: number
+  manufacturer: string
+  operator: string
+  direction: string
+  isFlock: boolean
+  tags: Record<string, string>
+}
+
+type Kind = 'stops' | 'lines' | 'bus' | 'cameras'
 
 interface InMsg { id: number; kind: Kind; payload: unknown }
 interface OutMsg<T = unknown> { id: number; ok: boolean; result?: T; error?: string }
@@ -108,6 +119,43 @@ async function handleBus(p: { bbox: string }): Promise<BusLineResult[]> {
   return out
 }
 
+async function handleCameras(p: { bbox: string }): Promise<CameraResult[]> {
+  // ALPR cameras as tagged in OpenStreetMap by the DeFlock project and
+  // other contributors. Three clauses to catch the common tag variants.
+  const query =
+    `[out:json][timeout:25];` +
+    `(` +
+    `node["man_made"="surveillance"]["surveillance:type"~"^ALPR$",i](${p.bbox});` +
+    `node["man_made"="surveillance"]["camera:type"~"^ALPR$",i](${p.bbox});` +
+    `node["surveillance:type"~"^ALPR$",i](${p.bbox});` +
+    `);` +
+    `out;`
+  const data = await postOverpass(query)
+  const out: CameraResult[] = []
+  const seen = new Set<string>()
+  for (const raw of (data.elements || [])) {
+    const el = raw as { type?: string; id?: number; lat?: number; lon?: number; tags?: Record<string, string> }
+    if (el.type !== 'node' || typeof el.lat !== 'number' || typeof el.lon !== 'number' || typeof el.id !== 'number') continue
+    const id = `node/${el.id}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    const tags = el.tags || {}
+    const manufacturer = tags.manufacturer || tags.brand || ''
+    const isFlock = /flock/i.test(manufacturer)
+    out.push({
+      id,
+      lat: el.lat,
+      lon: el.lon,
+      manufacturer,
+      operator: tags.operator || '',
+      direction: tags.direction || '',
+      isFlock,
+      tags,
+    })
+  }
+  return out
+}
+
 self.onmessage = async (ev: MessageEvent<InMsg>) => {
   const { id, kind, payload } = ev.data
   try {
@@ -115,6 +163,7 @@ self.onmessage = async (ev: MessageEvent<InMsg>) => {
     if (kind === 'stops') result = await handleStops(payload as { bbox: string; rail: boolean; bus: boolean })
     else if (kind === 'lines') result = await handleLines(payload as { bbox: string })
     else if (kind === 'bus') result = await handleBus(payload as { bbox: string })
+    else if (kind === 'cameras') result = await handleCameras(payload as { bbox: string })
     else throw new Error(`Unknown kind: ${String(kind)}`)
     const msg: OutMsg = { id, ok: true, result }
     self.postMessage(msg)
