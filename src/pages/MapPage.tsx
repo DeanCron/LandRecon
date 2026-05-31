@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
-import GuidedTour from '../components/GuidedTour'
+const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
 import { trackEvent } from '../utils/analytics'
@@ -1014,7 +1013,20 @@ function computeLocationGrade(results: {
   return { letter: 'F', color: '#ef5350', severity: 'danger', pct, breakdown }
 }
 
-function createClusterGroup(color?: string): L.MarkerClusterGroup {
+// leaflet.markercluster is a side-effect plugin that extends the L.* namespace.
+// Defer loading it until a layer that needs clustering is enabled, so it
+// doesn't sit in the initial MapPage chunk for users who never toggle a
+// cluster layer. The promise is cached so subsequent calls are free.
+let markerClusterPromise: Promise<void> | null = null
+function ensureMarkerCluster(): Promise<void> {
+  if (!markerClusterPromise) {
+    markerClusterPromise = import('leaflet.markercluster').then(() => undefined)
+  }
+  return markerClusterPromise
+}
+
+async function createClusterGroup(color?: string): Promise<L.MarkerClusterGroup> {
+  await ensureMarkerCluster()
   return L.markerClusterGroup({
     maxClusterRadius: 40,
     disableClusteringAtZoom: 14,
@@ -1960,12 +1972,13 @@ function MapPage() {
 
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
-        subLayers = {
-          rail: createClusterGroup(TRANSIT_COLORS.rail),
-          subway: createClusterGroup(TRANSIT_COLORS.subway),
-          tram: createClusterGroup(TRANSIT_COLORS.tram),
-          bus: createClusterGroup(TRANSIT_COLORS.bus),
-        }
+        const [rail, subway, tram, bus] = await Promise.all([
+          createClusterGroup(TRANSIT_COLORS.rail),
+          createClusterGroup(TRANSIT_COLORS.subway),
+          createClusterGroup(TRANSIT_COLORS.tram),
+          createClusterGroup(TRANSIT_COLORS.bus),
+        ])
+        subLayers = { rail, subway, tram, bus }
         transitSubLayersRef.current = subLayers
         for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
           if (transitSubVisibleRef.current[t]) {
@@ -2908,7 +2921,7 @@ function MapPage() {
     if (!subLayers) {
       subLayers = {} as Record<string, L.LayerGroup>
       for (const s of DC_STATUSES) {
-        subLayers[s] = createClusterGroup(DC_STATUS_COLORS[s])
+        subLayers[s] = await createClusterGroup(DC_STATUS_COLORS[s])
       }
       dataCenterSubLayersRef.current = subLayers
       for (const s of DC_STATUSES) {
@@ -3014,7 +3027,7 @@ function MapPage() {
       let subLayers = emsSubLayersRef.current
       if (!subLayers) {
         subLayers = {} as Record<EmsType, L.LayerGroup>
-        for (const t of EMS_TYPES) subLayers[t] = createClusterGroup(EMS_COLORS[t])
+        for (const t of EMS_TYPES) subLayers[t] = await createClusterGroup(EMS_COLORS[t])
         emsSubLayersRef.current = subLayers
         for (const t of EMS_TYPES) {
           if (emsSubVisibleRef.current[t]) subLayers[t].addTo(layer)
@@ -5399,7 +5412,8 @@ function MapPage() {
       )}
 
       {status === 'ready' && (
-        <GuidedTour
+        <Suspense fallback={null}>
+          <GuidedTour
           key={tourReplayKey}
           storageKey="lr_tour_done"
           forceShow={tourReplayKey > 0}
@@ -5449,6 +5463,7 @@ function MapPage() {
             },
           ]}
         />
+        </Suspense>
       )}
 
     </div>
