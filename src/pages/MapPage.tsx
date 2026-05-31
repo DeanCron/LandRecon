@@ -3245,6 +3245,7 @@ function MapPage() {
   const loadCamerasData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
     if (camerasLoadingRef.current) return true
     if (map.getZoom() < 10) {
+      dbg('cameras', `Skipping — zoom ${map.getZoom()} below threshold (10)`)
       setCamerasStatus({ kind: 'empty', text: 'Zoom in to load cameras' })
       return true
     }
@@ -3257,6 +3258,7 @@ function MapPage() {
       const c = map.getCenter()
       const half = MAX_SPAN_DEG / 2
       bounds = L.latLngBounds([c.lat - half, c.lng - half], [c.lat + half, c.lng + half])
+      dbg('cameras', `Bbox span exceeded ${MAX_SPAN_DEG}° — clamped to ${MAX_SPAN_DEG}° around center`)
     }
 
     const loaded = camerasLoadedBoundsRef.current
@@ -3273,17 +3275,21 @@ function MapPage() {
       const ne = bounds.getNorthEast()
       const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
       const cameras = await fetchCamerasInWorker(bbox)
+      dbg('cameras', `Worker returned ${cameras.length} cameras for bbox=${bbox}`)
 
-      // Lazy-create the cluster on first load. Use the Flock red as the
+      // Lazy-create the cluster on first load. Use the Flock magenta as the
       // cluster bubble color since it's the most visually obvious.
       let cluster = layer.getLayers()[0] as L.LayerGroup | undefined
       if (!cluster) {
         cluster = await createClusterGroup(CAMERA_COLORS.flock)
         cluster.addTo(layer)
+        dbg('cameras', 'Created cluster group')
       }
 
       const known = camerasKnownIdsRef.current
       let added = 0
+      let flockAdded = 0
+      let withDirection = 0
       for (const cam of cameras) {
         if (known.has(cam.id)) continue
         known.add(cam.id)
@@ -3292,12 +3298,14 @@ function MapPage() {
           .bindPopup(cameraPopup(cam), { maxWidth: 280 })
           .addTo(cluster)
         added++
+        if (cam.isFlock) flockAdded++
+        if (cam.direction && /^-?\d+(\.\d+)?$/.test(cam.direction)) withDirection++
       }
 
       camerasLoadedBoundsRef.current = loaded
         ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
         : bounds
-      dbg('cameras', `Added ${added} new cameras (total known: ${known.size})`)
+      dbg('cameras', `Added ${added} new (${flockAdded} Flock, ${added - flockAdded} other, ${withDirection} with direction); total known: ${known.size}`)
       if (known.size === 0) {
         setCamerasStatus({ kind: 'empty', text: 'No mapped ALPR cameras in this area' })
       } else {
@@ -3305,6 +3313,7 @@ function MapPage() {
       }
     } catch (err) {
       console.warn('Camera fetch failed:', err)
+      dbg('cameras', 'Fetch failed:', err)
       setCamerasStatus({ kind: 'error', text: 'Failed to load cameras' })
       ok = false
     } finally {
