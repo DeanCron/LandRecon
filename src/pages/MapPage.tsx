@@ -4808,7 +4808,7 @@ function MapPage() {
         )}
       </aside>
 
-      {/* Neighborhood Report Panel */}
+      {/* Recon Report Panel */}
       <aside
         ref={sheetRef}
         className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}
@@ -4823,7 +4823,7 @@ function MapPage() {
           <div className="analysis-drag-bar" />
         </div>
         <div className="analysis-header">
-          <h2>Neighborhood Report</h2>
+          <h2>Recon Report</h2>
           <div className="analysis-header-actions">
             <button
               className="analysis-action-btn"
@@ -4920,7 +4920,7 @@ function MapPage() {
           )
         })()}
         <div className="analysis-print-header">
-          <h1>LandRecon — Neighborhood Report</h1>
+          <h1>LandRecon — Recon Report</h1>
           <p>{address}</p>
           <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
         </div>
@@ -5743,7 +5743,7 @@ function MapPage() {
             },
             {
               selector: '.analysis-panel',
-              title: '📊 Neighborhood Report',
+              title: '📊 Recon Report',
               content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout.',
               position: 'left',
               beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) },
