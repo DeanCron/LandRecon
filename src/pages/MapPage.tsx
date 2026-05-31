@@ -523,6 +523,56 @@ const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
 // is never mistaken for transit, EMS, data centers, or crowd magnets.
 const CAMERA_COLORS = { flock: '#db2777', other: '#7c3aed' } as const
 
+// Daily CONUS snapshot of ALPR cameras, hydrated by
+// .github/workflows/snapshot-cameras.yml and served from Azure Blob with
+// Content-Encoding: gzip (browser auto-decompresses). The client prefers
+// this over per-bbox live Overpass calls whenever the map center is inside
+// CONUS — collapses dozens of pan-driven 1–5s Overpass calls into one
+// CDN-cached fetch held in module-scope memory for the page session.
+const CAMERAS_SNAPSHOT_URL =
+  'https://landreconstorage.blob.core.windows.net/snapshots/cameras-us.json'
+const CAMERAS_CONUS_BOUNDS: [[number, number], [number, number]] = [
+  [24.5, -125.0],
+  [49.4, -66.9],
+]
+
+interface CameraSnapshot {
+  version: number
+  generated_at: string
+  region: string
+  bbox: number[]
+  count: number
+  cameras: CameraRecord[]
+}
+
+let camerasSnapshotCache: CameraSnapshot | null = null
+let camerasSnapshotPromise: Promise<CameraSnapshot | null> | null = null
+
+async function loadCamerasSnapshot(
+  log: (msg: string, ...rest: unknown[]) => void,
+): Promise<CameraSnapshot | null> {
+  if (camerasSnapshotCache) return camerasSnapshotCache
+  if (camerasSnapshotPromise) return camerasSnapshotPromise
+  camerasSnapshotPromise = (async () => {
+    const t0 = performance.now()
+    try {
+      const res = await fetch(CAMERAS_SNAPSHOT_URL, { cache: 'force-cache' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const snap = (await res.json()) as CameraSnapshot
+      camerasSnapshotCache = snap
+      log(
+        `Snapshot loaded in ${(performance.now() - t0).toFixed(0)}ms — ${snap.count} cameras, generated ${snap.generated_at}`,
+      )
+      return snap
+    } catch (err) {
+      log('Snapshot fetch failed; will fall back to live Overpass:', err)
+      camerasSnapshotPromise = null
+      return null
+    }
+  })()
+  return camerasSnapshotPromise
+}
+
 interface CameraRecord {
   id: string
   lat: number
@@ -3274,8 +3324,30 @@ function MapPage() {
       const sw = bounds.getSouthWest()
       const ne = bounds.getNorthEast()
       const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
-      const cameras = await fetchCamerasInWorker(bbox)
-      dbg('cameras', `Worker returned ${cameras.length} cameras for bbox=${bbox}`)
+
+      // Prefer the daily CONUS snapshot when the map center is inside the
+      // contiguous US — collapses a per-bbox Overpass round-trip into one
+      // page-lifetime fetch of a ~1–2 MB gzipped JSON served from CDN.
+      // Falls back to live Overpass on snapshot fetch failure or whenever
+      // the user is panning outside CONUS.
+      const center = map.getCenter()
+      const conus = L.latLngBounds(CAMERAS_CONUS_BOUNDS)
+      let cameras: CameraRecord[] = []
+      let source: 'snapshot' | 'live' = 'live'
+
+      if (conus.contains(center)) {
+        const snap = await loadCamerasSnapshot((msg, ...rest) => dbg('cameras', msg, ...rest))
+        if (snap) {
+          cameras = snap.cameras.filter((c) => bounds.contains([c.lat, c.lon] as L.LatLngTuple))
+          source = 'snapshot'
+          dbg('cameras', `Snapshot match: ${cameras.length} cameras in viewport (of ${snap.count} CONUS total)`)
+        }
+      }
+
+      if (source === 'live') {
+        cameras = await fetchCamerasInWorker(bbox)
+        dbg('cameras', `Worker returned ${cameras.length} cameras for bbox=${bbox}`)
+      }
 
       // Lazy-create the cluster on first load. Use the Flock magenta as the
       // cluster bubble color since it's the most visually obvious.
@@ -3305,7 +3377,7 @@ function MapPage() {
       camerasLoadedBoundsRef.current = loaded
         ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
         : bounds
-      dbg('cameras', `Added ${added} new (${flockAdded} Flock, ${added - flockAdded} other, ${withDirection} with direction); total known: ${known.size}`)
+      dbg('cameras', `[${source}] Added ${added} new (${flockAdded} Flock, ${added - flockAdded} other, ${withDirection} with direction); total known: ${known.size}`)
       if (known.size === 0) {
         setCamerasStatus({ kind: 'empty', text: 'No mapped ALPR cameras in this area' })
       } else {
