@@ -81,6 +81,28 @@ function HomePage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [recentOpen])
 
+  // Warm the MapPage + heavy noise chunk while the user is reading the home
+  // screen, so clicking through feels instant. requestIdleCallback delays it
+  // past first paint; the dynamic imports hit the SW precache on revisits
+  // and pull from the network on first visits. Browsers without RIC fall
+  // back to a 1.5s setTimeout.
+  useEffect(() => {
+    const prefetch = () => {
+      import('./MapPage').catch(() => undefined)
+      import('../noise/airportNoise').catch(() => undefined)
+    }
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
+    if (typeof ric === 'function') {
+      const id = ric(prefetch, { timeout: 3000 })
+      return () => {
+        const cic = (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback
+        if (typeof cic === 'function') cic(id)
+      }
+    }
+    const id = window.setTimeout(prefetch, 1500)
+    return () => window.clearTimeout(id)
+  }, [])
+
   const goToAddress = (value: string, source: 'typed' | 'suggestion' | 'locate' | 'recent' | 'saved' = 'typed') => {
     const trimmed = value.trim()
     if (!trimmed) return
