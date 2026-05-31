@@ -13,6 +13,37 @@
     <meta name="apple-mobile-web-app-title" content="Land Recon" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="application-name" content="Land Recon" />
+
+    <!-- Search + sharing surface text. The OG/Twitter tags below upgrade
+         pasted links (iMessage, Slack, Discord, Twitter, Facebook, LinkedIn)
+         from a bare URL into a card with the og-image preview + this title
+         and description. SPA URL params change client-side but crawlers
+         only ever see this base index.html, so previews are brand-level
+         (not address-personalized).
+
+         og:image MUST be an absolute URL for Apple's iMessage Link
+         Preview (and a few older crawlers) to render the card. Update
+         the hostname here when a custom domain is wired up. -->
+    <meta name="description" content="Neighborhood land intelligence — airport noise, Superfunds, transit, traffic, cameras, and more on one interactive map." />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Land Recon" />
+    <meta property="og:title" content="Land Recon — Neighborhood land intelligence" />
+    <meta property="og:description" content="Airport noise, Superfunds, transit, traffic, cameras, data centers, and crowd magnets — all on one interactive map." />
+    <meta property="og:url" content="https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/" />
+    <meta property="og:image" content="https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="Land Recon — a reticle logo over a subtle map grid scattered with location pins." />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Land Recon — Neighborhood land intelligence" />
+    <meta name="twitter:description" content="Airport noise, Superfunds, transit, traffic, cameras, data centers, and crowd magnets — all on one interactive map." />
+    <meta name="twitter:image" content="https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/og-image.png" />
+    <meta name="twitter:image:alt" content="Land Recon — a reticle logo over a subtle map grid scattered with location pins." />
+
     <link rel="preconnect" href="https://maps.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://tile.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://api.tomtom.com" crossorigin />
@@ -20,7 +51,7 @@
     <link rel="dns-prefetch" href="https://maps.googleapis.com" />
     <link rel="dns-prefetch" href="https://tile.googleapis.com" />
     <link rel="dns-prefetch" href="https://api.tomtom.com" />
-    <title>Land Recon</title>
+    <title>Land Recon — Neighborhood land intelligence</title>
   </head>
   <body>
     <div id="root"></div>

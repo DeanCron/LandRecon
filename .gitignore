@@ -32,3 +32,4 @@ build/
 # Python build artifacts
 __pycache__/
 *.pyc
+scripts/generate-og-image.preview.svg
