@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:districts": "node scripts/build-districts.mjs"
+    "build:districts": "node scripts/build-districts.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",

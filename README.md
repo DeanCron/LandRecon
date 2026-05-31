@@ -37,7 +37,9 @@ server/
   dev-todos.mjs         # Dev todo list sidecar
 scripts/
   generate-og-image.mjs # Build-time brand-level og-image.png
-  lib/conus-crawl.mjs   # Overpass crawler with 3-endpoint rotation
+smoke-test.mjs        # 100-address production smoke test (see below)
+smoke-addresses.json  # Curated address fixtures (urban / suburban / rural)
+lib/conus-crawl.mjs   # Overpass crawler with 3-endpoint rotation
 nginx.conf              # UA-fork: crawlers on /map get sidecar HTML with per-URL OG tags
 Dockerfile              # Multi-stage; runtime installs sharp + DejaVu fonts on Alpine
 entrypoint.sh           # Launches og.mjs + dev-todos.mjs, execs nginx as PID 1
@@ -68,3 +70,26 @@ on demand:
   Logs are tagged: `[LR:geocode]`, `[LR:tiles]`, `[LR:cameras]`, etc.
 - **OG sidecar** — set `LR_DEBUG_OG=1` (or `LR_DEBUG=1`) on the container.
   Each request logs `[og] png HIT/MISS addr=… layers=N base=… bytes=… 97ms ua=…`.
+
+## Smoke Tests
+
+`scripts/smoke-test.mjs` exercises the live deployment end-to-end with 100
+real US addresses curated across urban downtowns, suburban office parks, and
+rural towns (`scripts/smoke-addresses.json`). For each address it hits
+`/map` (browser UA), `/map` (crawler UA — verifying `og:title`, `og:image`,
+`og:image:secure_url`, `og:url` are rewritten and `https://`), and
+`/og.png` (verifying image/png with sane byte size). Pre-flight also
+probes `/`, `/og-image.png`, and each of the four nightly Azure snapshot
+blobs (must be ≤48 h old). With `VITE_TOMTOM_API_KEY` set, it adds a
+TomTom forward-geocode check per address.
+
+```bash
+npm run smoke                                       # full run against prod
+npm run smoke -- --only=rural --limit=5             # quick rural sample
+npm run smoke -- --target=http://localhost:8080     # against local container
+npm run smoke -- --skip-snapshots --skip-tomtom     # minimal mode
+node scripts/smoke-test.mjs --help                  # all flags
+```
+
+Exit code is `0` if every check passes, `1` otherwise. A full per-address
+report is written to `scripts/smoke-test-results.json`.
