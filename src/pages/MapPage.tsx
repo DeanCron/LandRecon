@@ -1791,10 +1791,23 @@ function MapPage() {
   // target, which placed the center halfway between them and zoomed way
   // out when the target was far away. The user always wants the clicked
   // location centered, not a home-vs-target overview.
+  //
+  // On mobile the analysis popout is a fullscreen sheet — leaving it open
+  // after a "Show on map" tap would hide the very pin we're trying to
+  // reveal. Dismiss the popout + side drawer and skip the close-restore
+  // (the user explicitly chose this new location, don't snap them back).
   const flyToWithAddress = useCallback((lat: number, lng: number) => {
     const map = mapRef.current
     if (!map) return
-    if (!savedMapViewRef.current) {
+    const isMobile = typeof window !== 'undefined'
+      && window.matchMedia('(max-width: 768px)').matches
+    if (isMobile) {
+      savedMapViewRef.current = null
+      setAnalysisDetail(null)
+      setAnalysisPanelOpen(false)
+      setLayerPanelOpen(false)
+      setSheetHeight(null)
+    } else if (!savedMapViewRef.current) {
       savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
     }
     map.flyTo([lat, lng], 15, { duration: 0.5 })
@@ -5637,13 +5650,9 @@ function MapPage() {
                         <button
                           className="analysis-flyto-link"
                           onClick={() => {
-                            const map = mapRef.current
                             const er = analysisResults.nearestER
-                            if (!map || !er) return
-                            if (!savedMapViewRef.current) {
-                              savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
-                            }
-                            map.flyTo([er.lat, er.lng], 15, { duration: 0.5 })
+                            if (!er) return
+                            flyToWithAddress(er.lat, er.lng)
                           }}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
