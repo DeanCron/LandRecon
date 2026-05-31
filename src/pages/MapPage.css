@@ -1537,7 +1537,8 @@
   line-height: 1.4;
 }
 
-.analysis-drag-handle {
+.analysis-drag-handle,
+.layer-drag-handle {
   display: none;
 }
 
@@ -2227,6 +2228,22 @@
   opacity: 0.9;
 }
 
+/* On platforms that expose navigator.share, surface the native button as
+ * the primary action and demote "Copy link" to a secondary outline button. */
+.share-native-button {
+  background: var(--color-primary);
+  color: white;
+}
+
+.share-modal-actions .share-copy-button:not(.share-native-button) {
+  background: transparent;
+  color: var(--color-primary);
+}
+.share-modal-actions:not(:has(.share-native-button)) .share-copy-button {
+  background: var(--color-primary);
+  color: white;
+}
+
 .share-open-link {
   font-size: 0.85rem;
   color: var(--color-primary);
@@ -2462,12 +2479,25 @@
     touch-action: none;
   }
 
-  .analysis-drag-bar {
+  .analysis-drag-bar,
+  .layer-drag-bar {
     width: 36px;
     height: 4px;
     border-radius: 2px;
     background: var(--color-text-muted);
     opacity: 0.4;
+  }
+
+  /* Drag-to-dismiss affordance at the top of the layer-panel bottom sheet.
+   * Mirrors the analysis-panel drag handle but only supports swipe-down to
+   * close (no peek/expand snap-points). */
+  .layer-drag-handle {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 6px;
+    margin: -8px -16px 4px;
+    cursor: grab;
+    touch-action: none;
   }
 
   /* Close button inside panels */

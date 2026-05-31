@@ -547,6 +547,15 @@
   .home-saved-date {
     display: none;
   }
+
+  /* Bump sub-13px labels to readable sizes on phones. Desktop keeps the
+   * tighter visual rhythm; phones get something closer to body text. */
+  .home-input-hint,
+  .home-recent-grade,
+  .home-recent-tag,
+  .home-recent-pill {
+    font-size: 0.85rem;
+  }
 }
 
 /* Homepage footer */

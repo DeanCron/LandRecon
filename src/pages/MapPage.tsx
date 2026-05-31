@@ -1275,6 +1275,44 @@ function MapPage() {
   const SHEET_SNAP_HALF = 50
   const SHEET_SNAP_FULL = 85
 
+  // Generic swipe-to-dismiss for the layer panel (single snap point at 0).
+  // Translates the sheet down with the user's finger; on release, dismisses
+  // if dragged past 25% of its own height or thrown with high velocity.
+  const layerSheetRef = useRef<HTMLElement>(null)
+  const layerDragRef = useRef<{ startY: number; startT: number } | null>(null)
+  const handleLayerTouchStart = useCallback((e: React.TouchEvent) => {
+    layerDragRef.current = { startY: e.touches[0].clientY, startT: Date.now() }
+  }, [])
+  const handleLayerTouchMove = useCallback((e: React.TouchEvent) => {
+    const drag = layerDragRef.current
+    if (!drag) return
+    const dy = e.touches[0].clientY - drag.startY
+    if (dy <= 0) {
+      if (layerSheetRef.current) layerSheetRef.current.style.transform = ''
+      return
+    }
+    if (layerSheetRef.current) {
+      layerSheetRef.current.style.transition = 'none'
+      layerSheetRef.current.style.transform = `translateY(${dy}px)`
+    }
+  }, [])
+  const handleLayerTouchEnd = useCallback((e: React.TouchEvent) => {
+    const drag = layerDragRef.current
+    if (!drag) return
+    const dy = e.changedTouches[0].clientY - drag.startY
+    const dt = Date.now() - drag.startT
+    const velocity = dy / Math.max(dt, 1) // px/ms downward
+    const h = layerSheetRef.current?.getBoundingClientRect().height ?? 1
+    layerDragRef.current = null
+    if (layerSheetRef.current) {
+      layerSheetRef.current.style.transition = ''
+      layerSheetRef.current.style.transform = ''
+    }
+    if (dy > h * 0.25 || velocity > 0.6) {
+      setLayerPanelOpen(false)
+    }
+  }, [])
+
   const handleSheetTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0]
     sheetDragRef.current = { startY: touch.clientY, startH: sheetHeight ?? SHEET_SNAP_HALF }
@@ -1583,6 +1621,30 @@ function MapPage() {
       setShareError('Clipboard access denied — please copy manually.')
     }
   }, [shareUrl, shareLongUrl])
+
+  // Native Web Share — only available on secure contexts with a system
+  // share sheet (iOS Safari, most modern Android Chromes). Silently ignore
+  // user-cancellation; report any other error as a fallback to copy.
+  const handleNativeShare = useCallback(async () => {
+    const value = shareUrl || shareLongUrl
+    if (!value || typeof navigator.share !== 'function') return
+    try {
+      await navigator.share({
+        title: 'Land Recon',
+        text: address ? `Land Recon — ${address}` : 'Land Recon map view',
+        url: value,
+      })
+      trackEvent('share_native', { result: 'success' })
+    } catch (err) {
+      // AbortError = user cancelled; don't surface that as an error.
+      if (err instanceof Error && err.name !== 'AbortError') {
+        trackEvent('share_native', { result: 'error' })
+        setShareError('Native share failed — copy the link instead.')
+      }
+    }
+  }, [shareUrl, shareLongUrl, address])
+
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
   const closeShareModal = useCallback(() => {
     setShareModalOpen(false)
@@ -4135,7 +4197,16 @@ function MapPage() {
         <div className="mobile-panel-backdrop" onClick={() => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) }} />
       )}
 
-      <aside className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
+      <aside ref={layerSheetRef} className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
+        <div
+          className="layer-drag-handle"
+          onTouchStart={handleLayerTouchStart}
+          onTouchMove={handleLayerTouchMove}
+          onTouchEnd={handleLayerTouchEnd}
+          aria-hidden="true"
+        >
+          <div className="layer-drag-bar" />
+        </div>
         <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close Show on Map panel">×</button>
         {baseMapSwitcherEnabled && (
           <>
@@ -5338,6 +5409,11 @@ function MapPage() {
                   <p className="share-error">Could not shorten URL ({shareError}); using the full link instead.</p>
                 )}
                 <div className="share-modal-actions">
+                  {canNativeShare && (
+                    <button className="share-copy-button share-native-button" onClick={handleNativeShare}>
+                      Share…
+                    </button>
+                  )}
                   <button className="share-copy-button" onClick={handleCopyShare}>
                     {shareCopied ? '✓ Copied!' : 'Copy link'}
                   </button>
