@@ -980,6 +980,45 @@
   text-decoration: underline;
 }
 
+.camera-marker {
+  background: transparent;
+  border: none;
+}
+
+.camera-pin {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-pin svg {
+  display: block;
+}
+
+/* Direction arrow — tagged on OSM nodes that have a `direction` value.
+   Small triangle that sits just outside the pin and rotates to match the
+   compass bearing the camera is facing. */
+.camera-pin-arrow {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid #fff;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+  transform-origin: 5px 32px;
+  pointer-events: none;
+}
+
 /* Superfund flyout — extra metadata rows under each site name */
 .analysis-superfund-meta {
   display: grid;

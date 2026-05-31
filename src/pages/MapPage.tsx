@@ -1041,6 +1041,29 @@ function makeDotIcon(color: string, size: number): L.DivIcon {
   })
 }
 
+// Camera marker — a colored chip with a camera glyph. Larger than the
+// transit dots so the icon is legible, but still small enough to cluster
+// gracefully in dense areas (Atlanta returns 500+ in one bbox).
+function makeCameraIcon(color: string, direction?: string): L.DivIcon {
+  const size = 24
+  const rotation = direction && /^-?\d+(\.\d+)?$/.test(direction) ? Number(direction) : null
+  const arrow = rotation !== null
+    ? `<span class="camera-pin-arrow" style="transform:rotate(${rotation}deg)"></span>`
+    : ''
+  return L.divIcon({
+    className: 'camera-marker',
+    html:
+      `<div class="camera-pin" style="background:${color}">` +
+      `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">` +
+      `<path fill="#fff" d="M9.4 5l-1.5 2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2.9l-1.5-2H9.4zm2.6 4a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/>` +
+      `</svg>` +
+      arrow +
+      `</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  })
+}
+
 interface TomTomSuggestion {
   id: string
   type: string
@@ -3261,7 +3284,7 @@ function MapPage() {
         if (known.has(cam.id)) continue
         known.add(cam.id)
         const color = cam.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
-        L.marker([cam.lat, cam.lon], { icon: makeDotIcon(color, 12) })
+        L.marker([cam.lat, cam.lon], { icon: makeCameraIcon(color, cam.direction) })
           .bindPopup(cameraPopup(cam), { maxWidth: 280 })
           .addTo(cluster)
         added++
