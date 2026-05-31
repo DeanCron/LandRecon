@@ -47,6 +47,25 @@ html {
   min-height: 100dvh;
 }
 
+/* Stop iOS Safari from auto-zooming when the user focuses any text input.
+ * iOS zooms whenever the focused input renders at <16px — bump every text-
+ * entry control to 16px on mobile. Desktop sizes from component CSS are
+ * preserved by the breakpoint. */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="password"],
+  input:not([type]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
