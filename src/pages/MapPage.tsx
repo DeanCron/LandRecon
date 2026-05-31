@@ -1740,8 +1740,6 @@ function MapPage() {
     setShareError(null)
   }, [])
 
-  const savedMapViewRef = useRef<{ center: L.LatLng; zoom: number } | null>(null)
-
   // Compute fitBounds padding that accounts for the report panel / detail
   // popout overlaying the right (or bottom on mobile) edge of the map.
   // Without this the requested address or the item can land behind a panel.
@@ -1786,45 +1784,10 @@ function MapPage() {
     return { topLeft: [padLeft, padTop], bottomRight: [padRight, padBottom] }
   }, [])
 
-  // Center the map on a single target (used by the "Show on map" / reticle
-  // buttons in the analysis flyouts). Previously this bounds-fit home +
-  // target, which placed the center halfway between them and zoomed way
-  // out when the target was far away. The user always wants the clicked
-  // location centered, not a home-vs-target overview.
-  //
-  // On mobile the analysis popout is a fullscreen sheet — leaving it open
-  // after a "Show on map" tap would hide the very pin we're trying to
-  // reveal. Dismiss the popout + side drawer and skip the close-restore
-  // (the user explicitly chose this new location, don't snap them back).
-  const flyToWithAddress = useCallback((lat: number, lng: number) => {
-    const map = mapRef.current
-    if (!map) return
-    const isMobile = typeof window !== 'undefined'
-      && window.matchMedia('(max-width: 768px)').matches
-    if (isMobile) {
-      savedMapViewRef.current = null
-      setAnalysisDetail(null)
-      setAnalysisPanelOpen(false)
-      setLayerPanelOpen(false)
-      setSheetHeight(null)
-    } else if (!savedMapViewRef.current) {
-      savedMapViewRef.current = { center: map.getCenter(), zoom: map.getZoom() }
-    }
-    map.flyTo([lat, lng], 15, { duration: 0.5 })
-  }, [])
-
-  // When the detail flyout closes, restore the pre-flyout view (saved on
-  // the first "show on map" click inside the flyout). If the user never
-  // clicked "show on map", saved view is null and the map is left exactly
-  // where it is.
-  useEffect(() => {
-    if (analysisDetail !== null) return
-    const saved = savedMapViewRef.current
-    savedMapViewRef.current = null
-    if (saved && mapRef.current) {
-      mapRef.current.flyTo(saved.center, saved.zoom, { duration: 0.5 })
-    }
-  }, [analysisDetail])
+  // Center the map on a single target — removed for now; the in-flyout
+  // "Show on map" buttons it powered were taken out pending a cleaner mobile
+  // UX (the analysis popout is fullscreen on phones, so flying the map
+  // underneath an opaque sheet felt broken).
 
   const cancelEditingAddress = useCallback(() => {
     setEditingAddress(false)
@@ -5295,28 +5258,11 @@ function MapPage() {
                         const npl = NPL_STATUS_INFO[s.statusCode]
                         return (
                           <li key={i}>
-                            <div className="analysis-flyto-row">
-                              <div>
-                                <strong>{s.name}</strong> — {s.distanceMi} mi
-                                <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
-                                  {s.status}
-                                </span>
-                              </div>
-                              <button
-                                className="analysis-flyto-btn"
-                                onClick={() => flyToWithAddress(s.lat, s.lng)}
-                                title="Fly to location"
-                                aria-label={`Fly to ${s.name}`}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <circle cx="12" cy="12" r="9" />
-                                  <line x1="22" y1="12" x2="18" y2="12" />
-                                  <line x1="6" y1="12" x2="2" y2="12" />
-                                  <line x1="12" y1="6" x2="12" y2="2" />
-                                  <line x1="12" y1="22" x2="12" y2="18" />
-                                  <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                                </svg>
-                              </button>
+                            <div>
+                              <strong>{s.name}</strong> — {s.distanceMi} mi
+                              <span className={`analysis-status ${s.status === 'Deleted' ? 'status-cleared' : 'status-active'}`}>
+                                {s.status}
+                              </span>
                             </div>
                             {(s.city || s.epaId) && (
                               <dl className="analysis-superfund-meta">
@@ -5387,13 +5333,6 @@ function MapPage() {
                       )}
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
-                        <button className="analysis-flyto-link" onClick={() => { if (!costcoVisible) toggleCostco(); flyToWithAddress(analysisResults.costco!.lat, analysisResults.costco!.lng) }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                            <circle cx="12" cy="10" r="3" />
-                          </svg>
-                          Show on map
-                        </button>
                         <a
                           className="costco-directions-link"
                           href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.costco.lat},${analysisResults.costco.lng}&travelmode=driving`}
@@ -5534,21 +5473,6 @@ function MapPage() {
                             <span className="dc-status-dot" style={{ background: DC_STATUS_COLORS[dc.status] || '#6b7280' }} />
                             <strong>{dc.name || 'Unknown Facility'}</strong>
                             <span className="dc-distance">{dc.distanceMi} mi</span>
-                            <button
-                              className="analysis-flyto-btn"
-                              onClick={() => flyToWithAddress(dc.lat, dc.lng)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${dc.name || 'data center'}`}
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" />
-                                <line x1="22" y1="12" x2="18" y2="12" />
-                                <line x1="6" y1="12" x2="2" y2="12" />
-                                <line x1="12" y1="6" x2="12" y2="2" />
-                                <line x1="12" y1="22" x2="12" y2="18" />
-                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                              </svg>
-                            </button>
                           </div>
                           <div className="dc-analysis-meta">
                             {dc.operator && <span>{dc.operator}</span>}
@@ -5595,21 +5519,6 @@ function MapPage() {
                             <span className="dc-status-dot" style={{ background: CROWD_COLORS[m.type] }} />
                             <strong>{CROWD_ICONS[m.type]} {m.name}</strong>
                             <span className="dc-distance">{m.distanceMi} mi</span>
-                            <button
-                              className="analysis-flyto-btn"
-                              onClick={() => flyToWithAddress(m.lat, m.lng)}
-                              title="Fly to location"
-                              aria-label={`Fly to ${m.name}`}
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" />
-                                <line x1="22" y1="12" x2="18" y2="12" />
-                                <line x1="6" y1="12" x2="2" y2="12" />
-                                <line x1="12" y1="6" x2="12" y2="2" />
-                                <line x1="12" y1="22" x2="12" y2="18" />
-                                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                              </svg>
-                            </button>
                           </div>
                           <div className="dc-analysis-meta">
                             <span>{CROWD_LABEL_SINGULAR[m.type]}</span>
@@ -5647,20 +5556,6 @@ function MapPage() {
                       )}
                       <p className={`analysis-expand-level ${sev}`}>{dist} miles from this address</p>
                       <div className="analysis-costco-actions">
-                        <button
-                          className="analysis-flyto-link"
-                          onClick={() => {
-                            const er = analysisResults.nearestER
-                            if (!er) return
-                            flyToWithAddress(er.lat, er.lng)
-                          }}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                            <circle cx="12" cy="10" r="3" />
-                          </svg>
-                          Show on map
-                        </button>
                         <a
                           className="costco-directions-link"
                           href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${analysisResults.nearestER.lat},${analysisResults.nearestER.lng}&travelmode=driving`}
