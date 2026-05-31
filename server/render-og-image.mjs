@@ -128,12 +128,12 @@ const FRAME_HEAD = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height=
 export function defaultSvg() {
   return `${FRAME_HEAD}
   ${reticle(180, 315, 3.6)}
-  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <g font-family="Inter, 'DejaVu Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
     <text x="380" y="280" font-size="104" font-weight="800" fill="${CREAM}" letter-spacing="-3">Land Recon</text>
     <text x="380" y="340" font-size="34" font-weight="500" fill="${CREAM}" fill-opacity="0.88">Neighborhood land intelligence</text>
     <text x="380" y="408" font-size="22" font-weight="400" fill="${CREAM}" fill-opacity="0.72">Airport noise · Superfunds · Transit · Traffic · Cameras · Data centers</text>
   </g>
-  <text x="600" y="585" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="500" fill="${CREAM}" fill-opacity="0.45" letter-spacing="4">RECON · MAP · DECIDE</text>
+  <text x="600" y="585" text-anchor="middle" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif" font-size="18" font-weight="500" fill="${CREAM}" fill-opacity="0.45" letter-spacing="4">RECON · MAP · DECIDE</text>
 </svg>`
 }
 
@@ -182,7 +182,7 @@ export function addressSvg({ address = '', layers = [], base = 'street' } = {}) 
     const w = Math.round(label.length * 9.5 + chipPad * 2)
     if (cx + w > chipMaxRight) { cx = 140; cy += chipHeight + 10 }
     if (cy > 530) break
-    chips.push(`<rect x="${cx}" y="${cy}" width="${w}" height="${chipHeight}" rx="${chipHeight / 2}" fill="${CREAM}" fill-opacity="0.12" stroke="${CREAM}" stroke-opacity="0.25"/><text x="${cx + w / 2}" y="${cy + chipHeight / 2 + chipFontSize / 3}" text-anchor="middle" font-size="${chipFontSize}" font-weight="500" fill="${CREAM}" font-family="system-ui, sans-serif">${esc(label)}</text>`)
+    chips.push(`<rect x="${cx}" y="${cy}" width="${w}" height="${chipHeight}" rx="${chipHeight / 2}" fill="${CREAM}" fill-opacity="0.12" stroke="${CREAM}" stroke-opacity="0.25"/><text x="${cx + w / 2}" y="${cy + chipHeight / 2 + chipFontSize / 3}" text-anchor="middle" font-size="${chipFontSize}" font-weight="500" fill="${CREAM}" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif">${esc(label)}</text>`)
     cx += w + chipGap
   }
   const footerText = layerLabels.length > 0
@@ -192,15 +192,15 @@ export function addressSvg({ address = '', layers = [], base = 'street' } = {}) 
   return `${FRAME_HEAD}
 
   ${reticle(105, 90, 1.5)}
-  <text x="170" y="100" font-family="system-ui, sans-serif" font-size="28" font-weight="700" fill="${CREAM}" letter-spacing="-1">Land Recon</text>
-  <text x="170" y="125" font-family="system-ui, sans-serif" font-size="13" font-weight="500" fill="${CREAM}" fill-opacity="0.65" letter-spacing="2.5">NEIGHBORHOOD INTEL</text>
+  <text x="170" y="100" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif" font-size="28" font-weight="700" fill="${CREAM}" letter-spacing="-1">Land Recon</text>
+  <text x="170" y="125" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif" font-size="13" font-weight="500" fill="${CREAM}" fill-opacity="0.65" letter-spacing="2.5">NEIGHBORHOOD INTEL</text>
 
   <g transform="translate(80, 260)">
     <path d="M30 0 C13 0 0 13 0 30 C0 52 30 80 30 80 C30 80 60 52 60 30 C60 13 47 0 30 0 Z" fill="${ACCENT}" fill-opacity="0.85"/>
     <circle cx="30" cy="30" r="11" fill="${CREAM}"/>
   </g>
 
-  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" fill="${CREAM}">
+  <g font-family="Inter, 'DejaVu Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" fill="${CREAM}">
     ${addressLines.map((line, i) =>
       `<text x="170" y="${addrStartY + i * addrLineHeight}" font-size="${addrFontSize}" font-weight="700" letter-spacing="-1">${esc(line)}</text>`
     ).join('')}
@@ -208,8 +208,8 @@ export function addressSvg({ address = '', layers = [], base = 'street' } = {}) 
 
   ${chips.join('')}
 
-  <text x="140" y="595" font-family="system-ui, sans-serif" font-size="18" font-weight="500" fill="${CREAM}" fill-opacity="0.55">${esc(footerText)}</text>
-  <text x="1060" y="595" text-anchor="end" font-family="system-ui, sans-serif" font-size="16" font-weight="500" fill="${CREAM}" fill-opacity="0.45" letter-spacing="3">RECON · MAP · DECIDE</text>
+  <text x="140" y="595" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif" font-size="18" font-weight="500" fill="${CREAM}" fill-opacity="0.55">${esc(footerText)}</text>
+  <text x="1060" y="595" text-anchor="end" font-family="Inter, 'DejaVu Sans', system-ui, sans-serif" font-size="16" font-weight="500" fill="${CREAM}" fill-opacity="0.45" letter-spacing="3">RECON · MAP · DECIDE</text>
 </svg>`
 }
 

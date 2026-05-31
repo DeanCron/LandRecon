@@ -34,7 +34,12 @@ RUN --mount=type=secret,id=VITE_TOMTOM_API_KEY \
 # rendering (crawler share-link previews).  The Flask + GDAL tile server
 # was retired once airport noise moved to PMTiles served from blob storage.
 FROM nginx:1.27-alpine AS runtime
-RUN apk add --no-cache nodejs npm
+# fontconfig + dejavu fonts are required for sharp/librsvg to actually
+# rasterize text in the OG SVG; without them every glyph renders as a
+# missing-glyph tofu box. ttf-dejavu is ~3MB and covers Latin + em-dash
+# + middle dot which is all the OG card needs.
+RUN apk add --no-cache nodejs npm fontconfig ttf-dejavu \
+    && fc-cache -f
 
 # Install only the runtime npm deps the sidecars need (currently just
 # sharp + its prebuilt linux-musl libvips binary). We bring package.json
