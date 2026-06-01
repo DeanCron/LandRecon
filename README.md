@@ -67,9 +67,27 @@ Both pages and the OG sidecar are silent by default and can be instrumented
 on demand:
 
 - **Browser** — `localStorage.setItem('LR_DEBUG','1'); location.reload()`.
-  Logs are tagged: `[LR:geocode]`, `[LR:tiles]`, `[LR:cameras]`, etc.
+  Logs are tagged: `[LR:geocode]`, `[LR:tiles]`, `[LR:cameras]`, `[LR:er]`,
+  `[LR:ems]`, `[LR:costco]`, `[LR:superfund]`, `[LR:crowd]`, `[LR:places-cache]` (cache HIT/MISS), etc.
 - **OG sidecar** — set `LR_DEBUG_OG=1` (or `LR_DEBUG=1`) on the container.
   Each request logs `[og] png HIT/MISS addr=… layers=N base=… bytes=… 97ms ua=…`.
+
+## Performance & Cost
+
+The site is tuned for cheap idle and cheap per-visit costs:
+
+- **Azure Container Apps scales to zero** (min 0, max 3, 0.5 vCPU / 1 GiB).
+  Idle bill ≈ $1–3/mo. Cold start ≈ 3–5 s, mitigated by the OG sidecar's
+  libvips pre-warm.
+- **Snapshot blobs are immutable for 24 h**
+  (`Cache-Control: public, max-age=86400, immutable`). Repeat visitors hit
+  the browser/SW cache; CDN egress only happens once per visitor per day.
+- **Google Places responses cached in IndexedDB** (`src/utils/placesCache.ts`).
+  Keys are snapped to a ~1.1 km grid with a 7-day TTL, LRU-capped at 500.
+  Collapses the ~5–10× duplicate queries fired as a user pans around a
+  neighborhood.
+- **OG card LRU + pre-warm**: default card seeded at sidecar startup; LRU
+  200 entries. Cold render ≈ 120 ms, cache hit ≈ 7 ms.
 
 ## Smoke Tests
 

@@ -2017,6 +2017,7 @@ function MapPage() {
         },
         signal: AbortSignal.timeout(15000),
       })
+      dbg('costco', `Got ${places.length} warehouse(s) in current bounds`)
       if (places.length === 0) {
         costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
         return
