@@ -1,0 +1,14 @@
+# Land Recon — crawler policy
+# Public marketing pages are open. The /api/, /overpass*, /og.png, and /share
+# endpoints are operational surfaces, not content, so we ask crawlers to skip
+# them to save bandwidth + keep search results clean.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /overpass
+Disallow: /overpass2
+Disallow: /og.png
+Disallow: /share
+
+Sitemap: https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/sitemap.xml

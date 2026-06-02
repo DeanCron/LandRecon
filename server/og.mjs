@@ -113,6 +113,17 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
   out = setMeta(out, 'name', 'twitter:description', description)
   out = setMeta(out, 'name', 'twitter:image', ogImageUrl)
   out = setMeta(out, 'name', 'twitter:image:alt', address ? `Land Recon preview card for ${address}` : 'Land Recon preview card')
+
+  // Per-URL canonical. The static index.html canonical points at the
+  // brand homepage; for crawler-rendered /map shares we point each
+  // address-specific page at its own canonical so search engines don't
+  // collapse them into one entry.
+  const canonRe = /(<link\s+rel="canonical"[^>]*href=")[^"]*(")/i
+  if (canonRe.test(out)) {
+    out = out.replace(canonRe, `$1${esc(pageUrl)}$2`)
+  } else {
+    out = out.replace(/<\/head>/i, `  <link rel="canonical" href="${esc(pageUrl)}" />\n  </head>`)
+  }
   return out
 }
 

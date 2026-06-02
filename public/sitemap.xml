@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Land Recon sitemap. Per-address /map URLs are user-generated and not enumerated
+  here; the SearchAction declared in index.html's JSON-LD tells crawlers how to
+  build them. List the two evergreen entry points so Google + Bing have a
+  starting graph to index.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/map</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>

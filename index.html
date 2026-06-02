@@ -1,11 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/x-icon" sizes="16x16 24x24 32x32 48x48 64x64" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Canonical URL — overwritten per-URL by the OG sidecar for crawler
+         requests to /map. Static base value is the brand homepage. Update
+         the hostname when a custom domain is wired up. -->
+    <link rel="canonical" href="https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/" />
+    <meta name="geo.region" content="US" />
+    <meta name="geo.placename" content="United States" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0072B2" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -53,6 +59,43 @@
     <link rel="dns-prefetch" href="https://tile.googleapis.com" />
     <link rel="dns-prefetch" href="https://api.tomtom.com" />
     <title>Land Recon — Neighborhood land intelligence</title>
+
+    <!-- Structured data: WebApplication describes what the site is, and
+         WebSite + SearchAction tells Google how to construct a sitelinks
+         search box that deep-links straight into /map?address=… . The
+         search URL must match the actual route the SPA accepts. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "name": "Land Recon",
+          "url": "https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/",
+          "description": "Look up airport noise, Superfund sites, data centers, transit, traffic, cameras, and crowd magnets by U.S. street address on one interactive map.",
+          "applicationCategory": "Mapping",
+          "operatingSystem": "Web",
+          "browserRequirements": "Requires JavaScript and a modern browser.",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "inLanguage": "en-US",
+          "isAccessibleForFree": true
+        },
+        {
+          "@type": "WebSite",
+          "name": "Land Recon",
+          "url": "https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/map?address={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
