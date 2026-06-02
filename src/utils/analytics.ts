@@ -66,10 +66,15 @@ export function initAnalytics(): void {
 /** Send a page_view event. Call this on every React Router navigation. */
 export function trackPageView(path: string, title?: string): void {
   if (!isEnabled() || !window.gtag) return
+  // page_location MUST be scrubbed of query/hash because /map?address=…
+  // would otherwise hand the user's typed address to Google Analytics.
+  // We rebuild it from origin + path so GA still gets the canonical URL
+  // (good for grouping) without the PII payload.
+  const sanitizedLocation = window.location.origin + path
   window.gtag('event', 'page_view', {
     page_path: path,
     page_title: title ?? document.title,
-    page_location: window.location.href,
+    page_location: sanitizedLocation,
   })
 }
 

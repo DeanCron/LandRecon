@@ -492,6 +492,8 @@ function HomePage() {
         )}
         <footer className="home-footer">
           <button className="home-about-link" onClick={() => setShowAbout(true)}>What is LandRecon?</button>
+          <span aria-hidden="true" style={{ margin: '0 8px', opacity: 0.4 }}>·</span>
+          <a className="home-about-link" href="/privacy">Privacy</a>
         </footer>
       </div>
 

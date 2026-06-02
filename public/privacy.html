@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Land Recon</title>
+    <meta name="description" content="How Land Recon handles addresses, geolocation, and third-party data." />
+    <link rel="canonical" href="https://landrecon.com/privacy" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#0072B2" />
+    <style>
+      :root {
+        --fg: #1a1a1a;
+        --muted: #555;
+        --accent: #0072B2;
+        --bg: #fff;
+        --border: #e5e7eb;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #f3f4f6;
+          --muted: #a3a3a3;
+          --accent: #56B4E9;
+          --bg: #111827;
+          --border: #374151;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.6;
+      }
+      main {
+        max-width: 740px;
+        margin: 0 auto;
+        padding: 32px 20px 80px;
+      }
+      h1 { font-size: 2rem; margin: 0 0 8px; }
+      h2 { font-size: 1.25rem; margin: 32px 0 8px; }
+      p, li { color: var(--fg); }
+      .updated { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+      a { color: var(--accent); }
+      ul { padding-left: 20px; }
+      .back {
+        display: inline-block;
+        margin-bottom: 24px;
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .back:hover { text-decoration: underline; }
+      code {
+        background: rgba(127,127,127,0.15);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">← Back to Land Recon</a>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: June 2, 2026</p>
+
+      <p>
+        Land Recon is a free public web tool that lets you look up land-use data
+        for U.S. street addresses. This page explains what data we and our
+        third-party providers receive when you use the site.
+      </p>
+
+      <h2>What we collect ourselves</h2>
+      <p>
+        Land Recon does not run user accounts, does not sell or share your data
+        with advertisers, and does not require any registration. We do not set
+        tracking cookies of our own.
+      </p>
+      <p>
+        Our web server logs requests for operational purposes (uptime, error
+        diagnosis). Logged fields are scrubbed to remove the <code>?address=</code>
+        query string for <code>/map</code> and <code>/share</code> paths, so addresses
+        you search are not retained in server logs. IP addresses and user-agent
+        strings are retained for a short rolling window.
+      </p>
+
+      <h2>What is stored in your browser</h2>
+      <ul>
+        <li><strong>Recent searches and saved analysis snippets</strong> — kept in your browser's
+          <code>localStorage</code> on this device only. Clearable from within the
+          app or via your browser's site-data controls.</li>
+        <li><strong>Cached map data</strong> (Google Places lookups, layer snapshots) — kept in
+          your browser's <code>IndexedDB</code> to speed up repeat visits.</li>
+        <li><strong>Preferences</strong> (active layers, basemap, guided-tour state) — stored in
+          <code>localStorage</code>.</li>
+      </ul>
+
+      <h2>Third parties that receive data</h2>
+      <p>
+        To render the map and run searches, your browser contacts these
+        third-party services directly. Each has its own privacy policy.
+      </p>
+      <ul>
+        <li><strong>Google Maps Tiles + Places API</strong> — receives map coordinates
+          and search queries (e.g. for nearby hospitals, transit, Costco).
+          <a href="https://policies.google.com/privacy" rel="noopener">Google Privacy Policy</a></li>
+        <li><strong>TomTom Search API</strong> — receives the address text you
+          type (for autocomplete and geocoding) and your coordinates (for
+          reverse geocoding when you use "Use my location").
+          <a href="https://www.tomtom.com/privacy/" rel="noopener">TomTom Privacy Policy</a></li>
+        <li><strong>EPA ArcGIS</strong> — receives map coordinates to return
+          Superfund site boundaries.
+          <a href="https://www.epa.gov/privacy" rel="noopener">EPA Privacy Notice</a></li>
+        <li><strong>Overpass API</strong> (via our same-origin proxy) — receives map
+          coordinates to return OpenStreetMap features.</li>
+        <li><strong>Google Analytics 4</strong> — if enabled, receives page-view
+          events. IP anonymization is on; we strip the <code>?address=</code>
+          parameter so your searched addresses are <em>not</em> sent to Google
+          Analytics. We honor the browser's
+          <code>Do Not Track</code> signal: if it's enabled, GA is not loaded.
+          <a href="https://policies.google.com/privacy" rel="noopener">Google Analytics Policy</a></li>
+      </ul>
+
+      <h2>Geolocation</h2>
+      <p>
+        If you tap "Use my location," your browser asks for permission to share
+        your device's coordinates. The coordinates are sent to TomTom only to
+        translate them into a street address for the search. The coordinates
+        are not retained on our servers.
+      </p>
+
+      <h2>How to opt out</h2>
+      <ul>
+        <li><strong>Analytics</strong> — enable
+          <a href="https://www.eff.org/issues/do-not-track" rel="noopener">Do Not Track</a> in
+          your browser, or install Google's
+          <a href="https://tools.google.com/dlpage/gaoptout" rel="noopener">official opt-out add-on</a>.</li>
+        <li><strong>Stored searches</strong> — clear them from the home page's
+          "Recent searches" panel, or via your browser's site-data controls.</li>
+        <li><strong>Geolocation</strong> — deny the browser prompt, or revoke
+          permission from your browser's site settings at any time.</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>
+        Questions or removal requests: open an issue at
+        <a href="https://github.com/DeanCron/LandRecon/issues" rel="noopener">github.com/DeanCron/LandRecon</a>.
+      </p>
+    </main>
+  </body>
+</html>
