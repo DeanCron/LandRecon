@@ -15,7 +15,7 @@ import { addressSvg, defaultSvg, renderPng, LAYER_LABELS, BASE_LABELS } from './
 const PORT = Number(process.env.OG_PORT || 3002)
 const INDEX_HTML_PATH = process.env.OG_INDEX_HTML || '/usr/share/nginx/html/index.html'
 const FALLBACK_ORIGIN = (process.env.PUBLIC_ORIGIN
-  || 'https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io').replace(/\/$/, '')
+  || 'https://landrecon.com').replace(/\/$/, '')
 
 // Per-request debug logging. Opt in by setting env LR_DEBUG_OG=1 on the
 // container (silent by default to avoid noisy stdout). Always-on errors
@@ -124,7 +124,69 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
   } else {
     out = out.replace(/<\/head>/i, `  <link rel="canonical" href="${esc(pageUrl)}" />\n  </head>`)
   }
+
+  // Inject a crawler-visible HTML body inside <div id="root"></div>. Real
+  // browsers (which never hit this code path — only crawler UAs are forked
+  // here) would have React replace the children on hydration anyway, so
+  // there's no risk of double-rendering. Bots see an actual <h1>, real
+  // paragraph copy, and a topical link list — dramatically stronger
+  // organic-search signal than a 4 KB empty SPA shell.
+  const body = address ? renderAddressBody({ address, baseLabel, layerLabels, pageUrl }) : renderHomeBody()
+  out = out.replace(
+    /<div id="root">\s*<\/div>/,
+    `<div id="root">${body}</div>`,
+  )
   return out
+}
+
+const ALL_LAYER_LABELS = Object.values(LAYER_LABELS)
+
+function renderHomeBody() {
+  const items = ALL_LAYER_LABELS.map((l) => `<li>${esc(l)}</li>`).join('')
+  return `
+    <main class="seo-shell">
+      <header>
+        <h1>Land Recon — Neighborhood land intelligence</h1>
+        <p>Look up airport noise, EPA Superfund sites, data centers, hospitals, transit, traffic, cameras, and crowd magnets by U.S. street address on one interactive map.</p>
+      </header>
+      <section>
+        <h2>What you can search</h2>
+        <ul>${items}</ul>
+      </section>
+      <section>
+        <h2>How it works</h2>
+        <p>Enter any U.S. address on the home page. Land Recon geocodes it, drops a marker, and overlays the public-records and operational data layers you choose — all client-side, no account required.</p>
+      </section>
+      <noscript>
+        <p><strong>Land Recon requires JavaScript</strong> to render the interactive map. Please enable JavaScript and reload the page.</p>
+      </noscript>
+    </main>
+  `
+}
+
+function renderAddressBody({ address, baseLabel, layerLabels, pageUrl }) {
+  const layerList = layerLabels.length
+    ? `<ul>${layerLabels.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`
+    : '<p>No additional layers are active on this view.</p>'
+  return `
+    <main class="seo-shell">
+      <header>
+        <h1>Land intelligence for ${esc(address)}</h1>
+        <p>Land Recon report for <strong>${esc(address)}</strong> on a ${esc(baseLabel.toLowerCase())} basemap.</p>
+      </header>
+      <section>
+        <h2>Active map layers</h2>
+        ${layerList}
+      </section>
+      <section>
+        <h2>Open this report</h2>
+        <p><a href="${esc(pageUrl)}">View the interactive map for ${esc(address)}</a></p>
+      </section>
+      <noscript>
+        <p><strong>The interactive map requires JavaScript.</strong> Please enable JavaScript and reload the page.</p>
+      </noscript>
+    </main>
+  `
 }
 
 async function loadIndexHtml() {

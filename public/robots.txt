@@ -11,4 +11,4 @@ Disallow: /overpass2
 Disallow: /og.png
 Disallow: /share
 
-Sitemap: https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/sitemap.xml
+Sitemap: https://landrecon.com/sitemap.xml

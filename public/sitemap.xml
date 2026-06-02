@@ -7,12 +7,12 @@
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/</loc>
+    <loc>https://landrecon.com/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://landrecon.livelybush-ee6a3eea.eastus.azurecontainerapps.io/map</loc>
+    <loc>https://landrecon.com/map</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
