@@ -239,7 +239,13 @@ const server = createServer(async (req, res) => {
         const indexHtml = await loadIndexHtml()
         const qs = buildQuery(params)
         const ogImageUrl = `${origin}/og.png${qs ? '?' + qs : ''}`
-        const pageUrl = `${origin}/map${qs ? '?' + qs : ''}`
+        // The sidecar is the unified crawler entry point: nginx forks both
+        // `/` and `/map` here. When the request carries an address (or any
+        // /map-only params), the canonical is /map?…; otherwise it's the
+        // brand homepage so we don't mistakenly canonicalize / → /map.
+        const pageUrl = params.address || params.layers.length || params.base !== 'street'
+          ? `${origin}/map${qs ? '?' + qs : ''}`
+          : `${origin}/`
         html = rewriteOgTags(indexHtml, { ...params, ogImageUrl, pageUrl })
         lruSet(htmlCache, key, html)
       }
