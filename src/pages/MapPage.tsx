@@ -5491,6 +5491,17 @@ function MapPage() {
                         </li>
                       ))}
                     </ul>
+                    <div className="analysis-expand-rec">
+                      <strong>Status colors</strong>
+                      <div className="analysis-dc-legend">
+                        {DC_STATUSES.map((s) => (
+                          <span key={s} className="analysis-dc-legend-item">
+                            <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s] }} />
+                            {DC_STATUS_LABELS[s]}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -5502,6 +5513,17 @@ function MapPage() {
                         noise from cooling systems, and strain on local power and water resources.
                         The absence of any nearby is a positive indicator for this location.
                       </p>
+                    </div>
+                    <div className="analysis-expand-rec">
+                      <strong>Status colors</strong>
+                      <div className="analysis-dc-legend">
+                        {DC_STATUSES.map((s) => (
+                          <span key={s} className="analysis-dc-legend-item">
+                            <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s] }} />
+                            {DC_STATUS_LABELS[s]}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </>
                 )}
