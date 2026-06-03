@@ -16,6 +16,7 @@ const ACCENT = '#0072B2'
 const LAYER_LABELS = {
   noise: 'Airport noise',
   superfund: 'Superfunds',
+  flood: 'Flood zones',
   transit: 'Transit',
   traffic: 'Traffic',
   costco: 'Costco',

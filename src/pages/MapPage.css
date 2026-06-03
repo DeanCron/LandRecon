@@ -632,6 +632,7 @@
 
 .layer-group-body .noise-legend + .layer-toggle,
 .layer-group-body .superfund-legend + .layer-toggle,
+.layer-group-body .flood-legend + .layer-toggle,
 .layer-group-body .transit-legend + .layer-toggle,
 .layer-group-body .traffic-legend + .layer-toggle,
 .layer-group-body .dc-legend + .layer-toggle {
@@ -766,6 +767,7 @@
 /* Legacy legend spacing (inside groups, handled by .layer-group-body rules) */
 .noise-legend,
 .superfund-legend,
+.flood-legend,
 .transit-legend,
 .traffic-legend {
   margin-bottom: 4px;
@@ -779,6 +781,27 @@
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--color-border);
+}
+
+.flood-legend {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flood-legend-hint {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.legend-swatch.flood {
+  background: var(--color-text-muted);
+  border-color: var(--color-text-muted);
 }
 
 .legend-swatch-row {

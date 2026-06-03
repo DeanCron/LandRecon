@@ -362,6 +362,65 @@ const SUPERFUND_ICON = L.divIcon({
   popupAnchor: [0, -16],
 })
 
+// ── FEMA National Flood Hazard Layer (NFHL) ────────────────────────────
+// Public ArcGIS REST endpoint — no API key required. Layer 28 is the
+// "S_FLD_HAZ_AR" polygon layer (Flood Hazard Zones). FEMA generalizes
+// geometry server-side based on scale, so at low zoom this can still return
+// huge payloads — we only fetch when the map is zoomed in enough to be
+// useful at a property-level read.
+const FLOOD_API =
+  'https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query'
+
+const FLOOD_FIELDS = ['FLD_ZONE', 'ZONE_SUBTY', 'SFHA_TF', 'STATIC_BFE'].join(',')
+
+const FLOOD_MIN_ZOOM = 11
+
+// Color buckets keyed by FLD_ZONE code. Subtypes (e.g. "0.2 PCT ANNUAL
+// CHANCE FLOOD HAZARD") are handled inline in floodStyle().
+//   High-risk SFHA (1% annual chance): A, AE, AH, AO, AR, A99 → red
+//   Coastal high hazard (V): V, VE → purple
+//   Moderate (0.2% / "500-year") shaded X → amber
+//   Minimal hazard (unshaded X) → gray
+//   Undetermined (D) → mid-gray
+//   Open water → blue
+const FLOOD_ZONE_COLORS: Record<string, string> = {
+  high: '#d62728',
+  coastal: '#5d2e8c',
+  moderate: '#f5c542',
+  minimal: '#9ca3af',
+  undetermined: '#6b7280',
+  water: '#3b82f6',
+}
+
+const FLOOD_ZONE_LABELS: Record<keyof typeof FLOOD_ZONE_COLORS | string, string> = {
+  high: 'High risk (1% annual / SFHA)',
+  coastal: 'Coastal high hazard (V/VE)',
+  moderate: 'Moderate (0.2% / 500-yr)',
+  minimal: 'Minimal hazard',
+  undetermined: 'Undetermined (zone D)',
+  water: 'Open water',
+}
+
+function floodBucket(props: GeoJSON.GeoJsonProperties): keyof typeof FLOOD_ZONE_COLORS {
+  const zone = String((props as Record<string, unknown> | null | undefined)?.FLD_ZONE || '').toUpperCase().trim()
+  const sub = String((props as Record<string, unknown> | null | undefined)?.ZONE_SUBTY || '').toUpperCase().trim()
+  if (zone === 'OPEN WATER' || zone === 'AREA NOT INCLUDED') return 'water'
+  if (zone === 'V' || zone === 'VE') return 'coastal'
+  if (['A', 'AE', 'AH', 'AO', 'AR', 'A99'].includes(zone)) return 'high'
+  if (zone === 'X') {
+    if (sub.includes('0.2 PCT') || sub.includes('500')) return 'moderate'
+    return 'minimal'
+  }
+  if (zone === 'D') return 'undetermined'
+  return 'minimal'
+}
+
+function floodZoneLabel(props: GeoJSON.GeoJsonProperties): string {
+  const zone = String((props as Record<string, unknown> | null | undefined)?.FLD_ZONE || '').trim() || 'Unknown'
+  const sub = String((props as Record<string, unknown> | null | undefined)?.ZONE_SUBTY || '').trim()
+  return sub ? `Zone ${zone} — ${sub}` : `Zone ${zone}`
+}
+
 type GeoJSONCoord = number[]
 type GeoJSONRing = GeoJSONCoord[]
 
@@ -652,6 +711,23 @@ async function fetchSuperfundFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.F
   return res.json()
 }
 
+async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: FLOOD_FIELDS,
+    geometry: bbox,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'geojson',
+    resultRecordCount: '1000',
+  })
+  const res = await fetch(`${FLOOD_API}?${params}`)
+  return res.json()
+}
+
 const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   F: { label: 'Final', desc: 'Officially listed on the NPL as a priority cleanup site' },
   P: { label: 'Proposed', desc: 'Proposed for NPL listing; under public comment review' },
@@ -710,11 +786,12 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd', 'cameras'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd', 'cameras'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
   superfund: boolean
+  flood: boolean
   transit: boolean
   traffic: boolean
   costco: boolean
@@ -725,7 +802,7 @@ type LayerStateSnapshot = {
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
-  noise: false, superfund: false, transit: false, traffic: false,
+  noise: false, superfund: false, flood: false, transit: false, traffic: false,
   costco: false, datacenters: false, ems: false, crowd: false, cameras: false,
 }
 
@@ -1164,6 +1241,8 @@ function MapPage() {
   const airportKnownIdsRef = useRef<Set<string>>(new Set())
   const superfundLayerRef = useRef<L.GeoJSON | null>(null)
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const floodLayerRef = useRef<L.GeoJSON | null>(null)
+  const floodLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram' | 'bus', L.LayerGroup> | null>(null)
   const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -1231,6 +1310,9 @@ function MapPage() {
   const [noiseVisible, setNoiseVisible] = useState(false)
   const [superfundVisible, setSuperfundVisible] = useState(false)
   const [superfundLoading, setSuperfundLoading] = useState(false)
+  const [floodVisible, setFloodVisible] = useState(false)
+  const [floodLoading, setFloodLoading] = useState(false)
+  const [floodLowZoom, setFloodLowZoom] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
   const [transitStatus, setTransitStatus] = useState<{ kind: 'loading' | 'error'; text: string } | null>(null)
@@ -1635,6 +1717,7 @@ function MapPage() {
     const active: ShareLayerId[] = []
     if (noiseVisible) active.push('noise')
     if (superfundVisible) active.push('superfund')
+    if (floodVisible) active.push('flood')
     if (transitVisible) active.push('transit')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
@@ -1645,7 +1728,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1656,9 +1739,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1666,6 +1749,7 @@ function MapPage() {
   const prevLayerStateRef = useRef<Record<string, boolean>>({
     noise: noiseVisible,
     superfund: superfundVisible,
+    flood: floodVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
@@ -1678,6 +1762,7 @@ function MapPage() {
     const next: Record<string, boolean> = {
       noise: noiseVisible,
       superfund: superfundVisible,
+      flood: floodVisible,
       transit: transitVisible,
       traffic: trafficVisible,
       costco: costcoVisible,
@@ -1693,7 +1778,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2067,6 +2152,39 @@ function MapPage() {
       console.error('Failed to load Superfund data:', err)
     } finally {
       setSuperfundLoading(false)
+    }
+  }, [])
+
+  // FEMA NFHL polygons. Only fetched when zoomed in past FLOOD_MIN_ZOOM —
+  // the dataset is huge nationally and the API rejects/truncates very
+  // large envelopes anyway. Loaded geometry is cached against a padded
+  // bbox so panning within the cached extent skips re-fetch.
+  const loadFloodData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+    if (map.getZoom() < FLOOD_MIN_ZOOM) {
+      dbg('flood', `Skipping — zoom ${map.getZoom()} < ${FLOOD_MIN_ZOOM}`)
+      setFloodLowZoom(true)
+      layer.clearLayers()
+      floodLoadedBoundsRef.current = null
+      return
+    }
+    setFloodLowZoom(false)
+    const bounds = map.getBounds()
+    const loaded = floodLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('flood', 'Skipping — bounds already loaded'); return }
+    dbg('flood', 'Loading FEMA flood zones…')
+
+    setFloodLoading(true)
+    try {
+      const padded = bounds.pad(0.3)
+      const geojson = await fetchFloodFeatures(padded)
+      dbg('flood', `Got ${geojson.features?.length || 0} features`)
+      layer.clearLayers()
+      layer.addData(geojson)
+      floodLoadedBoundsRef.current = padded
+    } catch (err) {
+      console.error('Failed to load FEMA flood zones:', err)
+    } finally {
+      setFloodLoading(false)
     }
   }, [])
 
@@ -2733,6 +2851,7 @@ function MapPage() {
           airportLoadedBoundsRef.current = null
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
+          floodLoadedBoundsRef.current = null
           transitLoadedBoundsRef.current = null
           transitBusStopsLoadedBoundsRef.current = null
           transitStopsKnownIdsRef.current.clear()
@@ -2821,6 +2940,28 @@ function MapPage() {
             const props = (_feature as GeoJSON.Feature).properties || {}
             const name = (props.SITE_NAME as string | undefined) || 'Superfund Site'
             layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
+          },
+        })
+
+        // Create FEMA flood-zone layer (polygons; not added to map until toggled on)
+        floodLayerRef.current = L.geoJSON(undefined, {
+          style: (feature) => {
+            const bucket = floodBucket(feature?.properties ?? null)
+            const color = FLOOD_ZONE_COLORS[bucket]
+            return {
+              color,
+              weight: 1,
+              opacity: 0.85,
+              fillColor: color,
+              fillOpacity: bucket === 'minimal' ? 0.18 : 0.4,
+            }
+          },
+          onEachFeature: (feature, layer) => {
+            const props = (feature as GeoJSON.Feature).properties || {}
+            const label = floodZoneLabel(props)
+            const bfeRaw = (props as Record<string, unknown>).STATIC_BFE
+            const bfe = typeof bfeRaw === 'number' && bfeRaw > -9999 ? `<br/>Base flood elev: ${bfeRaw.toFixed(1)} ft` : ''
+            layer.bindTooltip(`<strong>${label}</strong>${bfe}`, { direction: 'top', sticky: true })
           },
         })
 
@@ -2929,6 +3070,8 @@ function MapPage() {
       airportKnownIdsRef.current.clear()
       superfundLayerRef.current = null
       superfundLoadedBoundsRef.current = null
+      floodLayerRef.current = null
+      floodLoadedBoundsRef.current = null
       transitLayerRef.current = null
       transitLineLayersRef.current = null
       transitLinesLoadedBoundsRef.current = null
@@ -3649,6 +3792,38 @@ function MapPage() {
     [loadSuperfundData],
   )
 
+  const toggleFlood = () => {
+    const map = mapRef.current
+    const layer = floodLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `flood → ${floodVisible ? 'OFF' : 'ON'}`)
+
+    if (floodVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleFloodMove)
+      map.off('zoomend', handleFloodMove)
+      setFloodLowZoom(false)
+    } else {
+      layer.addTo(map)
+      floodLoadedBoundsRef.current = null
+      loadFloodData(map, layer)
+      map.on('moveend', handleFloodMove)
+      map.on('zoomend', handleFloodMove)
+    }
+    setFloodVisible(!floodVisible)
+  }
+
+  const handleFloodMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = floodLayerRef.current
+      if (map && layer) {
+        loadFloodData(map, layer)
+      }
+    }, 250),
+    [loadFloodData],
+  )
+
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
   // per-type LayerGroups. Re-fetches incrementally as the user pans/zooms.
@@ -3941,6 +4116,7 @@ function MapPage() {
   const currentLayerSnapshot: LayerStateSnapshot = {
     noise: noiseVisible,
     superfund: superfundVisible,
+    flood: floodVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
@@ -3954,6 +4130,7 @@ function MapPage() {
     const s = preset.state
     return s.noise === currentLayerSnapshot.noise
       && s.superfund === currentLayerSnapshot.superfund
+      && s.flood === currentLayerSnapshot.flood
       && s.transit === currentLayerSnapshot.transit
       && s.traffic === currentLayerSnapshot.traffic
       && s.costco === currentLayerSnapshot.costco
@@ -3972,6 +4149,7 @@ function MapPage() {
     }
     setLayer(noiseVisible, toggleNoise, preset.state.noise)
     setLayer(superfundVisible, toggleSuperfund, preset.state.superfund)
+    setLayer(floodVisible, toggleFlood, preset.state.flood)
     setLayer(transitVisible, toggleTransit, preset.state.transit)
     setLayer(trafficVisible, toggleTraffic, preset.state.traffic)
     setLayer(costcoVisible, toggleCostco, preset.state.costco)
@@ -3997,6 +4175,7 @@ function MapPage() {
     const requested = new Set(layersParam.split(',').map((s) => s.trim()))
     if (requested.has('noise')) toggleNoise()
     if (requested.has('superfund')) toggleSuperfund()
+    if (requested.has('flood')) toggleFlood()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
@@ -4651,6 +4830,40 @@ function MapPage() {
                   <span className="legend-pin" aria-hidden="true">☢️</span>
                   <span>NPL Superfund Site</span>
                 </div>
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={floodVisible}
+                onChange={toggleFlood}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                FEMA Flood Zones
+                {floodLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {floodVisible && (
+              <div className="flood-legend">
+                {floodLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see flood zones.</p>
+                )}
+                {(['high', 'coastal', 'moderate', 'minimal', 'undetermined', 'water'] as const).map((bucket) => (
+                  <div key={bucket} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{
+                        background: FLOOD_ZONE_COLORS[bucket],
+                        borderColor: FLOOD_ZONE_COLORS[bucket],
+                        opacity: bucket === 'minimal' ? 0.6 : 1,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span>{FLOOD_ZONE_LABELS[bucket]}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
