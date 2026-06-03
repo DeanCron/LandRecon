@@ -11,6 +11,7 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { addressSvg, defaultSvg, renderPng, LAYER_LABELS, BASE_LABELS } from './render-og-image.mjs'
+import { handleBroadbandRequest } from './broadband.mjs'
 
 const PORT = Number(process.env.OG_PORT || 3002)
 const INDEX_HTML_PATH = process.env.OG_INDEX_HTML || '/usr/share/nginx/html/index.html'
@@ -208,6 +209,12 @@ const server = createServer(async (req, res) => {
   try {
     const url = req.url || ''
     const ua = (req.headers['user-agent'] || '').slice(0, 80)
+
+    if (url.startsWith('/api/broadband')) {
+      await handleBroadbandRequest(req, res)
+      dbg(`broadband ${Date.now() - t0}ms ua="${ua}"`)
+      return
+    }
 
     if (url.startsWith('/og.png')) {
       const params = parseParams(url)

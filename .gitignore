@@ -35,3 +35,9 @@ __pycache__/
 scripts/generate-og-image.preview.svg
 test-og-*.png
 scripts/smoke-test-results.json
+
+# FCC Broadband Data Collection bulk-download artifacts and SQLite index
+# (built by `npm run build:broadband`; too large for git)
+server/data/broadband.db
+server/data/broadband.db-journal
+tmp/broadband/

@@ -41,12 +41,20 @@ FROM nginx:1.27-alpine AS runtime
 RUN apk add --no-cache nodejs npm fontconfig ttf-dejavu \
     && fc-cache -f
 
-# Install only the runtime npm deps the sidecars need (currently just
-# sharp + its prebuilt linux-musl libvips binary). We bring package.json
-# but install with --omit=dev so we don't pull vite/typescript/etc.
+# Install only the runtime npm deps the sidecars need (currently sharp +
+# its prebuilt linux-musl libvips binary, and better-sqlite3 for the FCC
+# broadband index). We bring package.json but install with --omit=dev so
+# we don't pull vite/typescript/etc.
+#
+# python3/make/g++ are added as a virtual package so better-sqlite3 has
+# a build toolchain available if the prebuilt musl binary download fails.
+# We remove them again immediately after install to keep the image small.
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm ci --omit=dev --no-audit --no-fund \
+    && npm cache clean --force \
+    && apk del .build-deps
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /app/dist /usr/share/nginx/html

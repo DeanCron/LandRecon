@@ -227,6 +227,69 @@ function parseCostcoAddress(addr: string): { street: string; locality: string } 
   return { street, locality }
 }
 
+// FCC Broadband Data Collection (BDC) types + helpers. Data ships through
+// the same-origin /api/broadband sidecar endpoint, so no CSP burn and the
+// FCC API token never reaches the browser. See server/broadband.mjs and
+// scripts/build-broadband-index.mjs for the bootstrap pipeline.
+type BroadbandTech = { code: number; label: string }
+type BroadbandProvider = { name: string; tech: number; down: number; up: number; br: string }
+type BroadbandBlock = {
+  blockFips: string
+  county: string
+  countyFips: string
+  state: string
+  stateName: string
+  stateFips: string
+}
+type BroadbandSummary = {
+  providerCount: number
+  maxDownMbps: number | null
+  maxUpMbps: number | null
+  bestProvider: string | null
+  hasFiber: boolean
+  speedTier: 'gig' | 'fast' | 'served' | 'underserved' | null
+  technologies: BroadbandTech[]
+  providers: BroadbandProvider[] | null
+}
+type BroadbandResponse = {
+  block: BroadbandBlock | null
+  summary: BroadbandSummary | null
+  source: string | null
+  asOfDate: string | null
+  attribution: string
+}
+function broadbandSeverity(tier: BroadbandSummary['speedTier'] | null | undefined): 'good' | 'warning' | 'danger' | 'clear' {
+  if (tier === 'gig' || tier === 'fast') return 'good'
+  if (tier === 'served') return 'warning'
+  if (tier === 'underserved') return 'danger'
+  return 'clear'
+}
+function formatBroadbandSpeed(mbps: number | null | undefined): string {
+  if (mbps == null || !Number.isFinite(mbps) || mbps <= 0) return '—'
+  if (mbps >= 1000) return `${(mbps / 1000).toFixed(mbps % 1000 === 0 ? 0 : 1)} Gbps`
+  return `${mbps} Mbps`
+}
+async function fetchBroadband(lat: number, lng: number, signal?: AbortSignal): Promise<BroadbandResponse | null> {
+  try {
+    const res = await fetch(`/api/broadband?lat=${lat}&lng=${lng}`, { signal })
+    if (!res.ok) return null
+    return await res.json() as BroadbandResponse
+  } catch {
+    return null
+  }
+}
+const BROADBAND_TECH_LABELS: Record<number, string> = {
+  0: 'Other',
+  10: 'DSL',
+  40: 'Cable',
+  50: 'Fiber',
+  60: 'GSO Satellite',
+  61: 'LEO Satellite',
+  70: 'Wireless (Unlicensed)',
+  71: 'Wireless (Licensed)',
+  72: 'Wireless (CBRS)',
+}
+
 // Per-tab cache of completed analyses keyed by quantized coordinates
 // (~110 m precision). Re-running for an address near a prior one returns
 // instantly with no Google/EPA/ArcGIS calls.
@@ -1554,9 +1617,11 @@ function MapPage() {
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
     crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [] })
+    broadband: BroadbandResponse | null
+    broadbandLoading: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -2673,11 +2738,19 @@ function MapPage() {
         erError: cached.erError,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         crowdMagnets: (cached.crowdMagnets ?? []) as any,
+        broadband: null,
+        broadbandLoading: true,
+      })
+      // Broadband is not stored in the cache (server has its own 24h cache
+      // and the lookup is fast/cheap), so fire it independently on cache hits.
+      fetchBroadband(lat, lng).then((bb) => {
+        if (!isLatestRun()) return
+        setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
       })
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [] })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
@@ -3007,6 +3080,15 @@ function MapPage() {
       dataCenters,
       nearestER, erError,
       crowdMagnets,
+      broadband: null,
+      broadbandLoading: true,
+    })
+
+    // FCC Broadband fetch runs independently of the other categories. Same
+    // pattern as Costco — fire-and-forget, merge result when it lands.
+    fetchBroadband(lat, lng).then((bb) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
     })
 
     costcoPromise.then((data) => {
@@ -5913,6 +5995,46 @@ function MapPage() {
               )}
             </div>
           </div>
+
+          {/* Broadband at this address — FCC BDC */}
+          {(() => {
+            const bbLoading = analysisResults.broadbandLoading
+            const bb = analysisResults.broadband
+            const summary = bb?.summary || null
+            const sev = bbLoading
+              ? 'pending'
+              : summary
+                ? broadbandSeverity(summary.speedTier)
+                : 'clear'
+            const subtitle = bbLoading
+              ? 'Looking up FCC providers…'
+              : summary
+                ? `${formatBroadbandSpeed(summary.maxDownMbps)} down · ${summary.providerCount} ${summary.providerCount === 1 ? 'provider' : 'providers'}${summary.hasFiber ? ' · Fiber' : ''}`
+                : bb?.block
+                  ? `${bb.block.county} County, ${bb.block.state} — index not yet built`
+                  : 'Broadband data unavailable'
+            return (
+              <div className={`analysis-card ${sev}`}>
+                <div
+                  className={`analysis-item${bbLoading ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (bbLoading) return
+                    if (analysisDetail === 'broadband') setAnalysisDetail(null)
+                    else setAnalysisDetail('broadband')
+                  }}
+                  aria-busy={bbLoading || undefined}
+                >
+                  <div className={`analysis-chevron${analysisDetail === 'broadband' ? ' expanded' : ''}${bbLoading ? ' hidden' : ''}`}>‹</div>
+                  <div className="analysis-icon">📶</div>
+                  <div className="analysis-detail">
+                    <strong>Broadband at this address</strong>
+                    <p>{subtitle}</p>
+                  </div>
+                  {bbLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </aside>
 
@@ -5927,6 +6049,7 @@ function MapPage() {
                analysisDetail === 'costco' ? '🛒 Nearest Costco' :
                analysisDetail === 'er' ? '🏥 Emergency Room' :
                analysisDetail === 'crowd' ? '🎟️ Crowd Magnets' :
+               analysisDetail === 'broadband' ? '📶 Broadband at this Address' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -6370,6 +6493,131 @@ function MapPage() {
                 )}
               </>
             )}
+
+            {analysisDetail === 'broadband' && (() => {
+              const bb = analysisResults.broadband
+              const summary = bb?.summary || null
+              const block = bb?.block || null
+              const fccLink = block
+                ? `https://broadbandmap.fcc.gov/location-summary/fixed?location_id=&zoom=14&vlon=&vlat=&block=${block.blockFips}`
+                : 'https://broadbandmap.fcc.gov/'
+              const tierLabel = (() => {
+                const t = summary?.speedTier
+                if (t === 'gig') return 'Gigabit available'
+                if (t === 'fast') return '100+ Mbps available'
+                if (t === 'served') return 'Served (25/3 Mbps minimum)'
+                if (t === 'underserved') return 'Underserved (below 25/3 Mbps)'
+                return ''
+              })()
+              const tierClass = broadbandSeverity(summary?.speedTier)
+              return (
+                <>
+                  {summary ? (
+                    <>
+                      <p className={`analysis-expand-level ${tierClass}`}>{tierLabel}</p>
+                      <div className="broadband-stats">
+                        <div className="broadband-stat">
+                          <span className="broadband-stat-label">Max download</span>
+                          <strong>{formatBroadbandSpeed(summary.maxDownMbps)}</strong>
+                        </div>
+                        <div className="broadband-stat">
+                          <span className="broadband-stat-label">Max upload</span>
+                          <strong>{formatBroadbandSpeed(summary.maxUpMbps)}</strong>
+                        </div>
+                        <div className="broadband-stat">
+                          <span className="broadband-stat-label">Providers</span>
+                          <strong>{summary.providerCount}</strong>
+                        </div>
+                      </div>
+                      {summary.technologies.length > 0 && (
+                        <div className="broadband-tech-chips">
+                          {summary.technologies.map((t) => (
+                            <span key={t.code} className={`broadband-tech-chip${t.code === 50 ? ' fiber' : ''}`}>
+                              {t.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {summary.providers && summary.providers.length > 0 && (
+                        <ul className="analysis-expand-list broadband-providers">
+                          {summary.providers.slice(0, 12).map((p, i) => (
+                            <li key={`${p.name}|${p.tech}|${i}`} className="dc-analysis-item">
+                              <div className="dc-analysis-header">
+                                <span className="dc-status-dot" style={{ background: p.tech === 50 ? '#16a34a' : p.tech === 40 ? '#0ea5e9' : p.tech === 10 ? '#f59e0b' : p.tech === 61 ? '#6366f1' : '#9ca3af' }} />
+                                <strong>{p.name}</strong>
+                                <span className="dc-distance">{formatBroadbandSpeed(p.down)}</span>
+                              </div>
+                              <div className="dc-analysis-meta">
+                                <span>{BROADBAND_TECH_LABELS[p.tech] || `Tech ${p.tech}`}</span>
+                                <span> · {formatBroadbandSpeed(p.up)} up</span>
+                                {p.br === 'B' && <span> · Business-only</span>}
+                              </div>
+                            </li>
+                          ))}
+                          {summary.providers.length > 12 && (
+                            <li className="broadband-provider-more">+ {summary.providers.length - 12} more providers</li>
+                          )}
+                        </ul>
+                      )}
+                      <div className="analysis-expand-rec">
+                        <strong>What this means</strong>
+                        <p>
+                          The FCC Broadband Data Collection shows the maximum <em>advertised</em>
+                          speeds providers are willing to deliver to this census block. Real
+                          throughput depends on plan tier, time of day, and last-mile build-out.
+                          Fiber and cable are typically reliable; fixed wireless and DSL can vary
+                          significantly. {summary.hasFiber ? 'Fiber availability is a strong positive — symmetric speeds, low latency, and meaningful future-proofing for streaming, remote work, and resale.' : 'Fiber is not yet built out here; expect cable, fixed wireless, or DSL as your primary options.'}
+                        </p>
+                      </div>
+                      <div className="analysis-costco-actions">
+                        <a
+                          className="costco-directions-link"
+                          href={fccLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M14 3h7v7" />
+                            <path d="M10 14L21 3" />
+                            <path d="M21 14v7h-7" />
+                            <path d="M3 10V3h7" />
+                          </svg>
+                          View on FCC Broadband Map →
+                        </a>
+                      </div>
+                      {bb?.asOfDate && (
+                        <p style={{ fontSize: '0.7rem', color: '#888', marginTop: '10px' }}>
+                          FCC BDC filing as of {bb.asOfDate} · Block {block?.blockFips}
+                        </p>
+                      )}
+                    </>
+                  ) : block ? (
+                    <>
+                      <p className="analysis-expand-level clear">
+                        {block.county} County, {block.stateName}
+                      </p>
+                      <p style={{ fontSize: '0.85rem', color: '#ccc', marginTop: '12px' }}>
+                        Census block <code>{block.blockFips}</code> resolved successfully, but the
+                        per-block broadband index isn't built on this deployment yet. The full
+                        provider list is available directly from the FCC.
+                      </p>
+                      <div className="analysis-costco-actions">
+                        <a
+                          className="costco-directions-link"
+                          href={fccLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >View on FCC Broadband Map →</a>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="analysis-expand-level clear">
+                      Broadband lookup unavailable for this location.
+                    </p>
+                  )}
+                </>
+              )
+            })()}
 
             {analysisDetail === 'er' && (
               <>
