@@ -157,9 +157,21 @@ async function extractCsvToDisk(zipPath, destDir) {
   const fs = await import('node:fs')
   const outPath = join(destDir, csvEntry.entryName)
   await mkdir(dirname(outPath), { recursive: true })
-  // AdmZip.extractEntryTo() writes synchronously but is fine here — the
-  // entry headers are already in memory, only the file body needs flushing.
-  fs.writeFileSync(outPath, csvEntry.getData())
+  // AdmZip returns the full decompressed entry as one Buffer. For huge
+  // entries (GSO satellite in CA is ~2.7 GB) we can't use writeFileSync
+  // because its `length` param is capped at INT32_MAX (~2.1 GB). Chunk
+  // the write through openSync/writeSync/closeSync instead.
+  const data = csvEntry.getData()
+  const fd = fs.openSync(outPath, 'w')
+  try {
+    const CHUNK = 1 << 28 // 256 MB per write — well under the int32 cap
+    for (let off = 0; off < data.length; off += CHUNK) {
+      const end = Math.min(off + CHUNK, data.length)
+      fs.writeSync(fd, data, off, end - off, off)
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
   return outPath
 }
 
