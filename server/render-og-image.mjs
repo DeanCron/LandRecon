@@ -18,6 +18,7 @@ const LAYER_LABELS = {
   superfund: 'Superfunds',
   flood: 'Flood zones',
   wildfire: 'Wildfire hazard',
+  aqi: 'Air quality',
   transit: 'Transit',
   traffic: 'Traffic',
   costco: 'Costco',

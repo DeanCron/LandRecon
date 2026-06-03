@@ -822,6 +822,66 @@ const WHP_CLASS_COLORS: Array<{ label: string; color: string }> = [
   { label: 'Water',         color: '#6baed6' },
 ]
 
+// ── EPA AirNow Latest AQI Contours (combined Ozone + PM2.5) ─────────────
+// Hourly-refreshed polygon contour layer hosted on EPA's public ArcGIS
+// Online org. `gridcode` is the AQI category (1–6); "Combined" means the
+// worst-of Ozone and PM2.5 at the contour location. Polygons are coarse
+// and useful even at low zoom for visualizing regional smoke / dust /
+// ozone events, so the gate is permissive.
+const AQI_API =
+  'https://services.arcgis.com/cJ9YHowT8TU7DUyn/ArcGIS/rest/services/AirNowLatestContoursCombined/FeatureServer/0/query'
+
+const AQI_FIELDS = ['gridcode', 'Timestamp'].join(',')
+
+const AQI_MIN_ZOOM = 4
+
+// EPA standard AQI category colors (https://www.airnow.gov/aqi/aqi-basics/)
+const AQI_CATEGORY_COLORS: Record<number, string> = {
+  1: '#00e400',
+  2: '#ffff00',
+  3: '#ff7e00',
+  4: '#ff0000',
+  5: '#8f3f97',
+  6: '#7e0023',
+}
+
+const AQI_CATEGORY_LABELS: Record<number, string> = {
+  1: 'Good (0–50)',
+  2: 'Moderate (51–100)',
+  3: 'Unhealthy for sensitive (101–150)',
+  4: 'Unhealthy (151–200)',
+  5: 'Very unhealthy (201–300)',
+  6: 'Hazardous (301+)',
+}
+
+function aqiCategory(props: GeoJSON.GeoJsonProperties): number {
+  const raw = (props as Record<string, unknown> | null | undefined)?.gridcode
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(n)) return 1
+  return Math.min(Math.max(Math.round(n), 1), 6)
+}
+
+function aqiColor(props: GeoJSON.GeoJsonProperties): string {
+  return AQI_CATEGORY_COLORS[aqiCategory(props)] || AQI_CATEGORY_COLORS[1]
+}
+
+async function fetchAqiFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: AQI_FIELDS,
+    geometry: bbox,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'geojson',
+    resultRecordCount: '2000',
+  })
+  const res = await fetch(`${AQI_API}?${params}`)
+  return res.json()
+}
+
 function buildWhpImageUrl(bounds: L.LatLngBounds, widthPx: number, heightPx: number): string {
   // ArcGIS exportImage accepts bbox in EPSG:4326 if bboxSR=4326 is set;
   // the service reprojects internally. Cap pixel dimensions so we don't
@@ -900,13 +960,14 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
   superfund: boolean
   flood: boolean
   wildfire: boolean
+  aqi: boolean
   transit: boolean
   traffic: boolean
   costco: boolean
@@ -918,7 +979,7 @@ type LayerStateSnapshot = {
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
-  noise: false, superfund: false, flood: false, wildfire: false, transit: false, traffic: false,
+  noise: false, superfund: false, flood: false, wildfire: false, aqi: false, transit: false, traffic: false,
   costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false,
 }
 
@@ -1359,6 +1420,8 @@ function MapPage() {
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const floodLayerRef = useRef<L.GeoJSON | null>(null)
   const floodLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const aqiLayerRef = useRef<L.GeoJSON | null>(null)
+  const aqiLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
   const powerLineLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
@@ -1433,6 +1496,10 @@ function MapPage() {
   const [floodVisible, setFloodVisible] = useState(false)
   const [floodLoading, setFloodLoading] = useState(false)
   const [floodLowZoom, setFloodLowZoom] = useState(false)
+  const [aqiVisible, setAqiVisible] = useState(false)
+  const [aqiLoading, setAqiLoading] = useState(false)
+  const [aqiLowZoom, setAqiLowZoom] = useState(false)
+  const [aqiTimestamp, setAqiTimestamp] = useState<number | null>(null)
   const [powerLineVisible, setPowerLineVisible] = useState(false)
   const [powerLineLoading, setPowerLineLoading] = useState(false)
   const [powerLineLowZoom, setPowerLineLowZoom] = useState(false)
@@ -1845,6 +1912,7 @@ function MapPage() {
     if (superfundVisible) active.push('superfund')
     if (floodVisible) active.push('flood')
     if (wildfireVisible) active.push('wildfire')
+    if (aqiVisible) active.push('aqi')
     if (transitVisible) active.push('transit')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
@@ -1856,7 +1924,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1867,9 +1935,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1879,6 +1947,7 @@ function MapPage() {
     superfund: superfundVisible,
     flood: floodVisible,
     wildfire: wildfireVisible,
+    aqi: aqiVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
@@ -1894,6 +1963,7 @@ function MapPage() {
       superfund: superfundVisible,
       flood: floodVisible,
       wildfire: wildfireVisible,
+      aqi: aqiVisible,
       transit: transitVisible,
       traffic: trafficVisible,
       costco: costcoVisible,
@@ -1910,7 +1980,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2317,6 +2387,48 @@ function MapPage() {
       console.error('Failed to load FEMA flood zones:', err)
     } finally {
       setFloodLoading(false)
+    }
+  }, [])
+
+  // EPA AirNow contour polygons (combined Ozone + PM2.5). Coarse hourly
+  // contours that look great even at low zoom — useful for regional smoke
+  // / dust events. Cached against a padded bbox so panning within the
+  // cached extent skips re-fetch.
+  const loadAqiData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+    if (map.getZoom() < AQI_MIN_ZOOM) {
+      dbg('aqi', `Skipping — zoom ${map.getZoom()} < ${AQI_MIN_ZOOM}`)
+      setAqiLowZoom(true)
+      layer.clearLayers()
+      aqiLoadedBoundsRef.current = null
+      return
+    }
+    setAqiLowZoom(false)
+    const bounds = map.getBounds()
+    const loaded = aqiLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('aqi', 'Skipping — bounds already loaded'); return }
+    dbg('aqi', 'Loading AirNow AQI contours…')
+
+    setAqiLoading(true)
+    try {
+      const padded = bounds.pad(0.3)
+      const geojson = await fetchAqiFeatures(padded)
+      dbg('aqi', `Got ${geojson.features?.length || 0} features`)
+      layer.clearLayers()
+      layer.addData(geojson)
+      aqiLoadedBoundsRef.current = padded
+      // Pick the most recent Timestamp value off any feature; the contour
+      // dataset is published as a single hourly snapshot so all features
+      // share the same Timestamp, but be defensive.
+      let latest: number | null = null
+      for (const f of geojson.features || []) {
+        const ts = (f.properties as Record<string, unknown> | null)?.Timestamp
+        if (typeof ts === 'number' && (latest === null || ts > latest)) latest = ts
+      }
+      if (latest !== null) setAqiTimestamp(latest)
+    } catch (err) {
+      console.error('Failed to load AirNow AQI contours:', err)
+    } finally {
+      setAqiLoading(false)
     }
   }, [])
 
@@ -3070,6 +3182,7 @@ function MapPage() {
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
           floodLoadedBoundsRef.current = null
+          aqiLoadedBoundsRef.current = null
           powerLineLoadedBoundsRef.current = null
           wildfireRenderedBoundsRef.current = null
           if (wildfireLayerRef.current) {
@@ -3211,6 +3324,25 @@ function MapPage() {
           },
         })
 
+        // Create AirNow AQI layer (polygon contours; not added to map until toggled on)
+        aqiLayerRef.current = L.geoJSON(undefined, {
+          style: (feature) => {
+            const color = aqiColor(feature?.properties ?? null)
+            return {
+              color,
+              weight: 0,
+              fillColor: color,
+              fillOpacity: 0.35,
+            }
+          },
+          onEachFeature: (feature, layer) => {
+            const props = (feature as GeoJSON.Feature).properties || {}
+            const cat = aqiCategory(props)
+            const label = AQI_CATEGORY_LABELS[cat] || `Category ${cat}`
+            layer.bindTooltip(`<strong>${label}</strong>`, { direction: 'top', sticky: true })
+          },
+        })
+
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
@@ -3318,6 +3450,8 @@ function MapPage() {
       superfundLoadedBoundsRef.current = null
       floodLayerRef.current = null
       floodLoadedBoundsRef.current = null
+      aqiLayerRef.current = null
+      aqiLoadedBoundsRef.current = null
       powerLineLayerRef.current = null
       powerLineLoadedBoundsRef.current = null
       wildfireLayerRef.current = null
@@ -4074,6 +4208,38 @@ function MapPage() {
     [loadFloodData],
   )
 
+  const toggleAqi = () => {
+    const map = mapRef.current
+    const layer = aqiLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `aqi → ${aqiVisible ? 'OFF' : 'ON'}`)
+
+    if (aqiVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleAqiMove)
+      map.off('zoomend', handleAqiMove)
+      setAqiLowZoom(false)
+    } else {
+      layer.addTo(map)
+      aqiLoadedBoundsRef.current = null
+      loadAqiData(map, layer)
+      map.on('moveend', handleAqiMove)
+      map.on('zoomend', handleAqiMove)
+    }
+    setAqiVisible(!aqiVisible)
+  }
+
+  const handleAqiMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = aqiLayerRef.current
+      if (map && layer) {
+        loadAqiData(map, layer)
+      }
+    }, 250),
+    [loadAqiData],
+  )
+
   const togglePowerLines = () => {
     const map = mapRef.current
     const layer = powerLineLayerRef.current
@@ -4431,6 +4597,7 @@ function MapPage() {
     superfund: superfundVisible,
     flood: floodVisible,
     wildfire: wildfireVisible,
+    aqi: aqiVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
@@ -4447,6 +4614,7 @@ function MapPage() {
       && s.superfund === currentLayerSnapshot.superfund
       && s.flood === currentLayerSnapshot.flood
       && s.wildfire === currentLayerSnapshot.wildfire
+      && s.aqi === currentLayerSnapshot.aqi
       && s.transit === currentLayerSnapshot.transit
       && s.traffic === currentLayerSnapshot.traffic
       && s.costco === currentLayerSnapshot.costco
@@ -4468,6 +4636,7 @@ function MapPage() {
     setLayer(superfundVisible, toggleSuperfund, preset.state.superfund)
     setLayer(floodVisible, toggleFlood, preset.state.flood)
     setLayer(wildfireVisible, toggleWildfire, preset.state.wildfire)
+    setLayer(aqiVisible, toggleAqi, preset.state.aqi)
     setLayer(transitVisible, toggleTransit, preset.state.transit)
     setLayer(trafficVisible, toggleTraffic, preset.state.traffic)
     setLayer(costcoVisible, toggleCostco, preset.state.costco)
@@ -4496,6 +4665,7 @@ function MapPage() {
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('flood')) toggleFlood()
     if (requested.has('wildfire')) toggleWildfire()
+    if (requested.has('aqi')) toggleAqi()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
@@ -5215,6 +5385,41 @@ function MapPage() {
                     <span>{cls.label}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={aqiVisible}
+                onChange={toggleAqi}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Air Quality (AQI)
+                {aqiLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {aqiVisible && (
+              <div className="flood-legend">
+                {aqiLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see air-quality contours.</p>
+                )}
+                {([1, 2, 3, 4, 5, 6] as const).map((cat) => (
+                  <div key={cat} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{ background: AQI_CATEGORY_COLORS[cat], borderColor: AQI_CATEGORY_COLORS[cat] }}
+                      aria-hidden="true"
+                    />
+                    <span>{AQI_CATEGORY_LABELS[cat]}</span>
+                  </div>
+                ))}
+                {aqiTimestamp && (
+                  <p className="flood-legend-hint">
+                    Updated {new Date(aqiTimestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} · EPA AirNow
+                  </p>
+                )}
               </div>
             )}
           </div>
