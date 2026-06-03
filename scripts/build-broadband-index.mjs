@@ -175,10 +175,12 @@ async function extractCsvToDisk(zipPath, destDir) {
   return outPath
 }
 
-// Stream-parse a CSV onto disk into the per-state `blocks` aggregator.
+// Stream-parse a CSV onto disk and UPSERT every row into a SQLite raw
+// table. Dedups (block, provider, tech) inline by keeping max down/up.
 // Returns the number of source rows ingested, or -1 if the header was
-// missing required columns.
-async function streamCsv(csvPath, blocks, opts) {
+// missing required columns. Memory footprint is O(1) — only one CSV
+// line is held at a time.
+async function streamCsv(csvPath, upsertStmt, opts) {
   const stream = createReadStream(csvPath, { encoding: 'utf8', highWaterMark: 1 << 20 })
   const rl = createInterface({ input: stream, crlfDelay: Infinity })
   let idx = null
@@ -198,24 +200,15 @@ async function streamCsv(csvPath, blocks, opts) {
     const r = parseCsvRow(line)
     const block = r[idx.block_geoid]
     if (!block) continue
-    const techCode = Number(r[idx.technology])
+    const techCode = Number(r[idx.technology]) || 0
     const down = Number(r[idx.max_advertised_download_speed]) || 0
     const up = Number(r[idx.max_advertised_upload_speed]) || 0
     const brCode = r[idx.business_residential_code] || ''
     if (opts.residentialOnly && brCode === 'B') { rows++; continue }
-    const providerId = Number(r[idx.provider_id])
+    const providerId = Number(r[idx.provider_id]) || 0
     const brand = r[idx.brand_name] || `Provider ${providerId}`
 
-    let b = blocks.get(block)
-    if (!b) { b = new Map(); blocks.set(block, b) }
-    const key = `${providerId}|${techCode}`
-    const prev = b.get(key)
-    if (prev) {
-      if (down > prev.down) prev.down = down
-      if (up > prev.up) prev.up = up
-    } else {
-      b.set(key, { providerId, brand, tech: techCode, down, up, br: brCode })
-    }
+    upsertStmt.run(block, providerId, techCode, brand, down, up, brCode)
     rows++
   }
   return rows
@@ -305,12 +298,24 @@ async function main() {
   await mkdir(tmpRoot, { recursive: true })
 
   // ---------- prepare SQLite ----------
+  // Build pipeline:
+  //   Phase 1: stream every CSV row into `blocks_raw` (PRIMARY KEY on
+  //   (block, provider, tech)) via UPSERT that keeps max(down)/max(up).
+  //   Bounded memory regardless of state size — SQLite is the aggregator.
+  //
+  //   Phase 2: iterate blocks_raw ORDER BY block_fips, accumulate one
+  //   block's providers in a small JS array, emit the summary row into
+  //   `blocks`. Memory bounded to one block at a time (~5-20 providers).
+  //
+  //   Phase 3: DROP blocks_raw, VACUUM to shrink the file. Final size
+  //   is dominated by the providers_json column.
   await mkdir(dirname(args.out), { recursive: true })
   if (existsSync(args.out)) await rm(args.out)
   const db = new Database(args.out)
   db.pragma('journal_mode = OFF')
   db.pragma('synchronous = OFF')
   db.pragma('temp_store = MEMORY')
+  db.pragma('cache_size = -524288') // 512 MB page cache; helps the GROUP BY pass
   db.exec(`
     CREATE TABLE blocks (
       block_fips TEXT PRIMARY KEY,
@@ -322,10 +327,28 @@ async function main() {
       providers_json TEXT
     );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE blocks_raw (
+      block_fips TEXT NOT NULL,
+      provider_id INTEGER NOT NULL,
+      tech INTEGER NOT NULL,
+      brand TEXT,
+      down INTEGER,
+      up INTEGER,
+      br TEXT,
+      PRIMARY KEY (block_fips, provider_id, tech)
+    ) WITHOUT ROWID;
   `)
 
   let totalRows = 0
   let blockCount = 0
+  const upsertRaw = db.prepare(`
+    INSERT INTO blocks_raw (block_fips, provider_id, tech, brand, down, up, br)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(block_fips, provider_id, tech) DO UPDATE SET
+      down = MAX(blocks_raw.down, excluded.down),
+      up = MAX(blocks_raw.up, excluded.up),
+      brand = COALESCE(NULLIF(blocks_raw.brand, ''), excluded.brand)
+  `)
   const insertBlock = db.prepare(`INSERT OR REPLACE INTO blocks
     (block_fips, provider_count, max_down_mbps, max_up_mbps, tech_codes, best_provider, providers_json)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -336,11 +359,6 @@ async function main() {
     const stateName = stateFiles[0].state_name || `FIPS ${stateFips}`
     const stateUsps = stateFipsToUsps(stateFips)
     console.log(`\n[bdc] === ${stateUsps} (${stateName}) — ${stateFiles.length} tech files ===`)
-
-    // One aggregator per state. Block FIPS never cross state lines, so
-    // dumping after the state is processed yields complete per-block rows.
-    // Map<block_fips, Map<"provider|tech", {brand, tech, down, up, br}>>
-    const blocks = new Map()
     let stateSourceRows = 0
 
     for (const file of stateFiles) {
@@ -360,58 +378,145 @@ async function main() {
         console.log(`  [cached]   ${tech} ${fmtBytes(statSync(zipPath).size)}`)
       }
 
-      // Stream the CSV out of the ZIP rather than loading whole files
-      // into memory — individual tech files for big states (GSO sat in
-      // CA = 30M rows) can exceed Node's 2GB string limit.
       const csvPath = await extractCsvToDisk(zipPath, tmpRoot)
       if (!csvPath) {
         console.error(`  [no CSV inside ${zipPath}]`)
         continue
       }
 
-      const rowsInFile = await streamCsv(csvPath, blocks, {
-        residentialOnly: args.residentialOnly,
-        maxRows: args.maxRows,
-      })
-      if (rowsInFile === -1) {
-        // Header parse failure already logged.
+      // Wrap the entire file's row stream in a single transaction so
+      // SQLite can batch its page cache writes instead of autocommitting
+      // per row. We use raw BEGIN/COMMIT because better-sqlite3's
+      // db.transaction() wrapper is sync-only and streamCsv is async.
+      const fileStart = Date.now()
+      db.exec('BEGIN')
+      let rowsInFile
+      try {
+        rowsInFile = await streamCsv(csvPath, upsertRaw, {
+          residentialOnly: args.residentialOnly,
+          maxRows: args.maxRows,
+        })
+      } catch (err) {
+        try { db.exec('ROLLBACK') } catch {}
+        console.error(`  [stream FAILED] ${tech}: ${err.message}`)
         await rm(csvPath).catch(() => {})
         continue
       }
+      if (rowsInFile === -1) {
+        try { db.exec('ROLLBACK') } catch {}
+        await rm(csvPath).catch(() => {})
+        continue
+      }
+      db.exec('COMMIT')
+      const fileElapsed = ((Date.now() - fileStart) / 1000).toFixed(1)
       stateSourceRows += rowsInFile
       totalRows += rowsInFile
-      console.log(`  [parsed]   ${tech}: ${rowsInFile.toLocaleString()} rows (state agg: ${blocks.size.toLocaleString()} blocks)`)
+      console.log(`  [parsed]   ${tech}: ${rowsInFile.toLocaleString()} rows in ${fileElapsed}s`)
       await rm(csvPath).catch(() => {})
       if (!args.keepZips) await rm(zipPath).catch(() => {})
     }
 
-    // Flush state aggregation to SQLite.
-    console.log(`  [flush]    ${stateUsps}: ${blocks.size.toLocaleString()} blocks, ${stateSourceRows.toLocaleString()} source rows`)
-    const tx = db.transaction(() => {
-      for (const [block, providers] of blocks) {
-        let maxDown = 0, maxUp = 0
-        const techSet = new Set()
-        let bestProv = null, bestScore = -1
-        const arr = []
-        for (const p of providers.values()) {
-          if (p.down > maxDown) maxDown = p.down
-          if (p.up > maxUp) maxUp = p.up
-          techSet.add(p.tech)
-          const score = p.down + (p.tech === 50 ? 100000 : 0)
-          if (score > bestScore) { bestScore = score; bestProv = p.brand }
-          arr.push({ name: p.brand, tech: p.tech, down: p.down, up: p.up, br: p.br })
-        }
-        arr.sort((a, b) => (b.tech === 50 ? 1 : 0) - (a.tech === 50 ? 1 : 0) || b.down - a.down)
-        const techCodesCsv = [...techSet].sort((a, b) => a - b).join(',')
-        insertBlock.run(block, providers.size, maxDown || null, maxUp || null, techCodesCsv, bestProv, JSON.stringify(arr))
-        blockCount++
-      }
-    })
-    tx()
-    // Drop the state aggregation Map so its memory is reclaimed before
-    // we start the next state.
-    blocks.clear()
+    console.log(`  [state]    ${stateUsps}: ${stateSourceRows.toLocaleString()} source rows ingested`)
   }
+
+  // ---------- Phase 2: aggregate blocks_raw -> blocks ----------
+  const rawCount = db.prepare('SELECT COUNT(*) AS n FROM blocks_raw').get().n
+  console.log(`\n[bdc] aggregating ${rawCount.toLocaleString()} raw rows into per-block summaries...`)
+  const aggStart = Date.now()
+
+  // ORDER BY block_fips lets us walk in chunks and accumulate one
+  // block's providers at a time. We can't use db.prepare().iterate()
+  // here because better-sqlite3 forbids running other statements (the
+  // blocks-table INSERT) while a cursor is open on the same connection.
+  // Instead: SELECT WHERE block_fips > ? ORDER BY block_fips LIMIT N,
+  // process all *complete* blocks in the chunk, then advance the
+  // boundary cursor. The PRIMARY KEY on blocks_raw is
+  // (block_fips, provider_id, tech), so the WHERE/ORDER BY are
+  // both served directly by the PK B-tree — no temp sort.
+  const CHUNK = 100000
+  const selectChunk = db.prepare(`SELECT block_fips, provider_id, tech, brand, down, up, br FROM blocks_raw WHERE block_fips > ? ORDER BY block_fips LIMIT ${CHUNK}`)
+  let cursorFips = ''
+
+  const flushBlock = (fips, providers) => {
+    let maxDown = 0, maxUp = 0
+    const techSet = new Set()
+    let bestProv = null, bestScore = -1
+    const arr = []
+    for (const p of providers) {
+      if (p.down > maxDown) maxDown = p.down
+      if (p.up > maxUp) maxUp = p.up
+      techSet.add(p.tech)
+      const score = p.down + (p.tech === 50 ? 100000 : 0)
+      if (score > bestScore) { bestScore = score; bestProv = p.brand }
+      arr.push({ name: p.brand, tech: p.tech, down: p.down, up: p.up, br: p.br })
+    }
+    arr.sort((a, b) => (b.tech === 50 ? 1 : 0) - (a.tech === 50 ? 1 : 0) || b.down - a.down)
+    const techCodesCsv = [...techSet].sort((a, b) => a - b).join(',')
+    insertBlock.run(fips, providers.length, maxDown || null, maxUp || null, techCodesCsv, bestProv, JSON.stringify(arr))
+    blockCount++
+    if (blockCount % 100000 === 0) {
+      const elapsed = ((Date.now() - aggStart) / 1000).toFixed(1)
+      console.log(`  [agg]      ${blockCount.toLocaleString()} blocks emitted (${elapsed}s)`)
+    }
+  }
+
+  while (true) {
+    const rows = selectChunk.all(cursorFips)
+    if (!rows.length) break
+
+    const lastFipsInChunk = rows[rows.length - 1].block_fips
+    const isAllSameBlock = rows[0].block_fips === lastFipsInChunk
+    const isFinalChunk = rows.length < CHUNK
+    // Cutoff: drop the trailing partial block so we can refetch it
+    // intact next iteration. If the entire chunk is one block (rare,
+    // but possible at provider-rich blocks if CHUNK is small) or this
+    // is the last chunk, commit the whole thing.
+    let cutoff
+    if (isFinalChunk || isAllSameBlock) {
+      cutoff = rows.length
+    } else {
+      // Walk back from the end while still on lastFipsInChunk.
+      cutoff = rows.length
+      while (cutoff > 0 && rows[cutoff - 1].block_fips === lastFipsInChunk) cutoff--
+    }
+
+    let curBlock = null
+    let curProviders = []
+    const emit = db.transaction(() => {
+      for (let i = 0; i < cutoff; i++) {
+        const row = rows[i]
+        if (curBlock && row.block_fips !== curBlock) {
+          flushBlock(curBlock, curProviders)
+          curProviders = []
+        }
+        curBlock = row.block_fips
+        curProviders.push({
+          brand: row.brand || `Provider ${row.provider_id}`,
+          tech: row.tech,
+          down: row.down,
+          up: row.up,
+          br: row.br,
+        })
+      }
+      if (curBlock) flushBlock(curBlock, curProviders)
+    })
+    emit()
+
+    // Advance the boundary cursor.
+    if (isFinalChunk || isAllSameBlock) {
+      cursorFips = lastFipsInChunk
+    } else {
+      cursorFips = rows[cutoff - 1].block_fips
+    }
+    if (isFinalChunk) break
+  }
+
+  const aggElapsed = ((Date.now() - aggStart) / 1000).toFixed(1)
+  console.log(`[bdc] aggregation complete: ${blockCount.toLocaleString()} blocks in ${aggElapsed}s`)
+
+  // ---------- Phase 3: drop raw, VACUUM ----------
+  console.log('[bdc] dropping raw table and VACUUMing...')
+  db.exec('DROP TABLE blocks_raw')
 
   // Write meta.
   const insertMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)')
