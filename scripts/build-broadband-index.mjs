@@ -25,7 +25,11 @@
 //
 // FLAGS
 //   --state=XX            Two-letter postal code, repeatable. Default: all states.
+//   --tech=N              FCC technology_code (10/40/50/60/61/70/71/72), repeatable.
+//                         Default: all fixed-broadband techs. Use --tech=50 for a
+//                         fiber-only smoke test (smallest meaningful subset).
 //   --residential-only    Drop business-only providers (default: keep both).
+//   --max-rows=N          Stop after N rows per file (debug; default unlimited).
 //   --keep-zips           Don't delete downloaded ZIPs after extraction (debug).
 //   --out=path/to.db      Override output path (default: server/data/broadband.db).
 //   --as-of=YYYY-MM-DD    Override which filing to fetch (default: latest).
@@ -34,7 +38,7 @@
 // reused on the next run. To force a re-download, delete the tmp dir.
 
 import { createRequire } from 'node:module'
-import { mkdir, rm, writeFile, readFile } from 'node:fs/promises'
+import { mkdir, rm, readFile } from 'node:fs/promises'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -53,19 +57,23 @@ const REPO_ROOT = resolve(__dirname, '..')
 const argv = process.argv.slice(2)
 const args = {
   states: [],
+  techs: [],
   residentialOnly: false,
   keepZips: false,
+  maxRows: 0,
   out: join(REPO_ROOT, 'server', 'data', 'broadband.db'),
   asOf: null,
 }
 for (const a of argv) {
   if (a.startsWith('--state=')) args.states.push(a.slice(8).toUpperCase())
+  else if (a.startsWith('--tech=')) args.techs.push(Number(a.slice(7)))
   else if (a === '--residential-only') args.residentialOnly = true
   else if (a === '--keep-zips') args.keepZips = true
+  else if (a.startsWith('--max-rows=')) args.maxRows = Number(a.slice(11))
   else if (a.startsWith('--out=')) args.out = resolve(a.slice(6))
   else if (a.startsWith('--as-of=')) args.asOf = a.slice(8)
   else if (a === '--help' || a === '-h') {
-    console.log(await readFile(fileURLToPath(import.meta.url), 'utf8').then((s) => s.split('\n').slice(0, 35).join('\n')))
+    console.log(await readFile(fileURLToPath(import.meta.url), 'utf8').then((s) => s.split('\n').slice(0, 40).join('\n')))
     process.exit(0)
   } else {
     console.error(`Unknown arg: ${a}`)
@@ -133,6 +141,90 @@ function parseCsvRow(line) {
   return line.split(',')
 }
 
+// Extract the first .csv entry from a ZIP onto disk and return its path.
+// Streaming the file off disk uses bounded memory regardless of how
+// large the CSV is (FCC fixed-broadband files can exceed 10 GB
+// uncompressed for the larger states + satellite techs).
+async function extractCsvToDisk(zipPath, destDir) {
+  let zip
+  try { zip = new AdmZip(zipPath) }
+  catch (err) {
+    console.error(`  [zip ERROR] ${zipPath}: ${err.message}`)
+    return null
+  }
+  const csvEntry = zip.getEntries().find((e) => e.entryName.toLowerCase().endsWith('.csv'))
+  if (!csvEntry) return null
+  const fs = await import('node:fs')
+  const outPath = join(destDir, csvEntry.entryName)
+  await mkdir(dirname(outPath), { recursive: true })
+  // AdmZip.extractEntryTo() writes synchronously but is fine here — the
+  // entry headers are already in memory, only the file body needs flushing.
+  fs.writeFileSync(outPath, csvEntry.getData())
+  return outPath
+}
+
+// Stream-parse a CSV onto disk into the per-state `blocks` aggregator.
+// Returns the number of source rows ingested, or -1 if the header was
+// missing required columns.
+async function streamCsv(csvPath, blocks, opts) {
+  const stream = createReadStream(csvPath, { encoding: 'utf8', highWaterMark: 1 << 20 })
+  const rl = createInterface({ input: stream, crlfDelay: Infinity })
+  let idx = null
+  let rows = 0
+  for await (const line of rl) {
+    if (!line) continue
+    if (!idx) {
+      idx = parseCsvHeader(line)
+      if (idx.block_geoid < 0) {
+        console.error(`  [missing block_geoid col in ${csvPath}]`)
+        rl.close()
+        return -1
+      }
+      continue
+    }
+    if (opts.maxRows && rows >= opts.maxRows) { rl.close(); break }
+    const r = parseCsvRow(line)
+    const block = r[idx.block_geoid]
+    if (!block) continue
+    const techCode = Number(r[idx.technology])
+    const down = Number(r[idx.max_advertised_download_speed]) || 0
+    const up = Number(r[idx.max_advertised_upload_speed]) || 0
+    const brCode = r[idx.business_residential_code] || ''
+    if (opts.residentialOnly && brCode === 'B') { rows++; continue }
+    const providerId = Number(r[idx.provider_id])
+    const brand = r[idx.brand_name] || `Provider ${providerId}`
+
+    let b = blocks.get(block)
+    if (!b) { b = new Map(); blocks.set(block, b) }
+    const key = `${providerId}|${techCode}`
+    const prev = b.get(key)
+    if (prev) {
+      if (down > prev.down) prev.down = down
+      if (up > prev.up) prev.up = up
+    } else {
+      b.set(key, { providerId, brand, tech: techCode, down, up, br: brCode })
+    }
+    rows++
+  }
+  return rows
+}
+
+// Tiny FIPS -> USPS lookup, just enough for --state filtering and log
+// formatting (~60 entries, no need to import a real dataset).
+const STATE_FIPS_TO_USPS = {
+  '01': 'AL', '02': 'AK', '04': 'AZ', '05': 'AR', '06': 'CA', '08': 'CO', '09': 'CT',
+  '10': 'DE', '11': 'DC', '12': 'FL', '13': 'GA', '15': 'HI', '16': 'ID', '17': 'IL',
+  '18': 'IN', '19': 'IA', '20': 'KS', '21': 'KY', '22': 'LA', '23': 'ME', '24': 'MD',
+  '25': 'MA', '26': 'MI', '27': 'MN', '28': 'MS', '29': 'MO', '30': 'MT', '31': 'NE',
+  '32': 'NV', '33': 'NH', '34': 'NJ', '35': 'NM', '36': 'NY', '37': 'NC', '38': 'ND',
+  '39': 'OH', '40': 'OK', '41': 'OR', '42': 'PA', '44': 'RI', '45': 'SC', '46': 'SD',
+  '47': 'TN', '48': 'TX', '49': 'UT', '50': 'VT', '51': 'VA', '53': 'WA', '54': 'WV',
+  '55': 'WI', '56': 'WY', '60': 'AS', '66': 'GU', '69': 'MP', '72': 'PR', '78': 'VI',
+}
+function stateFipsToUsps(fips) {
+  return STATE_FIPS_TO_USPS[String(fips || '').padStart(2, '0')] || `?${fips}`
+}
+
 // ---------- pipeline ----------
 async function main() {
   console.log('[bdc] discovering latest availability filing...')
@@ -146,13 +238,20 @@ async function main() {
   console.log(`[bdc] as_of_date = ${asOf} (latest of ${avail.length} filings)`)
 
   const fileList = await fetchJson(`${API}/downloads/listAvailabilityData/${asOf}`)
+  // The state-level "Location Coverage" Fixed Broadband files are the
+  // canonical aggregate: one file per (state × technology_code), each row
+  // is one BSL × one provider × one tech. (Per-provider files cover the
+  // same data partitioned differently.) Subcategory naming has drifted a
+  // bit historically — be generous in matching.
   const files = (fileList?.data || []).filter((f) => {
     if (f.category !== 'State') return false
-    // Subcategory naming has drifted across filings. Accept any of these.
+    if (f.file_type !== 'csv') return false
+    const tt = String(f.technology_type || '').toLowerCase()
     const sub = String(f.subcategory || '').toLowerCase()
-    return sub.includes('fixed') && (sub.includes('broadband') || sub.includes('availability'))
+    return tt.includes('fixed') && tt.includes('broadband')
+      && (sub.includes('location coverage') || sub.includes('availability'))
   })
-  console.log(`[bdc] ${files.length} state files for ${asOf}`)
+  console.log(`[bdc] ${files.length} state Fixed Broadband Location Coverage files for ${asOf}`)
   if (files.length === 0) {
     console.error('[bdc] FATAL: no state fixed-broadband files in filing. Schema may have changed.')
     console.error('[bdc] Raw sample:', JSON.stringify(fileList?.data?.slice(0, 3), null, 2))
@@ -161,14 +260,34 @@ async function main() {
 
   let filtered = files
   if (args.states.length > 0) {
-    filtered = files.filter((f) => args.states.includes(String(f.state_usps || f.state_name || '').toUpperCase().slice(0, 2)))
-    console.log(`[bdc] filtered to ${filtered.length} files for states: ${args.states.join(', ')}`)
+    // CA -> state_fips=06; we filter on state_usps but also accept state_name fallback.
+    filtered = filtered.filter((f) => args.states.includes(String(f.state_name || '').toUpperCase()) || args.states.includes(stateFipsToUsps(f.state_fips)))
+    console.log(`[bdc] after --state filter: ${filtered.length} files for ${args.states.join(', ')}`)
     if (filtered.length === 0) {
       console.error('[bdc] FATAL: no files matched --state filter. Sample state values from API:',
-        [...new Set(files.slice(0, 10).map((f) => f.state_usps || f.state_name))])
+        [...new Set(files.slice(0, 10).map((f) => f.state_name))])
       process.exit(1)
     }
   }
+  if (args.techs.length > 0) {
+    filtered = filtered.filter((f) => args.techs.includes(Number(f.technology_code)))
+    console.log(`[bdc] after --tech filter: ${filtered.length} files for tech codes ${args.techs.join(', ')}`)
+    if (filtered.length === 0) {
+      console.error('[bdc] FATAL: no files matched --tech filter.')
+      process.exit(1)
+    }
+  }
+
+  // Group by state so we can flush the per-state aggregation Map to
+  // SQLite at state boundaries (keeps heap bounded — never holds more
+  // than one state's blocks in memory at a time).
+  const byState = new Map()
+  for (const f of filtered) {
+    const sf = String(f.state_fips || '').padStart(2, '0')
+    if (!byState.has(sf)) byState.set(sf, [])
+    byState.get(sf).push(f)
+  }
+  console.log(`[bdc] processing ${byState.size} state${byState.size === 1 ? '' : 's'} with ${filtered.length} files total`)
 
   const tmpRoot = join(REPO_ROOT, 'tmp', 'broadband', asOf)
   await mkdir(tmpRoot, { recursive: true })
@@ -193,10 +312,6 @@ async function main() {
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
   `)
 
-  // Aggregator: Map<block_fips, Map<provider_id, {brand, tech, down, up, br}>>
-  // Per-block entries deduped on (provider_id, technology). Keep max speeds
-  // across multiple rows from the same provider/tech (BDC sometimes splits
-  // a provider's coverage across rows).
   let totalRows = 0
   let blockCount = 0
   const insertBlock = db.prepare(`INSERT OR REPLACE INTO blocks
@@ -204,84 +319,64 @@ async function main() {
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
 
   const startWall = Date.now()
-  // We flush per-state to keep memory bounded. Per-state aggregation is
-  // safe because BDC files are partitioned by state (a block FIPS never
-  // crosses state lines).
-  for (const file of filtered) {
-    const stateCode = String(file.state_usps || file.state_name || '?').toUpperCase().slice(0, 2)
-    const tech = file.technology_code_desc || file.technology_code || ''
-    const zipPath = join(tmpRoot, `${stateCode}_${file.file_id}_${tech}.zip`.replace(/[^\w.-]/g, '_'))
 
-    if (!existsSync(zipPath) || statSync(zipPath).size < 100) {
-      console.log(`  [download] ${stateCode} ${tech} (file_id=${file.file_id})`)
-      try {
-        await downloadFile(`${API}/downloads/downloadFile/availability/${file.file_id}`, zipPath)
-      } catch (err) {
-        console.error(`  [download FAILED] ${stateCode} ${tech}: ${err.message}`)
+  for (const [stateFips, stateFiles] of byState) {
+    const stateName = stateFiles[0].state_name || `FIPS ${stateFips}`
+    const stateUsps = stateFipsToUsps(stateFips)
+    console.log(`\n[bdc] === ${stateUsps} (${stateName}) — ${stateFiles.length} tech files ===`)
+
+    // One aggregator per state. Block FIPS never cross state lines, so
+    // dumping after the state is processed yields complete per-block rows.
+    // Map<block_fips, Map<"provider|tech", {brand, tech, down, up, br}>>
+    const blocks = new Map()
+    let stateSourceRows = 0
+
+    for (const file of stateFiles) {
+      const tech = file.technology_code_desc || file.technology_code || ''
+      const zipPath = join(tmpRoot, `${stateUsps}_${file.file_id}_${tech}.zip`.replace(/[^\w.-]/g, '_'))
+
+      if (!existsSync(zipPath) || statSync(zipPath).size < 100) {
+        const sizeHint = file.record_count ? ` (~${file.record_count} rows)` : ''
+        console.log(`  [download] ${tech}${sizeHint}`)
+        try {
+          await downloadFile(`${API}/downloads/downloadFile/availability/${file.file_id}`, zipPath)
+        } catch (err) {
+          console.error(`  [download FAILED] ${tech}: ${err.message}`)
+          continue
+        }
+      } else {
+        console.log(`  [cached]   ${tech} ${fmtBytes(statSync(zipPath).size)}`)
+      }
+
+      // Stream the CSV out of the ZIP rather than loading whole files
+      // into memory — individual tech files for big states (GSO sat in
+      // CA = 30M rows) can exceed Node's 2GB string limit.
+      const csvPath = await extractCsvToDisk(zipPath, tmpRoot)
+      if (!csvPath) {
+        console.error(`  [no CSV inside ${zipPath}]`)
         continue
       }
-    } else {
-      console.log(`  [cached]   ${stateCode} ${tech} ${fmtBytes(statSync(zipPath).size)}`)
-    }
 
-    // Extract CSV into memory, aggregate.
-    let zip
-    try { zip = new AdmZip(zipPath) }
-    catch (err) {
-      console.error(`  [zip ERROR] ${zipPath}: ${err.message} — deleting and skipping`)
-      try { await rm(zipPath) } catch {}
-      continue
-    }
-    const csvEntry = zip.getEntries().find((e) => e.entryName.toLowerCase().endsWith('.csv'))
-    if (!csvEntry) {
-      console.error(`  [no CSV inside ${zipPath}]`)
-      continue
-    }
-
-    const text = csvEntry.getData().toString('utf8')
-    const lines = text.split(/\r?\n/)
-    if (lines.length < 2) continue
-    const idx = parseCsvHeader(lines[0])
-    if (idx.block_geoid < 0) {
-      console.error(`  [missing block_geoid col in ${csvEntry.entryName}]`)
-      continue
-    }
-
-    const stateBlocks = new Map()
-    let rowsInFile = 0
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-      if (!line) continue
-      const r = parseCsvRow(line)
-      const block = r[idx.block_geoid]
-      if (!block) continue
-      const techCode = Number(r[idx.technology])
-      const down = Number(r[idx.max_advertised_download_speed]) || 0
-      const up = Number(r[idx.max_advertised_upload_speed]) || 0
-      const brCode = r[idx.business_residential_code] || ''
-      if (args.residentialOnly && brCode === 'B') continue
-      const providerId = Number(r[idx.provider_id])
-      const brand = r[idx.brand_name] || `Provider ${providerId}`
-
-      let b = stateBlocks.get(block)
-      if (!b) { b = new Map(); stateBlocks.set(block, b) }
-      const key = `${providerId}|${techCode}`
-      const prev = b.get(key)
-      if (prev) {
-        if (down > prev.down) prev.down = down
-        if (up > prev.up) prev.up = up
-      } else {
-        b.set(key, { providerId, brand, tech: techCode, down, up, br: brCode })
+      const rowsInFile = await streamCsv(csvPath, blocks, {
+        residentialOnly: args.residentialOnly,
+        maxRows: args.maxRows,
+      })
+      if (rowsInFile === -1) {
+        // Header parse failure already logged.
+        await rm(csvPath).catch(() => {})
+        continue
       }
-      rowsInFile++
+      stateSourceRows += rowsInFile
+      totalRows += rowsInFile
+      console.log(`  [parsed]   ${tech}: ${rowsInFile.toLocaleString()} rows (state agg: ${blocks.size.toLocaleString()} blocks)`)
+      await rm(csvPath).catch(() => {})
+      if (!args.keepZips) await rm(zipPath).catch(() => {})
     }
-    totalRows += rowsInFile
 
-    // Write this state's aggregations into SQLite. INSERT OR REPLACE
-    // handles the rare case where two tech-files in the same state both
-    // touch the same block (shouldn't happen but cheap insurance).
+    // Flush state aggregation to SQLite.
+    console.log(`  [flush]    ${stateUsps}: ${blocks.size.toLocaleString()} blocks, ${stateSourceRows.toLocaleString()} source rows`)
     const tx = db.transaction(() => {
-      for (const [block, providers] of stateBlocks) {
+      for (const [block, providers] of blocks) {
         let maxDown = 0, maxUp = 0
         const techSet = new Set()
         let bestProv = null, bestScore = -1
@@ -290,36 +385,20 @@ async function main() {
           if (p.down > maxDown) maxDown = p.down
           if (p.up > maxUp) maxUp = p.up
           techSet.add(p.tech)
-          // Score: prefer fiber, then highest speed.
           const score = p.down + (p.tech === 50 ? 100000 : 0)
           if (score > bestScore) { bestScore = score; bestProv = p.brand }
-          arr.push({
-            name: p.brand,
-            tech: p.tech,
-            down: p.down,
-            up: p.up,
-            br: p.br,
-          })
+          arr.push({ name: p.brand, tech: p.tech, down: p.down, up: p.up, br: p.br })
         }
-        // Sort providers: fiber first, then by down speed desc.
         arr.sort((a, b) => (b.tech === 50 ? 1 : 0) - (a.tech === 50 ? 1 : 0) || b.down - a.down)
         const techCodesCsv = [...techSet].sort((a, b) => a - b).join(',')
-        insertBlock.run(
-          block,
-          providers.size,
-          maxDown || null,
-          maxUp || null,
-          techCodesCsv,
-          bestProv,
-          JSON.stringify(arr),
-        )
+        insertBlock.run(block, providers.size, maxDown || null, maxUp || null, techCodesCsv, bestProv, JSON.stringify(arr))
         blockCount++
       }
     })
     tx()
-
-    console.log(`  [parsed]   ${stateCode} ${tech}: ${rowsInFile} rows -> ${stateBlocks.size} blocks (DB: ${blockCount} total)`)
-    if (!args.keepZips) await rm(zipPath).catch(() => {})
+    // Drop the state aggregation Map so its memory is reclaimed before
+    // we start the next state.
+    blocks.clear()
   }
 
   // Write meta.
