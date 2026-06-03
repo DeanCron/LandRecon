@@ -804,6 +804,19 @@
   border-color: var(--color-text-muted);
 }
 
+.legend-swatch.power {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  border-width: 0;
+  align-self: center;
+}
+
+.wildfire-overlay {
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
 .legend-swatch-row {
   display: flex;
   align-items: center;

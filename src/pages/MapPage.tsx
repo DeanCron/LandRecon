@@ -728,6 +728,120 @@ async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.Featu
   return res.json()
 }
 
+// ── HIFLD Electric Power Transmission Lines ─────────────────────────────
+// Public ArcGIS FeatureServer hosted by Esri on behalf of the Homeland
+// Infrastructure Foundation-Level Data (HIFLD) Open program. ~88k feature
+// polylines nationally — gated to zoom >= POWER_MIN_ZOOM to keep the fetch
+// payload bounded.
+const POWER_API =
+  'https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services/Electric_Power_Transmission_Lines/FeatureServer/0/query'
+
+const POWER_FIELDS = ['OWNER', 'VOLTAGE', 'VOLT_CLASS', 'TYPE', 'STATUS', 'SUB_1', 'SUB_2'].join(',')
+
+const POWER_MIN_ZOOM = 10
+
+// Color bands keyed by VOLT_CLASS value. The dataset uses these exact
+// strings for the bucketing field; values like "NOT AVAILABLE" and "DC"
+// fall through to a neutral gray and a distinct blue respectively.
+const POWER_VOLT_COLORS: Record<string, string> = {
+  'UNDER 100': '#fde725',
+  '100-161': '#f7a51b',
+  '220-287': '#ef4035',
+  '345': '#c724b1',
+  '500': '#7e1ce9',
+  '735 AND ABOVE': '#3b0f7a',
+  'DC': '#1f6feb',
+  'NOT AVAILABLE': '#9ca3af',
+}
+
+const POWER_VOLT_ORDER: readonly string[] = [
+  'UNDER 100', '100-161', '220-287', '345', '500', '735 AND ABOVE', 'DC', 'NOT AVAILABLE',
+] as const
+
+const POWER_VOLT_LABELS: Record<string, string> = {
+  'UNDER 100': '< 100 kV',
+  '100-161': '100–161 kV',
+  '220-287': '220–287 kV',
+  '345': '345 kV',
+  '500': '500 kV',
+  '735 AND ABOVE': '735 kV+',
+  'DC': 'HVDC',
+  'NOT AVAILABLE': 'Unknown',
+}
+
+function powerColor(props: GeoJSON.GeoJsonProperties): string {
+  const cls = String((props as Record<string, unknown> | null | undefined)?.VOLT_CLASS || '').toUpperCase().trim()
+  return POWER_VOLT_COLORS[cls] || POWER_VOLT_COLORS['NOT AVAILABLE']
+}
+
+async function fetchPowerLineFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: POWER_FIELDS,
+    geometry: bbox,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'geojson',
+    resultRecordCount: '2000',
+  })
+  const res = await fetch(`${POWER_API}?${params}`)
+  return res.json()
+}
+
+// ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
+// 270m raster, 5 classes (Very Low → Very High) + non-burnable + water.
+// Hosted by the Imagery Information Products Program (IIPP) — the new
+// home for what used to live on apps.fs.usda.gov. We request a single
+// pre-symbolized PNG per viewport via the ImageServer's exportImage
+// endpoint and overlay it via Leaflet's L.imageOverlay (re-fetched on
+// moveend). The "WHP_CLS_2023_8bit" raster function bakes in the
+// canonical USFS color ramp.
+const WHP_BASE =
+  'https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/USFS_EDW_RMRS_WildfireHazardPotentialClassified/ImageServer/exportImage'
+
+const WHP_RENDERING_RULE = JSON.stringify({ rasterFunction: 'WHP_CLS_2023_8bit' })
+
+// Min zoom where overlay reads usefully. Below this the 270m pixels
+// degenerate into noise and the request size cap kicks in.
+const WHP_MIN_ZOOM = 6
+// Above this zoom the source raster (270m / pixel) is heavily upsampled
+// and looks blocky. Keep the overlay attached but request the same image
+// size — the browser will scale it. No additional fetch needed.
+const WHP_MAX_USEFUL_ZOOM = 14
+
+const WHP_CLASS_COLORS: Array<{ label: string; color: string }> = [
+  { label: 'Very low',      color: '#1a9850' },
+  { label: 'Low',           color: '#a6d96a' },
+  { label: 'Moderate',      color: '#fee08b' },
+  { label: 'High',          color: '#fc8d59' },
+  { label: 'Very high',     color: '#d73027' },
+  { label: 'Non-burnable',  color: '#bdbdbd' },
+  { label: 'Water',         color: '#6baed6' },
+]
+
+function buildWhpImageUrl(bounds: L.LatLngBounds, widthPx: number, heightPx: number): string {
+  // ArcGIS exportImage accepts bbox in EPSG:4326 if bboxSR=4326 is set;
+  // the service reprojects internally. Cap pixel dimensions so we don't
+  // accidentally request a huge tile on a 4K display.
+  const w = Math.min(Math.max(Math.round(widthPx), 256), 1600)
+  const h = Math.min(Math.max(Math.round(heightPx), 256), 1600)
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    bbox,
+    bboxSR: '4326',
+    imageSR: '3857',
+    size: `${w},${h}`,
+    format: 'png32',
+    f: 'image',
+    transparent: 'true',
+    renderingRule: WHP_RENDERING_RULE,
+  })
+  return `${WHP_BASE}?${params}`
+}
+
 const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   F: { label: 'Final', desc: 'Officially listed on the NPL as a priority cleanup site' },
   P: { label: 'Proposed', desc: 'Proposed for NPL listing; under public comment review' },
@@ -786,24 +900,26 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'transit', 'traffic', 'costco', 'datacenters', 'ems', 'crowd', 'cameras'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
   superfund: boolean
   flood: boolean
+  wildfire: boolean
   transit: boolean
   traffic: boolean
   costco: boolean
   datacenters: boolean
+  power: boolean
   ems: boolean
   crowd: boolean
   cameras: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
-  noise: false, superfund: false, flood: false, transit: false, traffic: false,
-  costco: false, datacenters: false, ems: false, crowd: false, cameras: false,
+  noise: false, superfund: false, flood: false, wildfire: false, transit: false, traffic: false,
+  costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false,
 }
 
 interface LayerPreset {
@@ -1243,6 +1359,10 @@ function MapPage() {
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const floodLayerRef = useRef<L.GeoJSON | null>(null)
   const floodLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
+  const powerLineLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
+  const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram' | 'bus', L.LayerGroup> | null>(null)
   const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -1313,6 +1433,12 @@ function MapPage() {
   const [floodVisible, setFloodVisible] = useState(false)
   const [floodLoading, setFloodLoading] = useState(false)
   const [floodLowZoom, setFloodLowZoom] = useState(false)
+  const [powerLineVisible, setPowerLineVisible] = useState(false)
+  const [powerLineLoading, setPowerLineLoading] = useState(false)
+  const [powerLineLowZoom, setPowerLineLowZoom] = useState(false)
+  const [wildfireVisible, setWildfireVisible] = useState(false)
+  const [wildfireLoading, setWildfireLoading] = useState(false)
+  const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
   const [transitStatus, setTransitStatus] = useState<{ kind: 'loading' | 'error'; text: string } | null>(null)
@@ -1718,17 +1844,19 @@ function MapPage() {
     if (noiseVisible) active.push('noise')
     if (superfundVisible) active.push('superfund')
     if (floodVisible) active.push('flood')
+    if (wildfireVisible) active.push('wildfire')
     if (transitVisible) active.push('transit')
     if (trafficVisible) active.push('traffic')
     if (costcoVisible) active.push('costco')
     if (dataCenterVisible) active.push('datacenters')
+    if (powerLineVisible) active.push('power')
     if (emsVisible) active.push('ems')
     if (crowdVisible) active.push('crowd')
     if (camerasVisible) active.push('cameras')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1739,9 +1867,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1750,10 +1878,12 @@ function MapPage() {
     noise: noiseVisible,
     superfund: superfundVisible,
     flood: floodVisible,
+    wildfire: wildfireVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
     datacenters: dataCenterVisible,
+    power: powerLineVisible,
     ems: emsVisible,
     crowd: crowdVisible,
     cameras: camerasVisible,
@@ -1763,10 +1893,12 @@ function MapPage() {
       noise: noiseVisible,
       superfund: superfundVisible,
       flood: floodVisible,
+      wildfire: wildfireVisible,
       transit: transitVisible,
       traffic: trafficVisible,
       costco: costcoVisible,
       datacenters: dataCenterVisible,
+      power: powerLineVisible,
       ems: emsVisible,
       crowd: crowdVisible,
       cameras: camerasVisible,
@@ -1778,7 +1910,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, emsVisible, crowdVisible, camerasVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2186,6 +2318,92 @@ function MapPage() {
     } finally {
       setFloodLoading(false)
     }
+  }, [])
+
+  // HIFLD transmission lines. Same gating pattern as flood — zoom check,
+  // padded-bbox cache, fast-path skip when the new viewport is already
+  // covered by the previously loaded extent.
+  const loadPowerLineData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+    if (map.getZoom() < POWER_MIN_ZOOM) {
+      dbg('power', `Skipping — zoom ${map.getZoom()} < ${POWER_MIN_ZOOM}`)
+      setPowerLineLowZoom(true)
+      layer.clearLayers()
+      powerLineLoadedBoundsRef.current = null
+      return
+    }
+    setPowerLineLowZoom(false)
+    const bounds = map.getBounds()
+    const loaded = powerLineLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('power', 'Skipping — bounds already loaded'); return }
+    dbg('power', 'Loading transmission lines…')
+
+    setPowerLineLoading(true)
+    try {
+      const padded = bounds.pad(0.3)
+      const geojson = await fetchPowerLineFeatures(padded)
+      dbg('power', `Got ${geojson.features?.length || 0} features`)
+      layer.clearLayers()
+      layer.addData(geojson)
+      powerLineLoadedBoundsRef.current = padded
+    } catch (err) {
+      console.error('Failed to load HIFLD transmission lines:', err)
+    } finally {
+      setPowerLineLoading(false)
+    }
+  }, [])
+
+  // USFS wildfire-hazard raster. Implemented as an L.ImageOverlay backed
+  // by ImageServer.exportImage so we get the canonical USFS color ramp
+  // baked into the PNG. We rebuild the overlay on every moveend — the
+  // ArcGIS endpoint is CDN-cached so repeat viewports are essentially
+  // free, and re-using a single ImageOverlay would require recomputing
+  // its bounds anyway.
+  const loadWildfireData = useCallback((map: L.Map) => {
+    if (map.getZoom() < WHP_MIN_ZOOM) {
+      dbg('wildfire', `Skipping — zoom ${map.getZoom()} < ${WHP_MIN_ZOOM}`)
+      setWildfireLowZoom(true)
+      if (wildfireLayerRef.current) {
+        map.removeLayer(wildfireLayerRef.current)
+        wildfireLayerRef.current = null
+      }
+      wildfireRenderedBoundsRef.current = null
+      return
+    }
+    setWildfireLowZoom(false)
+
+    const bounds = map.getBounds()
+    const last = wildfireRenderedBoundsRef.current
+    if (last && last.equals(bounds, 1e-6)) {
+      dbg('wildfire', 'Skipping — bounds unchanged')
+      return
+    }
+
+    const size = map.getSize()
+    // Cap the request resolution above the source raster's useful zoom —
+    // anything sharper is just upsampled pixel noise.
+    const zoom = Math.min(map.getZoom(), WHP_MAX_USEFUL_ZOOM)
+    const scale = zoom < map.getZoom() ? Math.pow(2, zoom - map.getZoom()) : 1
+    const url = buildWhpImageUrl(bounds, size.x * scale, size.y * scale)
+
+    setWildfireLoading(true)
+    const overlay = L.imageOverlay(url, bounds, {
+      opacity: 0.55,
+      interactive: false,
+      crossOrigin: 'anonymous',
+      className: 'wildfire-overlay',
+    })
+    overlay.on('load', () => setWildfireLoading(false))
+    overlay.on('error', () => {
+      setWildfireLoading(false)
+      dbg('wildfire', 'Image load failed')
+    })
+
+    if (wildfireLayerRef.current) {
+      map.removeLayer(wildfireLayerRef.current)
+    }
+    overlay.addTo(map)
+    wildfireLayerRef.current = overlay
+    wildfireRenderedBoundsRef.current = bounds
   }, [])
 
   const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
@@ -2852,6 +3070,12 @@ function MapPage() {
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
           floodLoadedBoundsRef.current = null
+          powerLineLoadedBoundsRef.current = null
+          wildfireRenderedBoundsRef.current = null
+          if (wildfireLayerRef.current) {
+            map.removeLayer(wildfireLayerRef.current)
+            wildfireLayerRef.current = null
+          }
           transitLoadedBoundsRef.current = null
           transitBusStopsLoadedBoundsRef.current = null
           transitStopsKnownIdsRef.current.clear()
@@ -2965,6 +3189,28 @@ function MapPage() {
           },
         })
 
+        // Create HIFLD transmission-line layer (polylines; not added to map until toggled on)
+        powerLineLayerRef.current = L.geoJSON(undefined, {
+          style: (feature) => {
+            const color = powerColor(feature?.properties ?? null)
+            return {
+              color,
+              weight: 2,
+              opacity: 0.85,
+              lineCap: 'round',
+            }
+          },
+          onEachFeature: (feature, layer) => {
+            const props = (feature as GeoJSON.Feature).properties || {}
+            const cls = String((props as Record<string, unknown>).VOLT_CLASS || '').trim().toUpperCase()
+            const voltLabel = POWER_VOLT_LABELS[cls] || (props as Record<string, unknown>).VOLT_CLASS || 'Unknown'
+            const owner = String((props as Record<string, unknown>).OWNER || 'Unknown owner').trim()
+            const voltage = (props as Record<string, unknown>).VOLTAGE
+            const voltageNote = typeof voltage === 'number' && voltage > 0 ? ` · ${voltage} kV` : ''
+            layer.bindTooltip(`<strong>${voltLabel}${voltageNote}</strong><br/>${owner}`, { direction: 'top', sticky: true })
+          },
+        })
+
         // Create transit layer (not added to map until toggled on)
         transitLayerRef.current = L.layerGroup()
 
@@ -3072,6 +3318,10 @@ function MapPage() {
       superfundLoadedBoundsRef.current = null
       floodLayerRef.current = null
       floodLoadedBoundsRef.current = null
+      powerLineLayerRef.current = null
+      powerLineLoadedBoundsRef.current = null
+      wildfireLayerRef.current = null
+      wildfireRenderedBoundsRef.current = null
       transitLayerRef.current = null
       transitLineLayersRef.current = null
       transitLinesLoadedBoundsRef.current = null
@@ -3824,6 +4074,69 @@ function MapPage() {
     [loadFloodData],
   )
 
+  const togglePowerLines = () => {
+    const map = mapRef.current
+    const layer = powerLineLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `power → ${powerLineVisible ? 'OFF' : 'ON'}`)
+
+    if (powerLineVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handlePowerLineMove)
+      map.off('zoomend', handlePowerLineMove)
+      setPowerLineLowZoom(false)
+    } else {
+      layer.addTo(map)
+      powerLineLoadedBoundsRef.current = null
+      loadPowerLineData(map, layer)
+      map.on('moveend', handlePowerLineMove)
+      map.on('zoomend', handlePowerLineMove)
+    }
+    setPowerLineVisible(!powerLineVisible)
+  }
+
+  const handlePowerLineMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = powerLineLayerRef.current
+      if (map && layer) {
+        loadPowerLineData(map, layer)
+      }
+    }, 250),
+    [loadPowerLineData],
+  )
+
+  const toggleWildfire = () => {
+    const map = mapRef.current
+    if (!map) return
+    dbg('toggle', `wildfire → ${wildfireVisible ? 'OFF' : 'ON'}`)
+
+    if (wildfireVisible) {
+      if (wildfireLayerRef.current) {
+        map.removeLayer(wildfireLayerRef.current)
+        wildfireLayerRef.current = null
+      }
+      wildfireRenderedBoundsRef.current = null
+      map.off('moveend', handleWildfireMove)
+      map.off('zoomend', handleWildfireMove)
+      setWildfireLowZoom(false)
+      setWildfireLoading(false)
+    } else {
+      loadWildfireData(map)
+      map.on('moveend', handleWildfireMove)
+      map.on('zoomend', handleWildfireMove)
+    }
+    setWildfireVisible(!wildfireVisible)
+  }
+
+  const handleWildfireMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      if (map) loadWildfireData(map)
+    }, 300),
+    [loadWildfireData],
+  )
+
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
   // per-type LayerGroups. Re-fetches incrementally as the user pans/zooms.
@@ -4117,10 +4430,12 @@ function MapPage() {
     noise: noiseVisible,
     superfund: superfundVisible,
     flood: floodVisible,
+    wildfire: wildfireVisible,
     transit: transitVisible,
     traffic: trafficVisible,
     costco: costcoVisible,
     datacenters: dataCenterVisible,
+    power: powerLineVisible,
     ems: emsVisible,
     crowd: crowdVisible,
     cameras: camerasVisible,
@@ -4131,10 +4446,12 @@ function MapPage() {
     return s.noise === currentLayerSnapshot.noise
       && s.superfund === currentLayerSnapshot.superfund
       && s.flood === currentLayerSnapshot.flood
+      && s.wildfire === currentLayerSnapshot.wildfire
       && s.transit === currentLayerSnapshot.transit
       && s.traffic === currentLayerSnapshot.traffic
       && s.costco === currentLayerSnapshot.costco
       && s.datacenters === currentLayerSnapshot.datacenters
+      && s.power === currentLayerSnapshot.power
       && s.ems === currentLayerSnapshot.ems
       && s.crowd === currentLayerSnapshot.crowd
       && s.cameras === currentLayerSnapshot.cameras
@@ -4150,10 +4467,12 @@ function MapPage() {
     setLayer(noiseVisible, toggleNoise, preset.state.noise)
     setLayer(superfundVisible, toggleSuperfund, preset.state.superfund)
     setLayer(floodVisible, toggleFlood, preset.state.flood)
+    setLayer(wildfireVisible, toggleWildfire, preset.state.wildfire)
     setLayer(transitVisible, toggleTransit, preset.state.transit)
     setLayer(trafficVisible, toggleTraffic, preset.state.traffic)
     setLayer(costcoVisible, toggleCostco, preset.state.costco)
     setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
+    setLayer(powerLineVisible, togglePowerLines, preset.state.power)
     setLayer(emsVisible, toggleEms, preset.state.ems)
     setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
     setLayer(camerasVisible, toggleCameras, preset.state.cameras)
@@ -4176,10 +4495,12 @@ function MapPage() {
     if (requested.has('noise')) toggleNoise()
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('flood')) toggleFlood()
+    if (requested.has('wildfire')) toggleWildfire()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('traffic')) toggleTraffic()
     if (requested.has('costco')) toggleCostco()
     if (requested.has('datacenters')) toggleDataCenters()
+    if (requested.has('power')) togglePowerLines()
     if (requested.has('ems')) toggleEms()
     if (requested.has('crowd')) toggleCrowd()
     if (requested.has('cameras')) toggleCameras()
@@ -4866,6 +5187,36 @@ function MapPage() {
                 ))}
               </div>
             )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={wildfireVisible}
+                onChange={toggleWildfire}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Wildfire Hazard
+                {wildfireLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {wildfireVisible && (
+              <div className="flood-legend">
+                {wildfireLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see wildfire hazard.</p>
+                )}
+                {WHP_CLASS_COLORS.map((cls) => (
+                  <div key={cls.label} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{ background: cls.color, borderColor: cls.color }}
+                      aria-hidden="true"
+                    />
+                    <span>{cls.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </details>
 
@@ -4894,6 +5245,36 @@ function MapPage() {
                     <span className="legend-dot" style={{ background: DC_STATUS_COLORS[s], opacity: dcSubVisible[s] ? 1 : 0.35 }} />
                     <span style={{ opacity: dcSubVisible[s] ? 1 : 0.5 }}>{DC_STATUS_LABELS[s]}</span>
                   </label>
+                ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={powerLineVisible}
+                onChange={togglePowerLines}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Power Transmission Lines
+                {powerLineLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {powerLineVisible && (
+              <div className="flood-legend">
+                {powerLineLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see transmission lines.</p>
+                )}
+                {POWER_VOLT_ORDER.map((cls) => (
+                  <div key={cls} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch power"
+                      style={{ background: POWER_VOLT_COLORS[cls], borderColor: POWER_VOLT_COLORS[cls] }}
+                      aria-hidden="true"
+                    />
+                    <span>{POWER_VOLT_LABELS[cls]}</span>
+                  </div>
                 ))}
               </div>
             )}
