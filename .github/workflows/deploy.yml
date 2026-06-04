@@ -52,9 +52,14 @@ jobs:
       # which still ships as Node 16 in its action.yml and trips the Node-version
       # deprecation warning. The action is a thin wrapper around this CLI call for our
       # update-existing-app use case, so the CLI form is equivalent.
+      #
+      # --min-replicas 1 keeps one container warm to avoid the ~60s cold-start while
+      # the entrypoint pulls the 4 GB broadband.db from blob storage. Worth the cost.
       - name: Deploy to Container Apps
         run: |
           az containerapp update \
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}"
+            --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}" \
+            --min-replicas 1 \
+            --max-replicas 3
