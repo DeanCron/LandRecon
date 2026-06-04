@@ -15,12 +15,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      # Opt-in to Node 24 for any action whose action.yml still declares an
-      # older Node runtime (e.g. azure/container-apps-deploy-action@v2 still
-      # ships as node16). This becomes the runner default on 2026-06-16 and
-      # silences the deprecation warning in the meantime.
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v5
@@ -54,13 +48,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # Direct `az containerapp update` instead of azure/container-apps-deploy-action@v2,
+      # which still ships as Node 16 in its action.yml and trips the Node-version
+      # deprecation warning. The action is a thin wrapper around this CLI call for our
+      # update-existing-app use case, so the CLI form is equivalent.
       - name: Deploy to Container Apps
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
-          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
-          # Use the run-id tag so workflow_dispatch re-runs on the same
-          # commit still produce a unique image reference. Otherwise
-          # Container Apps reuses the existing revision and never pulls
-          # the freshly-built image.
-          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}
+        run: |
+          az containerapp update \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}"
