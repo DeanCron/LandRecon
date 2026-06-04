@@ -125,6 +125,16 @@ async function getDb() {
     _db = new Database(DB_PATH, { readonly: true, fileMustExist: true })
     _db.pragma('journal_mode = OFF')
     _db.pragma('query_only = TRUE')
+    // Memory-map the whole DB (sized to 8 GB cap; mmap is lazy so we only
+    // page in what's actually touched). Container Apps gives us multi-GB
+    // of RAM and the kernel page cache then handles eviction. This turns
+    // each B-tree page traversal from a syscall into a memory access.
+    _db.pragma('mmap_size = 8589934592')
+    // Bump the per-connection page cache from the 2000-page (~8 MB) default
+    // to 64 MB. Keeps upper B-tree internal pages hot across diverse
+    // block-FIPS lookups (one row per ~50 byte index entry, ~1.3M pages
+    // total for a 4 GB DB → 64 MB ≈ all internal levels).
+    _db.pragma('cache_size = -65536')
     _dbStmt = _db.prepare('SELECT provider_count, max_down_mbps, max_up_mbps, tech_codes, best_provider, providers_json FROM blocks WHERE block_fips = ?')
     const metaRows = _db.prepare('SELECT key, value FROM meta').all()
     _dbMeta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]))
