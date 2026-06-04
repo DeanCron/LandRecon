@@ -2739,6 +2739,14 @@ function MapPage() {
           iconAnchor: [14, 14],
         })
         const marker = L.marker([f.lat, f.lng], { icon })
+        const tooltipLines = [
+          `<strong>${f.name}</strong>`,
+          `${f.industry.label} · ${f.distanceMi.toFixed(1)} mi`,
+        ]
+        if (f.city || f.state) {
+          tooltipLines.push([f.city, f.state].filter(Boolean).join(', '))
+        }
+        marker.bindTooltip(tooltipLines.join('<br/>'), { direction: 'top', offset: [0, -14] })
         const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${f.industry.label}</span>`
         const distanceBadge = `<span style="display:inline-block;padding:1px 6px;margin-left:4px;border-radius:3px;background:#eceff1;color:#37474f;font-size:11px;font-weight:600">${f.distanceMi.toFixed(1)} mi</span>`
         const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean)
