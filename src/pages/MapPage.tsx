@@ -1687,7 +1687,10 @@ function MapPage() {
   const addressInputRef = useRef<HTMLInputElement>(null)
 
   const [layerPanelOpen, setLayerPanelOpen] = useState(false)
-  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false)
+  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(min-width: 769px)').matches
+  })
 
   // Mobile bottom sheet drag state
   const sheetRef = useRef<HTMLElement>(null)
@@ -1963,10 +1966,14 @@ function MapPage() {
         setLayerPanelOpen(false)
         return
       }
+      if (analysisPanelOpen) {
+        setAnalysisPanelOpen(false)
+        return
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [shareModalOpen, analysisDetail, expMenuOpen, layerPanelOpen, devTodosOpen])
+  }, [shareModalOpen, analysisDetail, expMenuOpen, layerPanelOpen, analysisPanelOpen, devTodosOpen])
 
   // Show FAB tooltip hints once on mobile, dismiss on first tap
   const buildShareUrl = useCallback((): string => {
@@ -5169,39 +5176,52 @@ function MapPage() {
         </div>
       )}
 
-      {/* Mobile floating action buttons */}
-      <button
-        className="layer-toggle-btn"
-        onClick={() => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) }}
-        aria-label="Open Show on Map panel"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
-        <span className="fab-label">Show on Map</span>
-      </button>
-      <button
-        className="analysis-toggle-btn"
-        onClick={() => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) }}
-        aria-label="Open analysis"
-      >
-        <span className="fab-label">Report</span>
-        {analysisResults.loading && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
-          const done = checks.filter((k) => analysisProgress[k] === 'done').length
-          return (
-            <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
-              {done}/{checks.length}
-            </span>
-          )
-        })()}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
-      </button>
+      {/* Floating action buttons (mobile bottom FABs + desktop open chips) */}
+      {!layerPanelOpen && (
+        <button
+          className="layer-toggle-btn"
+          onClick={() => {
+            const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+            setLayerPanelOpen(true)
+            if (isMobile) setAnalysisPanelOpen(false)
+          }}
+          aria-label="Open Show on Map panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
+          <span className="fab-label">Show on Map</span>
+        </button>
+      )}
+      {!analysisPanelOpen && (
+        <button
+          className="analysis-toggle-btn"
+          onClick={() => {
+            const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+            setAnalysisPanelOpen(true)
+            if (isMobile) setLayerPanelOpen(false)
+            setSheetHeight(null)
+          }}
+          aria-label="Open analysis"
+        >
+          <span className="fab-label">Report</span>
+          {analysisResults.loading && (() => {
+            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
+            const done = checks.filter((k) => analysisProgress[k] === 'done').length
+            return (
+              <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
+                {done}/{checks.length}
+              </span>
+            )
+          })()}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+        </button>
+      )}
 
       {/* Mobile backdrop */}
       {(layerPanelOpen || analysisPanelOpen) && (
         <div className="mobile-panel-backdrop" onClick={() => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) }} />
       )}
 
-      <aside ref={layerSheetRef} className={`layer-panel${layerPanelOpen ? ' mobile-open' : ''}`}>
+      <aside ref={layerSheetRef} className={`layer-panel${layerPanelOpen ? ' is-open' : ''}`}>
         <div
           className="layer-drag-handle"
           onTouchStart={handleLayerTouchStart}
@@ -5691,7 +5711,7 @@ function MapPage() {
       {/* Recon Report Panel */}
       <aside
         ref={sheetRef}
-        className={`analysis-panel${analysisPanelOpen ? ' mobile-open' : ''}`}
+        className={`analysis-panel${analysisPanelOpen ? ' is-open' : ''}`}
         style={analysisPanelOpen && sheetHeight != null ? { maxHeight: `${sheetHeight}vh` } as React.CSSProperties : undefined}
       >
         <div

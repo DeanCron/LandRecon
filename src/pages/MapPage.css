@@ -1465,7 +1465,33 @@
 
 /* Analysis Panel */
 .analysis-toggle-btn {
-  display: none;
+  position: absolute;
+  top: 70px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+}
+.analysis-toggle-btn:hover {
+  background: var(--color-bg);
+}
+
+@media (min-width: 769px) {
+  .analysis-panel:not(.is-open) {
+    display: none;
+  }
 }
 
 .analysis-panel {
@@ -1505,7 +1531,22 @@
 }
 
 .analysis-close {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.analysis-close:hover {
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
 .analysis-header-actions {
@@ -2454,11 +2495,56 @@
 
 /* ── Floating action buttons (mobile panel toggles) ──── */
 .layer-toggle-btn {
-  display: none;
+  position: absolute;
+  top: 70px;
+  left: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+}
+.layer-toggle-btn:hover {
+  background: var(--color-bg);
+}
+
+@media (min-width: 769px) {
+  .layer-panel:not(.is-open) {
+    display: none;
+  }
 }
 
 .panel-close-btn {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  z-index: 2;
+}
+.panel-close-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
 .mobile-panel-backdrop {
@@ -2628,7 +2714,7 @@
     transform: translateY(100%);
     transition: transform 0.28s ease;
   }
-  .layer-panel.mobile-open {
+  .layer-panel.is-open {
     transform: translateY(0);
   }
 
@@ -2646,7 +2732,7 @@
     transform: translateY(100%);
     transition: transform 0.28s ease, max-height 0.15s ease;
   }
-  .analysis-panel.mobile-open {
+  .analysis-panel.is-open {
     transform: translateY(0);
   }
 
