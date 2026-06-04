@@ -2650,6 +2650,57 @@
     transform: translateY(0);
   }
 
+  /* Recon Report cards: 2-column compact grid on mobile.
+   * Each card stays tappable; long summaries ellipsize and reveal the full
+   * text in the .analysis-popout flyout on tap. */
+  .analysis-content {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .analysis-card {
+    margin-bottom: 0;
+  }
+  .analysis-item {
+    padding: 8px 8px 8px 6px;
+    gap: 6px;
+    align-items: center;
+    min-height: 44px;
+  }
+  .analysis-item .analysis-chevron {
+    font-size: 1rem;
+    margin: 0;
+  }
+  .analysis-item .analysis-icon {
+    font-size: 1rem;
+  }
+  .analysis-detail {
+    overflow: hidden;
+  }
+  .analysis-detail strong {
+    font-size: 0.78rem;
+    margin-bottom: 1px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .analysis-detail p {
+    font-size: 0.7rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .analysis-card-spinner {
+    width: 12px;
+    height: 12px;
+  }
+  .analysis-card-retry {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+  }
+
   .analysis-popout {
     position: fixed;
     top: 0;
@@ -3093,6 +3144,17 @@
     color-adjust: exact;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+
+  /* Undo mobile compact-grid for print: full width, no ellipsis */
+  .analysis-content {
+    display: block;
+  }
+  .analysis-detail strong,
+  .analysis-detail p {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 }
 
