@@ -521,6 +521,8 @@ function HomePage() {
                 <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco (a surprisingly strong quality-of-life indicator)</li>
                 <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
                 <li>🏥 <strong>Emergency Rooms</strong> — Distance to the nearest hospital emergency department</li>
+                <li>🎪 <strong>Crowd Magnets</strong> — Stadiums, arenas, and venues that drive seasonal traffic</li>
+                <li>📶 <strong>Broadband</strong> — FCC-reported wired internet providers and speeds at the address</li>
               </ul>
               <h3>How scoring works</h3>
               <p>
