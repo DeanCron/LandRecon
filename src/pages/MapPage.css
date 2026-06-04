@@ -1466,7 +1466,11 @@
 /* Analysis Panel */
 .analysis-toggle-btn {
   position: absolute;
-  top: 130px;
+  /* Below the Leaflet zoom control at top-right. The control itself sits
+   * ~10px inside the map, and grows to 61px tall on touch-capable devices
+   * (where Leaflet adds the .leaflet-touch class), so 160 gives safe
+   * clearance under both desktop and touch-laptop sizings. */
+  top: 160px;
   right: 16px;
   display: inline-flex;
   align-items: center;
