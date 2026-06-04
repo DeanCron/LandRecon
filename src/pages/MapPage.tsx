@@ -872,7 +872,11 @@ const INDUSTRIAL_FIELDS = [
   'EPA_REGISTRY_ID', 'TRI_FACILITY_ID', 'FACILITY_NAME', 'STREET_ADDRESS',
   'CITY', 'STATE', 'INDUSTRY', 'TOTAL_RELEASES_lb', 'REPORTING_YEAR',
 ].join(',')
-const INDUSTRIAL_MIN_ZOOM = 10
+// Scope the layer to a radius around the searched address rather than the
+// viewport — refinery / chemical / paper-mill impact is meaningfully tied
+// to the property the user is researching, and 25 mi is roughly how far
+// prevailing winds carry plume emissions.
+const INDUSTRIAL_RADIUS_MI = 25
 
 type IndustrialIndustryKey = 'PETROLEUM' | 'CHEMICALS' | 'PAPER'
 
@@ -906,15 +910,25 @@ interface IndustrialFacility {
   facUrl: string | null
   lat: number
   lng: number
+  distanceMi: number
 }
 
-async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<IndustrialFacility[]> {
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+async function fetchIndustrialFacilities(
+  center: L.LatLng,
+  radiusMi: number,
+): Promise<IndustrialFacility[]> {
+  // Bounding box that fully contains a `radiusMi` circle around `center`.
+  const dLat = radiusMi / 69.0
+  const dLng = radiusMi / (69.0 * Math.max(Math.cos((center.lat * Math.PI) / 180), 0.01))
+  const west = center.lng - dLng
+  const east = center.lng + dLng
+  const south = center.lat - dLat
+  const north = center.lat + dLat
   const industryList = INDUSTRIAL_INDUSTRIES.map((m) => `'${m.industryValue}'`).join(',')
   const params = new URLSearchParams({
     where: `INDUSTRY IN (${industryList})`,
     outFields: INDUSTRIAL_FIELDS,
-    geometry: bbox,
+    geometry: `${west},${south},${east},${north}`,
     geometryType: 'esriGeometryEnvelope',
     spatialRel: 'esriSpatialRelIntersects',
     inSR: '4326',
@@ -927,6 +941,7 @@ async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<Indust
   const json = await res.json() as {
     features?: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }>
   }
+  const radiusM = radiusMi * 1609.34
   // Dedupe by EPA_REGISTRY_ID (or TRI_FACILITY_ID); keep most recent report.
   const byId = new Map<string, IndustrialFacility>()
   for (const f of json.features || []) {
@@ -939,6 +954,8 @@ async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<Indust
     const lat = Number(f.geometry?.y)
     const lng = Number(f.geometry?.x)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+    const distM = center.distanceTo(L.latLng(lat, lng))
+    if (distM > radiusM) continue
     const year = attrs.REPORTING_YEAR ? String(attrs.REPORTING_YEAR).trim() : null
     const existing = byId.get(id)
     if (existing && existing.reportingYear && year && existing.reportingYear >= year) continue
@@ -957,9 +974,10 @@ async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<Indust
         : null,
       lat,
       lng,
+      distanceMi: distM / 1609.34,
     })
   }
-  return Array.from(byId.values())
+  return Array.from(byId.values()).sort((a, b) => a.distanceMi - b.distanceMi)
 }
 
 // ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
@@ -1630,7 +1648,10 @@ function MapPage() {
   const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
   const powerLineLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const industrialLayerRef = useRef<L.LayerGroup | null>(null)
-  const industrialLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  // Tracks the L.LatLng we last fetched facilities for. When the searched
+  // address changes (or the user re-enables the layer for a new target)
+  // this ref is reset so loadIndustrialData refetches.
+  const industrialFetchedKeyRef = useRef<string | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
@@ -1712,7 +1733,7 @@ function MapPage() {
   const [powerLineLowZoom, setPowerLineLowZoom] = useState(false)
   const [industrialVisible, setIndustrialVisible] = useState(false)
   const [industrialLoading, setIndustrialLoading] = useState(false)
-  const [industrialLowZoom, setIndustrialLowZoom] = useState(false)
+  const [industrialNeedsAddress, setIndustrialNeedsAddress] = useState(false)
   const [wildfireVisible, setWildfireVisible] = useState(false)
   const [wildfireLoading, setWildfireLoading] = useState(false)
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
@@ -2687,24 +2708,26 @@ function MapPage() {
     }
   }, [])
 
-  const loadIndustrialData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
-    if (map.getZoom() < INDUSTRIAL_MIN_ZOOM) {
-      dbg('industrial', `Skipping — zoom ${map.getZoom()} < ${INDUSTRIAL_MIN_ZOOM}`)
-      setIndustrialLowZoom(true)
+  const loadIndustrialData = useCallback(async (layer: L.LayerGroup) => {
+    const target = targetLocationRef.current
+    if (!target) {
+      dbg('industrial', 'Skipping — no searched address yet')
+      setIndustrialNeedsAddress(true)
       layer.clearLayers()
-      industrialLoadedBoundsRef.current = null
+      industrialFetchedKeyRef.current = null
       return
     }
-    setIndustrialLowZoom(false)
-    const bounds = map.getBounds()
-    const loaded = industrialLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('industrial', 'Skipping — bounds already loaded'); return }
-    dbg('industrial', 'Loading EPA TRI industrial facilities…')
+    setIndustrialNeedsAddress(false)
+    const key = `${target.lat.toFixed(5)},${target.lng.toFixed(5)}`
+    if (industrialFetchedKeyRef.current === key) {
+      dbg('industrial', 'Skipping — already loaded for this address')
+      return
+    }
+    dbg('industrial', `Loading EPA TRI facilities within ${INDUSTRIAL_RADIUS_MI} mi of ${key}…`)
 
     setIndustrialLoading(true)
     try {
-      const padded = bounds.pad(0.3)
-      const facilities = await fetchIndustrialFacilities(padded)
+      const facilities = await fetchIndustrialFacilities(target, INDUSTRIAL_RADIUS_MI)
       dbg('industrial', `Got ${facilities.length} facilities`)
       layer.clearLayers()
       for (const f of facilities) {
@@ -2716,6 +2739,7 @@ function MapPage() {
           fillOpacity: 0.9,
         })
         const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${f.industry.label}</span>`
+        const distanceBadge = `<span style="display:inline-block;padding:1px 6px;margin-left:4px;border-radius:3px;background:#eceff1;color:#37474f;font-size:11px;font-weight:600">${f.distanceMi.toFixed(1)} mi</span>`
         const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean)
         const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.join('<br/>')}</div>` : ''
         const releaseHtml = (f.totalReleasesLb != null && f.reportingYear)
@@ -2727,7 +2751,7 @@ function MapPage() {
         marker.bindPopup(
           `<div style="min-width:200px;max-width:280px">
              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${f.name}</div>
-             <div>${industryBadge}</div>
+             <div>${industryBadge}${distanceBadge}</div>
              ${addrHtml}
              ${releaseHtml}
              ${linkHtml}
@@ -2736,7 +2760,7 @@ function MapPage() {
         )
         marker.addTo(layer)
       }
-      industrialLoadedBoundsRef.current = padded
+      industrialFetchedKeyRef.current = key
     } catch (err) {
       console.error('Failed to load EPA TRI industrial facilities:', err)
     } finally {
@@ -3536,6 +3560,11 @@ function MapPage() {
           emsKnownIdsRef.current.clear()
           crowdLoadedBoundsRef.current = null
           crowdKnownIdsRef.current.clear()
+          // Address-scoped layer: clear cache and refetch for the new target.
+          industrialFetchedKeyRef.current = null
+          if (industrialVisible && industrialLayerRef.current) {
+            loadIndustrialData(industrialLayerRef.current)
+          }
           // Clear analysis-highlight pins from the previous address so the
           // map doesn't show stale markers while the new analysis runs.
           superfundAnalysisLayerRef.current?.clearLayers()
@@ -3782,7 +3811,7 @@ function MapPage() {
       powerLineLayerRef.current = null
       powerLineLoadedBoundsRef.current = null
       industrialLayerRef.current = null
-      industrialLoadedBoundsRef.current = null
+      industrialFetchedKeyRef.current = null
       wildfireLayerRef.current = null
       wildfireRenderedBoundsRef.current = null
       transitLayerRef.current = null
@@ -4609,29 +4638,14 @@ function MapPage() {
 
     if (industrialVisible) {
       map.removeLayer(layer)
-      map.off('moveend', handleIndustrialMove)
-      map.off('zoomend', handleIndustrialMove)
-      setIndustrialLowZoom(false)
+      setIndustrialNeedsAddress(false)
     } else {
       layer.addTo(map)
-      industrialLoadedBoundsRef.current = null
-      loadIndustrialData(map, layer)
-      map.on('moveend', handleIndustrialMove)
-      map.on('zoomend', handleIndustrialMove)
+      industrialFetchedKeyRef.current = null
+      loadIndustrialData(layer)
     }
     setIndustrialVisible(!industrialVisible)
   }
-
-  const handleIndustrialMove = useCallback(
-    debounce(() => {
-      const map = mapRef.current
-      const layer = industrialLayerRef.current
-      if (map && layer) {
-        loadIndustrialData(map, layer)
-      }
-    }, 250),
-    [loadIndustrialData],
-  )
 
   const toggleWildfire = () => {
     const map = mapRef.current
@@ -5760,8 +5774,10 @@ function MapPage() {
             </label>
             {industrialVisible && (
               <div className="flood-legend">
-                {industrialLowZoom && (
-                  <p className="flood-legend-hint">Zoom in to see industrial facilities.</p>
+                {industrialNeedsAddress ? (
+                  <p className="flood-legend-hint">Search an address to see industrial facilities.</p>
+                ) : (
+                  <p className="flood-legend-hint">Refineries, chemical plants &amp; paper mills within {INDUSTRIAL_RADIUS_MI} mi.</p>
                 )}
                 {INDUSTRIAL_INDUSTRIES.map((m) => (
                   <div key={m.key} className="legend-swatch-row">
