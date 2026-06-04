@@ -1686,6 +1686,18 @@
 .score-breakdown-status {
   font-weight: 600;
   font-size: 0.72rem;
+  margin-left: 6px;
+}
+
+.score-breakdown-tier {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--color-text-secondary, #6b7280);
   margin-left: auto;
 }
 

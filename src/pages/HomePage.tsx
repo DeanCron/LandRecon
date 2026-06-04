@@ -526,9 +526,17 @@ function HomePage() {
               </ul>
               <h3>How scoring works</h3>
               <p>
-                Each category is evaluated and assigned a concern level. These are combined into an overall
-                letter grade (A through F) so you can compare locations at a glance. Click the score bar
-                for a full breakdown of how each factor contributed.
+                Categories are grouped into three tiers based on how much they affect daily life:
+              </p>
+              <ul>
+                <li><strong>Safety</strong> (Airport Noise, Superfund, ER) — weighted heaviest</li>
+                <li><strong>Lifestyle</strong> (Data Centers, Crowd Magnets, Broadband) — moderate weight</li>
+                <li><strong>Convenience</strong> (Costco) — lightest weight</li>
+              </ul>
+              <p>
+                Each category is evaluated and assigned a concern level. Tier weights are combined into
+                an overall letter grade (A through F) so you can compare locations at a glance. Click
+                the score bar for a full breakdown of how each factor contributed.
               </p>
               <p className="about-disclaimer">
                 LandRecon is provided for informational purposes only. Data may not be complete or current.

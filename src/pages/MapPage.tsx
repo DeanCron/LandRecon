@@ -1313,66 +1313,99 @@ function computeLocationGrade(results: {
   dataCenters: unknown[]
   nearestER: { distanceMi: number } | null
   crowdMagnets: unknown[]
-}): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] } {
-  const breakdown: { label: string; icon: string; score: number; max: number; detail: string }[] = []
+  broadband?: BroadbandResponse | null
+  broadbandLoading?: boolean
+}): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
+  const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
-  // Noise: 0 = none, 1 = moderate (<65), 2 = high (65+)
+  // Tiered weighting (introduced 2026-06-04):
+  //   Safety     — Noise, Superfund, ER       — max 3 each
+  //   Lifestyle  — Data Centers, Crowd, Bband — max 2 each
+  //   Convenience — Costco                    — max 1
+  // Total possible penalty = 16. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
+
+  // --- SAFETY (max 3) ---
+
+  // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+)
   let noiseScore = 0
   let noiseDetail = 'No airport noise detected'
   if (results.noiseLevel) {
-    if (results.noiseLevel < 65) { noiseScore = 1; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
-    else { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
+    if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
+    else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
   }
-  breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 2, detail: noiseDetail })
+  breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 3, detail: noiseDetail, tier: 'safety' })
 
-  // Superfund
+  // Superfund: clear=0, warning=2, danger=3
   const sfSev = superfundSeverity(results.superfunds)
-  const sfScore = sfSev === 'clear' ? 0 : sfSev === 'warning' ? 1 : 2
+  const sfScore = sfSev === 'clear' ? 0 : sfSev === 'warning' ? 2 : 3
   const sfDetail = results.superfunds.length === 0 ? `None within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi`
     : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
-  breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 2, detail: sfDetail })
+  breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 3, detail: sfDetail, tier: 'safety' })
 
-  // Costco (skipped while still loading so the grade doesn't get artificially penalized)
-  if (!results.costcoLoading) {
-    let costcoScore: number
-    let costcoDetail: string
-    if (!results.costco) {
-      costcoScore = results.costcoError ? 1 : 2
-      costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
-    } else {
-      const cs = costcoSeverity(results.costco.distanceMi)
-      costcoScore = cs === 'good' ? 0 : cs === 'warning' ? 1 : 2
-      costcoDetail = `${results.costco.distanceMi} mi away`
-    }
-    breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 2, detail: costcoDetail })
-  }
+  // Emergency Room: good/clear=0, warning=2, danger=3
+  const erDist = results.nearestER?.distanceMi ?? null
+  const erSev = erSeverity(erDist)
+  const erScore = (erSev === 'clear' || erSev === 'good') ? 0 : erSev === 'warning' ? 2 : 3
+  const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
+  breakdown.push({ label: 'Emergency Room', icon: '🏥', score: erScore, max: 3, detail: erDetail, tier: 'safety' })
 
-  // Data centers
+  // --- LIFESTYLE (max 2) ---
+
+  // Data centers: clear=0, warning=1, danger=2
   const dcSev = dataCenterSeverity(results.dataCenters.length)
   const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
   const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
-  breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail })
+  breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail, tier: 'lifestyle' })
 
-  // Crowd magnets
+  // Crowd magnets: clear=0, warning=1, danger=2
   const cmCount = results.crowdMagnets.length
   const cmSev = crowdMagnetsSeverity(cmCount)
   const cmScore = cmSev === 'clear' ? 0 : cmSev === 'warning' ? 1 : 2
   const cmDetail = cmCount === 0
     ? `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`
     : `${cmCount} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
-  breakdown.push({ label: 'Crowd Magnets', icon: '🎟️', score: cmScore, max: 2, detail: cmDetail })
+  breakdown.push({ label: 'Crowd Magnets', icon: '🎟️', score: cmScore, max: 2, detail: cmDetail, tier: 'lifestyle' })
 
-  // Emergency Room
-  const erDist = results.nearestER?.distanceMi ?? null
-  const erSev = erSeverity(erDist)
-  const erScore = erSev === 'clear' ? 0 : erSev === 'good' ? 0 : erSev === 'warning' ? 1 : 2
-  const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
-  breakdown.push({ label: 'Emergency Room', icon: '🏥', score: erScore, max: 2, detail: erDetail })
+  // Broadband: good/clear=0, warning=1, danger=2
+  // Skip entirely while still loading (so the grade isn't artificially
+  // penalized before broadband resolves). If broadband resolved but returned
+  // no summary (block-only fallback or no data), include it as 0 with a
+  // "data not available" note so it stays neutral.
+  if (!results.broadbandLoading) {
+    const bbSummary = results.broadband?.summary ?? null
+    const bbSev = broadbandSeverity(bbSummary?.speedTier)
+    const bbScore = (bbSev === 'clear' || bbSev === 'good') ? 0 : bbSev === 'warning' ? 1 : 2
+    let bbDetail = 'No data available'
+    if (bbSummary) {
+      const speed = formatBroadbandSpeed(bbSummary.maxDownMbps)
+      bbDetail = `${speed} down · ${bbSummary.providerCount} ${bbSummary.providerCount === 1 ? 'provider' : 'providers'}${bbSummary.hasFiber ? ' · fiber' : ''}`
+    }
+    breakdown.push({ label: 'Broadband', icon: '📶', score: bbScore, max: 2, detail: bbDetail, tier: 'lifestyle' })
+  }
+
+  // --- CONVENIENCE (max 1) ---
+
+  // Costco: good=0, warning=0, danger=1. Only the worst case (no Costco
+  // within range, or search timed out) costs a point. Skipped while loading
+  // so the grade isn't artificially penalized.
+  if (!results.costcoLoading) {
+    let costcoScore = 0
+    let costcoDetail: string
+    if (!results.costco) {
+      costcoScore = 1
+      costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
+    } else {
+      const cs = costcoSeverity(results.costco.distanceMi)
+      costcoScore = cs === 'danger' ? 1 : 0
+      costcoDetail = `${results.costco.distanceMi} mi away`
+    }
+    breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 1, detail: costcoDetail, tier: 'convenience' })
+  }
 
   const total = breakdown.reduce((a, b) => a + b.score, 0)
   const max = breakdown.reduce((a, b) => a + b.max, 0)
 
-  const pct = 1 - total / max
+  const pct = max > 0 ? 1 - total / max : 1
   if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct, breakdown }
   if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct, breakdown }
   if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct, breakdown }
@@ -5946,6 +5979,33 @@ function MapPage() {
           })()}
 
           {(() => {
+            const pER = analysisProgress.er !== 'done'
+            return (
+              <div className={`analysis-card ${pER ? 'pending' : (analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger')}`}>
+                <div
+                  className={`analysis-item${pER ? '' : ' clickable'}`}
+                  onClick={() => {
+                    if (pER) return
+                    if (analysisDetail === 'er') setAnalysisDetail(null)
+                    else setAnalysisDetail('er')
+                  }}
+                  aria-busy={pER || undefined}
+                >
+                  <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}${pER ? ' hidden' : ''}`}>‹</div>
+                  <div className="analysis-icon">🏥</div>
+                  <div className="analysis-detail">
+                    <strong>Emergency Room</strong>
+                    <p>{pER ? 'Checking…' : (analysisResults.nearestER
+                      ? `${analysisResults.nearestER.distanceMi} mi — ${analysisResults.nearestER.name}`
+                      : analysisResults.erError ? 'Search failed' : 'None found nearby')}</p>
+                  </div>
+                  {pER && <div className="analysis-card-spinner" aria-hidden="true" />}
+                </div>
+              </div>
+            )
+          })()}
+
+          {(() => {
             const pDC = analysisProgress.datacenters !== 'done'
             return (
               <div className={`analysis-card ${pDC ? 'pending' : dataCenterSeverity(analysisResults.dataCenters.length)}`}>
@@ -5999,70 +6059,6 @@ function MapPage() {
             )
           })()}
 
-          {(() => {
-            const pER = analysisProgress.er !== 'done'
-            return (
-              <div className={`analysis-card ${pER ? 'pending' : (analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger')}`}>
-                <div
-                  className={`analysis-item${pER ? '' : ' clickable'}`}
-                  onClick={() => {
-                    if (pER) return
-                    if (analysisDetail === 'er') setAnalysisDetail(null)
-                    else setAnalysisDetail('er')
-                  }}
-                  aria-busy={pER || undefined}
-                >
-                  <div className={`analysis-chevron${analysisDetail === 'er' ? ' expanded' : ''}${pER ? ' hidden' : ''}`}>‹</div>
-                  <div className="analysis-icon">🏥</div>
-                  <div className="analysis-detail">
-                    <strong>Emergency Room</strong>
-                    <p>{pER ? 'Checking…' : (analysisResults.nearestER
-                      ? `${analysisResults.nearestER.distanceMi} mi — ${analysisResults.nearestER.name}`
-                      : analysisResults.erError ? 'Search failed' : 'None found nearby')}</p>
-                  </div>
-                  {pER && <div className="analysis-card-spinner" aria-hidden="true" />}
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Costco — runs in the background after everything else, so it lives at the bottom */}
-          <div className={`analysis-card ${analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
-            <div
-              className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
-              onClick={() => {
-                if (analysisResults.costcoLoading) return
-                if (analysisDetail === 'costco') setAnalysisDetail(null)
-                else setAnalysisDetail('costco')
-              }}
-              aria-busy={analysisResults.costcoLoading || undefined}
-            >
-              <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}${analysisResults.costcoLoading ? ' hidden' : ''}`}>‹</div>
-              <div className="analysis-icon">🛒</div>
-              <div className="analysis-detail">
-                <strong>Nearest Costco</strong>
-                <p>{analysisResults.costcoLoading
-                  ? 'Searching nearby Costcos…'
-                  : analysisResults.costco
-                  ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
-                  : analysisResults.costcoError
-                  ? 'Search failed'
-                  : analysisResults.costcoNearestBeyond
-                  ? `Closest is ${analysisResults.costcoNearestBeyond.distanceMi} mi (outside ${COSTCO_ANALYSIS_RADIUS_MI} mi)`
-                  : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
-              </div>
-              {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
-              {analysisResults.costcoError && !analysisResults.costcoLoading && (
-                <button
-                  type="button"
-                  className="analysis-card-retry"
-                  onClick={(e) => { e.stopPropagation(); retryCostco() }}
-                  aria-label="Retry Costco search"
-                >Retry</button>
-              )}
-            </div>
-          </div>
-
           {/* Broadband at this address — FCC BDC */}
           {(() => {
             const bbLoading = analysisResults.broadbandLoading
@@ -6102,6 +6098,43 @@ function MapPage() {
               </div>
             )
           })()}
+
+          {/* Costco — convenience tier, lowest weight, lives at the bottom of the report */}
+          <div className={`analysis-card ${analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'}`}>
+            <div
+              className={`analysis-item${analysisResults.costcoLoading ? '' : ' clickable'}`}
+              onClick={() => {
+                if (analysisResults.costcoLoading) return
+                if (analysisDetail === 'costco') setAnalysisDetail(null)
+                else setAnalysisDetail('costco')
+              }}
+              aria-busy={analysisResults.costcoLoading || undefined}
+            >
+              <div className={`analysis-chevron${analysisDetail === 'costco' ? ' expanded' : ''}${analysisResults.costcoLoading ? ' hidden' : ''}`}>‹</div>
+              <div className="analysis-icon">🛒</div>
+              <div className="analysis-detail">
+                <strong>Nearest Costco</strong>
+                <p>{analysisResults.costcoLoading
+                  ? 'Searching nearby Costcos…'
+                  : analysisResults.costco
+                  ? `${analysisResults.costco.distanceMi} mi${analysisResults.costco.city ? ` — ${analysisResults.costco.city}` : ''}`
+                  : analysisResults.costcoError
+                  ? 'Search failed'
+                  : analysisResults.costcoNearestBeyond
+                  ? `Closest is ${analysisResults.costcoNearestBeyond.distanceMi} mi (outside ${COSTCO_ANALYSIS_RADIUS_MI} mi)`
+                  : `None within ${COSTCO_ANALYSIS_RADIUS_MI} mi`}</p>
+              </div>
+              {analysisResults.costcoLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
+              {analysisResults.costcoError && !analysisResults.costcoLoading && (
+                <button
+                  type="button"
+                  className="analysis-card-retry"
+                  onClick={(e) => { e.stopPropagation(); retryCostco() }}
+                  aria-label="Retry Costco search"
+                >Retry</button>
+              )}
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -6139,9 +6172,17 @@ function MapPage() {
               </p>
               <h3>How scoring works</h3>
               <p>
-                Each category is evaluated and assigned a concern level. These are combined into an overall
-                letter grade (A through F) so you can compare locations at a glance. Click the score bar
-                for a full breakdown of how each factor contributed.
+                Categories are grouped into three tiers based on how much they affect daily life:
+              </p>
+              <ul>
+                <li><strong>Safety</strong> (Airport Noise, Superfund, ER) — weighted heaviest</li>
+                <li><strong>Lifestyle</strong> (Data Centers, Crowd Magnets, Broadband) — moderate weight</li>
+                <li><strong>Convenience</strong> (Costco) — lightest weight</li>
+              </ul>
+              <p>
+                Each category is evaluated and assigned a concern level. Tier weights are combined into
+                an overall letter grade (A through F) so you can compare locations at a glance. Click
+                the score bar for a full breakdown of how each factor contributed.
               </p>
               <p className="about-disclaimer">
                 LandRecon is provided for informational purposes only. Data may not be complete or current.
@@ -6191,33 +6232,50 @@ function MapPage() {
                   </div>
                   <div className="score-breakdown-divider" />
                   {grade.breakdown.map((b) => {
-                    const barColor = b.score === 0 ? '#4caf50' : b.score === 1 ? '#ffb300' : '#ef5350'
-                    const statusLabel = b.score === 0 ? 'No concerns' : b.score === 1 ? 'Minor concern' : 'Notable concern'
-                    const explanations: Record<string, Record<number, string>> = {
+                    // Severity is derived from the score/max ratio so the
+                    // visual stays correct regardless of which tier weight
+                    // (1, 2, or 3) the row uses.
+                    const ratio = b.max > 0 ? b.score / b.max : 0
+                    const sevKey: 'clear' | 'warning' | 'danger' =
+                      b.score === 0 ? 'clear' : ratio >= 0.9 ? 'danger' : 'warning'
+                    const barColor = sevKey === 'clear' ? '#4caf50' : sevKey === 'warning' ? '#ffb300' : '#ef5350'
+                    const statusLabel = sevKey === 'clear' ? 'No concerns' : sevKey === 'warning' ? 'Minor concern' : 'Notable concern'
+                    const tierLabel = b.tier === 'safety' ? 'Safety' : b.tier === 'lifestyle' ? 'Lifestyle' : 'Convenience'
+                    const explanations: Record<string, Record<'clear' | 'warning' | 'danger', string>> = {
                       'Airport Noise': {
-                        0: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
-                        1: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
-                        2: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.'
+                        clear: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
+                        warning: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
+                        danger: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.'
                       },
                       'Superfund Sites': {
-                        0: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
-                        1: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
-                        2: `One or more active Superfund sites are within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. Active sites may pose environmental or health risks and could affect property values.`
-                      },
-                      'Nearest Costco': {
-                        0: 'A Costco is right there. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
-                        1: 'Costco exists, but it\'s a bit of a drive. You\'ll need a playlist, a snack, and the quiet determination of someone who refuses to pay retail for paper towels.',
-                        2: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.'
-                      },
-                      'Data Centers': {
-                        0: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
-                        1: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
-                        2: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.'
+                        clear: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
+                        warning: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
+                        danger: `One or more active Superfund sites are within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. Active sites may pose environmental or health risks and could affect property values.`
                       },
                       'Emergency Room': {
-                        0: 'An emergency room is within close range. Quick access to emergency medical care is a significant safety advantage for this location.',
-                        1: 'An emergency room is at moderate distance. Response times may be longer during peak traffic, but access is still reasonable.',
-                        2: 'No emergency room was found nearby. Longer travel times to emergency care could be a concern, especially for families or elderly residents.'
+                        clear: 'An emergency room is within close range. Quick access to emergency medical care is a significant safety advantage for this location.',
+                        warning: 'An emergency room is at moderate distance. Response times may be longer during peak traffic, but access is still reasonable.',
+                        danger: 'No emergency room was found nearby. Longer travel times to emergency care could be a concern, especially for families or elderly residents.'
+                      },
+                      'Data Centers': {
+                        clear: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
+                        warning: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
+                        danger: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.'
+                      },
+                      'Crowd Magnets': {
+                        clear: `No major venues, stadiums, or arenas were found within ${CROWD_ANALYSIS_RADIUS_MI} miles. Expect normal traffic patterns without event-driven surges.`,
+                        warning: 'A nearby venue or attraction may bring seasonal traffic, event-night congestion, or noise during peak hours.',
+                        danger: 'Multiple high-draw venues are close by. Expect significant event-driven traffic, parking pressure, and noise on game days, concert nights, or convention weekends.'
+                      },
+                      'Broadband': {
+                        clear: 'Multiple providers offer high-speed (100+ Mbps) or gigabit service at this address. You should have plenty of options for fast, reliable internet.',
+                        warning: 'Broadband is available but speeds are modest. Streaming and video calls work, but heavy households or remote workers may feel constrained.',
+                        danger: 'This address is FCC-underserved (<25 Mbps down). Expect very limited wired options — consider fixed wireless, satellite, or cellular as alternatives.'
+                      },
+                      'Nearest Costco': {
+                        clear: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
+                        warning: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
+                        danger: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.'
                       }
                     }
                     return (
@@ -6225,13 +6283,14 @@ function MapPage() {
                         <div className="score-breakdown-label">
                           <span>{b.icon}</span>
                           <span>{b.label}</span>
+                          <span className="score-breakdown-tier" title={`${tierLabel} tier · weighted up to ${b.max} pt${b.max === 1 ? '' : 's'}`}>{tierLabel}</span>
                           <span className="score-breakdown-status" style={{ color: barColor }}>{statusLabel}</span>
                         </div>
                         <div className="score-breakdown-bar-track">
                           <div className="score-breakdown-bar-fill" style={{ width: `${((b.max - b.score) / b.max) * 100}%`, background: barColor }} />
                         </div>
                         <p className="score-breakdown-detail">{b.detail}</p>
-                        <p className="score-breakdown-explanation">{explanations[b.label]?.[b.score] || ''}</p>
+                        <p className="score-breakdown-explanation">{explanations[b.label]?.[sevKey] || ''}</p>
                       </div>
                     )
                   })}
