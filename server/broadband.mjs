@@ -200,9 +200,18 @@ export async function handleBroadbandRequest(req, res) {
     }
     await getDb()
     const summary = lookupSummary(block.blockFips)
+    // If we have a populated summary, the response is genuinely cacheable
+    // for a day — the FCC index only changes ~every 6 months. But during
+    // the deferred-download window on cold-start, the same (lat,lng) will
+    // briefly return no summary; we MUST keep that response cacheable for
+    // only a short time so the next request after the DB lands picks up
+    // the populated payload instead of replaying the degraded one.
+    const cacheControl = summary
+      ? 'public, max-age=86400'
+      : 'public, max-age=60, must-revalidate'
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=86400',
+      'Cache-Control': cacheControl,
     })
     res.end(JSON.stringify({
       block,
