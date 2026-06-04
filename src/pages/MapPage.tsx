@@ -5312,7 +5312,7 @@ function MapPage() {
 
         {/* ── Everyday amenities ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">🏪 Everyday amenities</summary>
+          <summary className="layer-group-heading">🏪 Day-to-day</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -5354,58 +5354,10 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Environmental ── */}
+        {/* ── Hazards & risk ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">🌍 Environmental</summary>
+          <summary className="layer-group-heading">⚠️ Hazards & risk</summary>
           <div className="layer-group-body">
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={noiseVisible}
-                onChange={toggleNoise}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">Airport Noise</span>
-            </label>
-            {noiseVisible && (
-              <div className="noise-legend">
-                <div className="legend-bar">
-                  {LEGEND_STOPS.map((stop, i) => (
-                    <div
-                      key={i}
-                      className="legend-segment"
-                      style={{ background: stop.color }}
-                    />
-                  ))}
-                </div>
-                <div className="legend-labels">
-                  <span>{LEGEND_STOPS[0].dbMin} dB</span>
-                  <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
-                </div>
-              </div>
-            )}
-
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={superfundVisible}
-                onChange={toggleSuperfund}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">
-                Superfund Sites
-                {superfundLoading && <span className="layer-loading"> ⏳</span>}
-              </span>
-            </label>
-            {superfundVisible && (
-              <div className="superfund-legend">
-                <div className="legend-swatch-row">
-                  <span className="legend-pin" aria-hidden="true">☢️</span>
-                  <span>NPL Superfund Site</span>
-                </div>
-              </div>
-            )}
-
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -5473,6 +5425,60 @@ function MapPage() {
             <label className="layer-toggle">
               <input
                 type="checkbox"
+                checked={superfundVisible}
+                onChange={toggleSuperfund}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Superfund Sites
+                {superfundLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {superfundVisible && (
+              <div className="superfund-legend">
+                <div className="legend-swatch-row">
+                  <span className="legend-pin" aria-hidden="true">☢️</span>
+                  <span>NPL Superfund Site</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </details>
+
+        {/* ── Livability ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🌱 Livability</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={noiseVisible}
+                onChange={toggleNoise}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Airport Noise</span>
+            </label>
+            {noiseVisible && (
+              <div className="noise-legend">
+                <div className="legend-bar">
+                  {LEGEND_STOPS.map((stop, i) => (
+                    <div
+                      key={i}
+                      className="legend-segment"
+                      style={{ background: stop.color }}
+                    />
+                  ))}
+                </div>
+                <div className="legend-labels">
+                  <span>{LEGEND_STOPS[0].dbMin} dB</span>
+                  <span>{LEGEND_STOPS[LEGEND_STOPS.length - 1].dbMin}+ dB</span>
+                </div>
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
                 checked={aqiVisible}
                 onChange={toggleAqi}
                 disabled={status !== 'ready'}
@@ -5509,7 +5515,7 @@ function MapPage() {
 
         {/* ── Development & infrastructure ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">🏗️ Development & infrastructure</summary>
+          <summary className="layer-group-heading">⚡ Infrastructure</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -5568,9 +5574,9 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Crowds & venues ── */}
+        {/* ── People & oversight ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">🎟️ Crowds & venues</summary>
+          <summary className="layer-group-heading">👥 People & oversight</summary>
           <div className="layer-group-body">
             <label className="layer-toggle">
               <input
@@ -5599,13 +5605,7 @@ function MapPage() {
                 ))}
               </div>
             )}
-          </div>
-        </details>
 
-        {/* ── Surveillance ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">👁️ Surveillance</summary>
-          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
