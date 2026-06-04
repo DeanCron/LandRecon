@@ -257,6 +257,8 @@ type BroadbandResponse = {
   source: string | null
   asOfDate: string | null
   attribution: string
+  lat?: number
+  lng?: number
 }
 function broadbandSeverity(tier: BroadbandSummary['speedTier'] | null | undefined): 'good' | 'warning' | 'danger' | 'clear' {
   if (tier === 'gig' || tier === 'fast') return 'good'
@@ -6518,8 +6520,13 @@ function MapPage() {
               const bb = analysisResults.broadband
               const summary = bb?.summary || null
               const block = bb?.block || null
-              const fccLink = block
-                ? `https://broadbandmap.fcc.gov/location-summary/fixed?location_id=&zoom=14&vlon=&vlat=&block=${block.blockFips}`
+              // FCC's National Broadband Map is an Angular SPA that ignores
+              // most query params (block, address, location_id without a
+              // valid FCC location id). The one combo it honors is
+              // vlon + vlat + zoom, which centers the map on the address.
+              // The user then clicks the marker for full per-location detail.
+              const fccLink = (bb?.lat != null && bb?.lng != null)
+                ? `https://broadbandmap.fcc.gov/?vlon=${bb.lng}&vlat=${bb.lat}&zoom=18`
                 : 'https://broadbandmap.fcc.gov/'
               const tierLabel = (() => {
                 const t = summary?.speedTier
