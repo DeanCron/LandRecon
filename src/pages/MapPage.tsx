@@ -1528,7 +1528,7 @@ function MapPage() {
   const crowdSubVisibleRef = useRef(crowdSubVisible)
   // Analysis-highlight layer groups: one persistent L.layerGroup per category
   // that holds only the items the analysis explicitly called out. Lives on the
-  // map independently of the user-toggleable main layers, so the "Show on Map"
+  // map independently of the user-toggleable main layers, so the "Map Layers"
   // checkboxes stay user-controlled while the analysis still gets a visual
   // representation. Re-populated on every successful analysis run.
   const superfundAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
@@ -4768,7 +4768,7 @@ function MapPage() {
 
   // Drop "analysis highlight" pins on the map whenever analysis finishes.
   // These live in their own layer groups (added at map init) so they do NOT
-  // flip the user-facing "Show on Map" toggles — those stay user-controlled.
+  // flip the user-facing "Map Layers" toggles — those stay user-controlled.
   // We just visually surface the items the report is calling out.
   useEffect(() => {
     if (analysisResults.loading) return
@@ -5185,10 +5185,10 @@ function MapPage() {
             setLayerPanelOpen(true)
             if (isMobile) setAnalysisPanelOpen(false)
           }}
-          aria-label="Open Show on Map panel"
+          aria-label="Open Map Layers panel"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
-          <span className="fab-label">Show on Map</span>
+          <span className="fab-label">Map Layers</span>
         </button>
       )}
       {!analysisPanelOpen && (
@@ -5231,7 +5231,7 @@ function MapPage() {
         >
           <div className="layer-drag-bar" />
         </div>
-        <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close Show on Map panel">×</button>
+        <button className="panel-close-btn" onClick={() => setLayerPanelOpen(false)} aria-label="Close Map Layers panel">×</button>
         {baseMapSwitcherEnabled && (
           <>
             <h2 className="panel-title">Base Map</h2>
@@ -5250,7 +5250,7 @@ function MapPage() {
           </>
         )}
 
-        <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Show on Map</h2>
+        <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Map Layers</h2>
 
         {presetsEnabled && (
           <div className="layer-presets" role="group" aria-label="Layer presets">
@@ -6824,8 +6824,8 @@ function MapPage() {
             },
             {
               selector: '.layer-panel',
-              title: '🗺️ Show on Map',
-              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more. On desktop, open it any time from the "Show on Map" chip at the top-left.',
+              title: '🗺️ Map Layers',
+              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
               position: 'right',
               beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
             },
