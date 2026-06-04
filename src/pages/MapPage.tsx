@@ -886,12 +886,13 @@ interface IndustrialIndustryMeta {
   industryValue: string
   label: string
   color: string
+  icon: string
 }
 
 const INDUSTRIAL_INDUSTRIES: readonly IndustrialIndustryMeta[] = [
-  { key: 'PETROLEUM', industryValue: '324 Petroleum', label: 'Oil refineries',  color: '#37474f' },
-  { key: 'CHEMICALS', industryValue: '325 Chemicals', label: 'Chemical plants', color: '#ef5350' },
-  { key: 'PAPER',     industryValue: '322 Paper',     label: 'Paper mills',     color: '#6d4c41' },
+  { key: 'PETROLEUM', industryValue: '324 Petroleum', label: 'Oil refineries',  color: '#37474f', icon: '🛢️' },
+  { key: 'CHEMICALS', industryValue: '325 Chemicals', label: 'Chemical plants', color: '#ef5350', icon: '⚗️' },
+  { key: 'PAPER',     industryValue: '322 Paper',     label: 'Paper mills',     color: '#6d4c41', icon: '📄' },
 ] as const
 
 const INDUSTRIAL_INDUSTRY_BY_VALUE = new Map(
@@ -2731,13 +2732,13 @@ function MapPage() {
       dbg('industrial', `Got ${facilities.length} facilities`)
       layer.clearLayers()
       for (const f of facilities) {
-        const marker = L.circleMarker([f.lat, f.lng], {
-          radius: 7,
-          color: '#ffffff',
-          weight: 1.5,
-          fillColor: f.industry.color,
-          fillOpacity: 0.9,
+        const icon = L.divIcon({
+          className: 'industrial-label',
+          html: `<div class="industrial-pin" style="background:${f.industry.color}">${f.industry.icon}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
         })
+        const marker = L.marker([f.lat, f.lng], { icon })
         const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${f.industry.label}</span>`
         const distanceBadge = `<span style="display:inline-block;padding:1px 6px;margin-left:4px;border-radius:3px;background:#eceff1;color:#37474f;font-size:11px;font-weight:600">${f.distanceMi.toFixed(1)} mi</span>`
         const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean)
@@ -5782,10 +5783,17 @@ function MapPage() {
                 {INDUSTRIAL_INDUSTRIES.map((m) => (
                   <div key={m.key} className="legend-swatch-row">
                     <span
-                      className="legend-swatch power"
-                      style={{ background: m.color, borderColor: m.color, borderRadius: '50%' }}
+                      className="industrial-pin"
+                      style={{
+                        background: m.color,
+                        width: 22,
+                        height: 22,
+                        fontSize: 12,
+                        lineHeight: '22px',
+                        display: 'inline-block',
+                      }}
                       aria-hidden="true"
-                    />
+                    >{m.icon}</span>
                     <span>{m.label}</span>
                   </div>
                 ))}
