@@ -874,9 +874,9 @@ const INDUSTRIAL_FIELDS = [
 ].join(',')
 // Scope the layer to a radius around the searched address rather than the
 // viewport — refinery / chemical / paper-mill impact is meaningfully tied
-// to the property the user is researching, and 25 mi is roughly how far
-// prevailing winds carry plume emissions.
-const INDUSTRIAL_RADIUS_MI = 25
+// to the property the user is researching. 10 mi keeps the focus tight on
+// the immediate neighborhood (most acute air-quality + nuisance reach).
+const INDUSTRIAL_RADIUS_MI = 10
 
 type IndustrialIndustryKey = 'PETROLEUM' | 'CHEMICALS' | 'PAPER'
 
