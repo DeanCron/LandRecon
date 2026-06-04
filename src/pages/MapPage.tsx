@@ -995,7 +995,7 @@ const CELL_TOWER_FIELDS = [
   'RegNum', 'Entity', 'LocAdd', 'LocCity', 'LocState',
   'Strucht', 'latdec', 'londec', 'url',
 ].join(',')
-const CELL_TOWER_RADIUS_MI = 10
+const CELL_TOWER_RADIUS_MI = 3
 const CELL_TOWER_COLOR = '#00838f'
 const CELL_TOWER_ICON = '📡'
 
