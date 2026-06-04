@@ -857,39 +857,42 @@ async function fetchPowerLineFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.F
 // ── EPA FRS Industrial Facilities ───────────────────────────────────────
 // EPA Facility Registry Service (FRS_INTERESTS MapServer). Each layer is
 // a filtered point view of all FRS-registered facilities that participate
-// in a given regulatory program. We query the four most "hazard-relevant"
-// programs in parallel and merge by REGISTRY_ID so a facility shows up
-// once with a full list of program badges in its popup.
-//   • TRI (23)         — Toxics Release Inventory (chemical releases)
-//   • RCRA_LQG (18)    — Large Quantity Hazardous-Waste Generators
-//   • AIR_MAJOR (3)    — Clean Air Act major air emitters
-//   • NPDES_MAJOR (12) — Clean Water Act major water dischargers
+// EPA TRI Reporting Facilities — narrow industrial-hazard layer.
+// We query a single MapServer layer that exposes facility-level rollups
+// of toxic chemical releases from EPA's Toxics Release Inventory, with
+// a clean INDUSTRY field that maps to NAICS prefixes. We filter to the
+// three industry sectors that almost always indicate a heavy-emissions
+// facility next door:
+//   • 324 Petroleum  — oil refineries
+//   • 325 Chemicals  — chemical plants
+//   • 322 Paper      — paper / pulp mills
 const INDUSTRIAL_API_BASE =
-  'https://gispub.epa.gov/arcgis/rest/services/OEI/FRS_INTERESTS/MapServer'
+  'https://gispub.epa.gov/arcgis/rest/services/OEI/TRI_Reporting_Facilities/MapServer/0'
 const INDUSTRIAL_FIELDS = [
-  'REGISTRY_ID', 'PRIMARY_NAME', 'LOCATION_ADDRESS', 'CITY_NAME',
-  'STATE_CODE', 'POSTAL_CODE', 'ACTIVE_STATUS', 'FAC_URL', 'INTEREST_TYPE',
+  'EPA_REGISTRY_ID', 'TRI_FACILITY_ID', 'FACILITY_NAME', 'STREET_ADDRESS',
+  'CITY', 'STATE', 'INDUSTRY', 'TOTAL_RELEASES_lb', 'REPORTING_YEAR',
 ].join(',')
 const INDUSTRIAL_MIN_ZOOM = 10
 
-type IndustrialProgramKey = 'TRI' | 'RCRA_LQG' | 'AIR_MAJOR' | 'NPDES_MAJOR'
+type IndustrialIndustryKey = 'PETROLEUM' | 'CHEMICALS' | 'PAPER'
 
-interface IndustrialProgramMeta {
-  key: IndustrialProgramKey
-  layerId: number
+interface IndustrialIndustryMeta {
+  key: IndustrialIndustryKey
+  // EPA INDUSTRY field literal (e.g. "324 Petroleum")
+  industryValue: string
   label: string
   color: string
-  // Higher tier = more concerning; used to pick a facility's primary color
-  // when it participates in multiple programs.
-  tier: number
 }
 
-const INDUSTRIAL_PROGRAMS: readonly IndustrialProgramMeta[] = [
-  { key: 'TRI',         layerId: 23, label: 'Toxic Release (TRI)',        color: '#ef5350', tier: 4 },
-  { key: 'RCRA_LQG',    layerId: 18, label: 'Hazardous Waste (RCRA-LQG)', color: '#ff7043', tier: 3 },
-  { key: 'AIR_MAJOR',   layerId: 3,  label: 'Major Air Emitter',          color: '#ffb300', tier: 2 },
-  { key: 'NPDES_MAJOR', layerId: 12, label: 'Major Water Discharge',      color: '#42a5f5', tier: 1 },
+const INDUSTRIAL_INDUSTRIES: readonly IndustrialIndustryMeta[] = [
+  { key: 'PETROLEUM', industryValue: '324 Petroleum', label: 'Oil refineries',  color: '#37474f' },
+  { key: 'CHEMICALS', industryValue: '325 Chemicals', label: 'Chemical plants', color: '#ef5350' },
+  { key: 'PAPER',     industryValue: '322 Paper',     label: 'Paper mills',     color: '#6d4c41' },
 ] as const
+
+const INDUSTRIAL_INDUSTRY_BY_VALUE = new Map(
+  INDUSTRIAL_INDUSTRIES.map((m) => [m.industryValue, m]),
+)
 
 interface IndustrialFacility {
   registryId: string
@@ -897,22 +900,19 @@ interface IndustrialFacility {
   address: string | null
   city: string | null
   state: string | null
-  postal: string | null
-  active: boolean
+  industry: IndustrialIndustryMeta
+  totalReleasesLb: number | null
+  reportingYear: string | null
   facUrl: string | null
-  programs: IndustrialProgramKey[]
-  primaryProgram: IndustrialProgramMeta
   lat: number
   lng: number
 }
 
-async function fetchIndustrialLayer(
-  meta: IndustrialProgramMeta,
-  bounds: L.LatLngBounds,
-): Promise<{ meta: IndustrialProgramMeta; features: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }> }> {
+async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<IndustrialFacility[]> {
   const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const industryList = INDUSTRIAL_INDUSTRIES.map((m) => `'${m.industryValue}'`).join(',')
   const params = new URLSearchParams({
-    where: "ACTIVE_STATUS = 'ACTIVE' OR ACTIVE_STATUS IS NULL",
+    where: `INDUSTRY IN (${industryList})`,
     outFields: INDUSTRIAL_FIELDS,
     geometry: bbox,
     geometryType: 'esriGeometryEnvelope',
@@ -920,46 +920,44 @@ async function fetchIndustrialLayer(
     inSR: '4326',
     outSR: '4326',
     f: 'json',
-    resultRecordCount: '1000',
+    resultRecordCount: '2000',
   })
-  const res = await fetch(`${INDUSTRIAL_API_BASE}/${meta.layerId}/query?${params}`)
-  if (!res.ok) return { meta, features: [] }
-  const json = await res.json() as { features?: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }> }
-  return { meta, features: json.features || [] }
-}
-
-async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<IndustrialFacility[]> {
-  const results = await Promise.all(INDUSTRIAL_PROGRAMS.map((meta) => fetchIndustrialLayer(meta, bounds)))
+  const res = await fetch(`${INDUSTRIAL_API_BASE}/query?${params}`)
+  if (!res.ok) return []
+  const json = await res.json() as {
+    features?: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }>
+  }
+  // Dedupe by EPA_REGISTRY_ID (or TRI_FACILITY_ID); keep most recent report.
   const byId = new Map<string, IndustrialFacility>()
-  for (const { meta, features } of results) {
-    for (const f of features) {
-      const attrs = f.attributes || {}
-      const id = String(attrs.REGISTRY_ID || '')
-      if (!id) continue
-      const existing = byId.get(id)
-      if (existing) {
-        if (!existing.programs.includes(meta.key)) existing.programs.push(meta.key)
-        if (meta.tier > existing.primaryProgram.tier) existing.primaryProgram = meta
-      } else {
-        const lat = Number(f.geometry?.y)
-        const lng = Number(f.geometry?.x)
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-        byId.set(id, {
-          registryId: id,
-          name: String(attrs.PRIMARY_NAME || '').trim() || 'Unknown facility',
-          address: attrs.LOCATION_ADDRESS ? String(attrs.LOCATION_ADDRESS).trim() : null,
-          city: attrs.CITY_NAME ? String(attrs.CITY_NAME).trim() : null,
-          state: attrs.STATE_CODE ? String(attrs.STATE_CODE).trim() : null,
-          postal: attrs.POSTAL_CODE ? String(attrs.POSTAL_CODE).trim() : null,
-          active: String(attrs.ACTIVE_STATUS || '').toUpperCase() !== 'INACTIVE',
-          facUrl: attrs.FAC_URL ? String(attrs.FAC_URL).trim() : null,
-          programs: [meta.key],
-          primaryProgram: meta,
-          lat,
-          lng,
-        })
-      }
-    }
+  for (const f of json.features || []) {
+    const attrs = f.attributes || {}
+    const id = String(attrs.EPA_REGISTRY_ID || attrs.TRI_FACILITY_ID || '').trim()
+    if (!id) continue
+    const industryValue = String(attrs.INDUSTRY || '').trim()
+    const industry = INDUSTRIAL_INDUSTRY_BY_VALUE.get(industryValue)
+    if (!industry) continue
+    const lat = Number(f.geometry?.y)
+    const lng = Number(f.geometry?.x)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+    const year = attrs.REPORTING_YEAR ? String(attrs.REPORTING_YEAR).trim() : null
+    const existing = byId.get(id)
+    if (existing && existing.reportingYear && year && existing.reportingYear >= year) continue
+    const releases = Number(attrs.TOTAL_RELEASES_lb)
+    byId.set(id, {
+      registryId: id,
+      name: String(attrs.FACILITY_NAME || '').trim() || 'Unknown facility',
+      address: attrs.STREET_ADDRESS ? String(attrs.STREET_ADDRESS).trim() : null,
+      city: attrs.CITY ? String(attrs.CITY).trim() : null,
+      state: attrs.STATE ? String(attrs.STATE).trim() : null,
+      industry,
+      totalReleasesLb: Number.isFinite(releases) ? releases : null,
+      reportingYear: year,
+      facUrl: attrs.EPA_REGISTRY_ID
+        ? `https://echo.epa.gov/detailed-facility-report?fid=${String(attrs.EPA_REGISTRY_ID).trim()}`
+        : null,
+      lat,
+      lng,
+    })
   }
   return Array.from(byId.values())
 }
@@ -2701,7 +2699,7 @@ function MapPage() {
     const bounds = map.getBounds()
     const loaded = industrialLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('industrial', 'Skipping — bounds already loaded'); return }
-    dbg('industrial', 'Loading EPA FRS facilities…')
+    dbg('industrial', 'Loading EPA TRI industrial facilities…')
 
     setIndustrialLoading(true)
     try {
@@ -2711,29 +2709,27 @@ function MapPage() {
       layer.clearLayers()
       for (const f of facilities) {
         const marker = L.circleMarker([f.lat, f.lng], {
-          radius: 6,
+          radius: 7,
           color: '#ffffff',
           weight: 1.5,
-          fillColor: f.primaryProgram.color,
+          fillColor: f.industry.color,
           fillOpacity: 0.9,
         })
-        const programBadges = f.programs
-          .map((k) => INDUSTRIAL_PROGRAMS.find((p) => p.key === k))
-          .filter((p): p is IndustrialProgramMeta => !!p)
-          .sort((a, b) => b.tier - a.tier)
-          .map((p) =>
-            `<span style="display:inline-block;padding:1px 6px;margin:1px 3px 1px 0;border-radius:3px;background:${p.color};color:#fff;font-size:11px;font-weight:600">${p.label}</span>`,
-          ).join('')
-        const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', '), f.postal].filter(Boolean)
+        const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${f.industry.label}</span>`
+        const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean)
         const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.join('<br/>')}</div>` : ''
+        const releaseHtml = (f.totalReleasesLb != null && f.reportingYear)
+          ? `<div style="font-size:11px;color:#666;margin-top:4px">${f.totalReleasesLb.toLocaleString()} lb total TRI releases (${f.reportingYear})</div>`
+          : ''
         const linkHtml = f.facUrl
           ? `<div style="margin-top:6px"><a href="${f.facUrl}" target="_blank" rel="noopener noreferrer" style="font-size:12px">EPA facility report ↗</a></div>`
           : ''
         marker.bindPopup(
           `<div style="min-width:200px;max-width:280px">
              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${f.name}</div>
-             <div>${programBadges}</div>
+             <div>${industryBadge}</div>
              ${addrHtml}
+             ${releaseHtml}
              ${linkHtml}
            </div>`,
           { maxWidth: 320 },
@@ -2742,7 +2738,7 @@ function MapPage() {
       }
       industrialLoadedBoundsRef.current = padded
     } catch (err) {
-      console.error('Failed to load EPA FRS industrial facilities:', err)
+      console.error('Failed to load EPA TRI industrial facilities:', err)
     } finally {
       setIndustrialLoading(false)
     }
@@ -5767,14 +5763,14 @@ function MapPage() {
                 {industrialLowZoom && (
                   <p className="flood-legend-hint">Zoom in to see industrial facilities.</p>
                 )}
-                {INDUSTRIAL_PROGRAMS.map((p) => (
-                  <div key={p.key} className="legend-swatch-row">
+                {INDUSTRIAL_INDUSTRIES.map((m) => (
+                  <div key={m.key} className="legend-swatch-row">
                     <span
                       className="legend-swatch power"
-                      style={{ background: p.color, borderColor: p.color, borderRadius: '50%' }}
+                      style={{ background: m.color, borderColor: m.color, borderRadius: '50%' }}
                       aria-hidden="true"
                     />
-                    <span>{p.label}</span>
+                    <span>{m.label}</span>
                   </div>
                 ))}
               </div>
