@@ -107,14 +107,16 @@ async function lookupBlock(lat, lng) {
 let _db = null
 let _dbStmt = null
 let _dbMeta = null
-let _dbLoadAttempted = false
+// We deliberately do not cache "DB not present" because in the deployed
+// container the DB is downloaded from blob storage in the background
+// after entrypoint.sh starts, which may take 30-60s on cold start. If we
+// cached the missing-DB result we'd be stuck in lookup-only mode for the
+// life of the process. existsSync() is cheap and we only call it until
+// the DB shows up.
 
 async function getDb() {
   if (_db) return _db
-  if (_dbLoadAttempted) return null
-  _dbLoadAttempted = true
   if (!existsSync(DB_PATH)) {
-    dbg(`SQLite index not present at ${DB_PATH} — running in lookup-only mode`)
     return null
   }
   try {
@@ -130,7 +132,12 @@ async function getDb() {
     console.log(`[broadband] opened ${DB_PATH} (${sizeMb} MB, as_of=${_dbMeta.as_of_date || '?'}, rows=${_dbMeta.row_count || '?'})`)
     return _db
   } catch (err) {
-    console.error('[broadband] failed to open SQLite index (continuing in lookup-only mode):', err?.message)
+    // Reset state so a subsequent call (e.g. after a partial download
+    // finishes) can retry rather than being stuck with a half-open db.
+    _db = null
+    _dbStmt = null
+    _dbMeta = null
+    console.error('[broadband] failed to open SQLite index (will retry on next request):', err?.message)
     return null
   }
 }
