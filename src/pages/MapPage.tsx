@@ -6825,14 +6825,14 @@ function MapPage() {
             {
               selector: '.layer-panel',
               title: '🗺️ Show on Map',
-              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more.',
+              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more. On desktop, open it any time from the "Show on Map" chip at the top-left.',
               position: 'right',
               beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
             },
             {
               selector: '.analysis-panel',
               title: '📊 Recon Report',
-              content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout.',
+              content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout. The × in the header collapses it; reopen it any time with the "Report" chip at the top-right.',
               position: 'left',
               beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) },
             },
@@ -6855,7 +6855,11 @@ function MapPage() {
               title: '🌍 Interactive Map',
               content: 'Explore the map freely — zoom, pan, and click on markers for more info. Layer data updates automatically as you navigate.',
               position: 'top',
-              beforeShow: () => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) },
+              beforeShow: () => {
+                const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+                setLayerPanelOpen(false)
+                if (isMobile) setAnalysisPanelOpen(false)
+              },
             },
           ]}
         />
