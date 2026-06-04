@@ -221,12 +221,6 @@ export async function handleBroadbandRequest(req, res) {
       attribution: 'Census block from FCC Area API. ' + (summary
         ? `Broadband availability from FCC BDC (advertised maximum, ${_dbMeta?.as_of_date || 'latest'} filing). Real speeds may differ.`
         : 'Broadband index not built — see scripts/build-broadband-index.mjs.'),
-      // Echo the queried coordinates so the client can construct an FCC
-      // National Broadband Map deep link that pans to this exact address.
-      // (The FCC SPA ignores `block=` / `address=` query params; only
-      // vlon+vlat+zoom reliably centers their map.)
-      lat,
-      lng,
     }))
     dbg(`ok ${block.blockFips} providers=${summary?.providerCount ?? 'n/a'} ${Date.now() - t0}ms`)
   } catch (err) {

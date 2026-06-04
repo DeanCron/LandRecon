@@ -41,3 +41,6 @@ scripts/smoke-test-results.json
 server/data/broadband.db
 server/data/broadband.db-journal
 tmp/broadband/
+
+# Local build artifacts / pid files (broadband index, etc.)
+tmp/

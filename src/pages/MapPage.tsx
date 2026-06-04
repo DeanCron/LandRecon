@@ -257,8 +257,6 @@ type BroadbandResponse = {
   source: string | null
   asOfDate: string | null
   attribution: string
-  lat?: number
-  lng?: number
 }
 function broadbandSeverity(tier: BroadbandSummary['speedTier'] | null | undefined): 'good' | 'warning' | 'danger' | 'clear' {
   if (tier === 'gig' || tier === 'fast') return 'good'
@@ -6520,14 +6518,6 @@ function MapPage() {
               const bb = analysisResults.broadband
               const summary = bb?.summary || null
               const block = bb?.block || null
-              // FCC's National Broadband Map is an Angular SPA that ignores
-              // most query params (block, address, location_id without a
-              // valid FCC location id). The one combo it honors is
-              // vlon + vlat + zoom, which centers the map on the address.
-              // The user then clicks the marker for full per-location detail.
-              const fccLink = (bb?.lat != null && bb?.lng != null)
-                ? `https://broadbandmap.fcc.gov/?vlon=${bb.lng}&vlat=${bb.lat}&zoom=18`
-                : 'https://broadbandmap.fcc.gov/'
               const tierLabel = (() => {
                 const t = summary?.speedTier
                 if (t === 'gig') return 'Gigabit available'
@@ -6597,22 +6587,6 @@ function MapPage() {
                           significantly. {summary.hasFiber ? 'Fiber availability is a strong positive — symmetric speeds, low latency, and meaningful future-proofing for streaming, remote work, and resale.' : 'Fiber is not yet built out here; expect cable, fixed wireless, or DSL as your primary options.'}
                         </p>
                       </div>
-                      <div className="analysis-costco-actions">
-                        <a
-                          className="costco-directions-link"
-                          href={fccLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M14 3h7v7" />
-                            <path d="M10 14L21 3" />
-                            <path d="M21 14v7h-7" />
-                            <path d="M3 10V3h7" />
-                          </svg>
-                          View on FCC Broadband Map →
-                        </a>
-                      </div>
                       {bb?.asOfDate && (
                         <p style={{ fontSize: '0.7rem', color: '#888', marginTop: '10px' }}>
                           FCC BDC filing as of {bb.asOfDate} · Block {block?.blockFips}
@@ -6626,17 +6600,8 @@ function MapPage() {
                       </p>
                       <p style={{ fontSize: '0.85rem', color: '#ccc', marginTop: '12px' }}>
                         Census block <code>{block.blockFips}</code> resolved successfully, but the
-                        per-block broadband index isn't built on this deployment yet. The full
-                        provider list is available directly from the FCC.
+                        per-block broadband index isn't built on this deployment yet.
                       </p>
-                      <div className="analysis-costco-actions">
-                        <a
-                          className="costco-directions-link"
-                          href={fccLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >View on FCC Broadband Map →</a>
-                      </div>
                     </>
                   ) : (
                     <p className="analysis-expand-level clear">
