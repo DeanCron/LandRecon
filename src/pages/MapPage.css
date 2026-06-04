@@ -2231,21 +2231,30 @@
 .broadband-tech-chips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin-bottom: 14px;
+  font-size: 0.72rem;
+  color: #888;
+}
+.broadband-tech-chips-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: #888;
+  margin-right: 2px;
 }
 .broadband-tech-chip {
   font-size: 0.72rem;
-  padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
   color: #ddd;
 }
 .broadband-tech-chip.fiber {
   background: rgba(22, 163, 74, 0.12);
-  border-color: rgba(22, 163, 74, 0.5);
   color: #4ade80;
+  font-weight: 600;
 }
 .broadband-providers .dc-analysis-item {
   margin-bottom: 6px;

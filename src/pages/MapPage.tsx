@@ -6551,6 +6551,7 @@ function MapPage() {
                       </div>
                       {summary.technologies.length > 0 && (
                         <div className="broadband-tech-chips">
+                          <span className="broadband-tech-chips-label">Available:</span>
                           {summary.technologies.map((t) => (
                             <span key={t.code} className={`broadband-tech-chip${t.code === 50 ? ' fiber' : ''}`}>
                               {t.label}
