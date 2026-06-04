@@ -981,6 +981,89 @@ async function fetchIndustrialFacilities(
   return Array.from(byId.values()).sort((a, b) => a.distanceMi - b.distanceMi)
 }
 
+// ── FCC Antenna Structure Registration (cell + broadcast towers) ────────
+// PASDA hosts a mirror of the now-retired HIFLD copy of the FCC ASR
+// dataset: every antenna structure tall enough to require FCC + FAA
+// registration (generally >200ft, plus shorter ones near airports).
+// Covers cellular monopoles, broadcast TV/radio towers, microwave
+// relays — the visually prominent stuff that matters for "is there
+// a tower next to my house?". Address-scoped to the same 10 mi radius
+// as the other property-relevant layers.
+const CELL_TOWER_API_BASE =
+  'https://mapservices.pasda.psu.edu/server/rest/services/pasda/HIFLD_FEMA/MapServer/12'
+const CELL_TOWER_FIELDS = [
+  'RegNum', 'Entity', 'LocAdd', 'LocCity', 'LocState',
+  'Strucht', 'latdec', 'londec', 'url',
+].join(',')
+const CELL_TOWER_RADIUS_MI = 10
+const CELL_TOWER_COLOR = '#00838f'
+const CELL_TOWER_ICON = '📡'
+
+interface CellTower {
+  regNum: string
+  entity: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  heightMeters: number | null
+  url: string | null
+  lat: number
+  lng: number
+  distanceMi: number
+}
+
+async function fetchCellTowers(
+  center: L.LatLng,
+  radiusMi: number,
+): Promise<CellTower[]> {
+  const dLat = radiusMi / 69.0
+  const dLng = radiusMi / (69.0 * Math.max(Math.cos((center.lat * Math.PI) / 180), 0.01))
+  const west = center.lng - dLng
+  const east = center.lng + dLng
+  const south = center.lat - dLat
+  const north = center.lat + dLat
+  const params = new URLSearchParams({
+    where: "StatusCode = 'G'",
+    outFields: CELL_TOWER_FIELDS,
+    geometry: `${west},${south},${east},${north}`,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'json',
+    resultRecordCount: '2000',
+  })
+  const res = await fetch(`${CELL_TOWER_API_BASE}/query?${params}`)
+  if (!res.ok) return []
+  const json = await res.json() as {
+    features?: Array<{ attributes: Record<string, unknown>; geometry?: { x: number; y: number } }>
+  }
+  const radiusM = radiusMi * 1609.34
+  const out: CellTower[] = []
+  for (const f of json.features || []) {
+    const attrs = f.attributes || {}
+    const lat = Number(attrs.latdec ?? f.geometry?.y)
+    const lng = Number(attrs.londec ?? f.geometry?.x)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+    const distM = center.distanceTo(L.latLng(lat, lng))
+    if (distM > radiusM) continue
+    const height = Number(attrs.Strucht)
+    out.push({
+      regNum: String(attrs.RegNum || '').trim(),
+      entity: attrs.Entity ? String(attrs.Entity).trim() : null,
+      address: attrs.LocAdd ? String(attrs.LocAdd).trim() : null,
+      city: attrs.LocCity ? String(attrs.LocCity).trim() : null,
+      state: attrs.LocState ? String(attrs.LocState).trim() : null,
+      heightMeters: Number.isFinite(height) ? height : null,
+      url: attrs.url ? String(attrs.url).trim() : null,
+      lat,
+      lng,
+      distanceMi: distM / 1609.34,
+    })
+  }
+  return out.sort((a, b) => a.distanceMi - b.distanceMi)
+}
+
 // ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
 // 270m raster, 5 classes (Very Low → Very High) + non-burnable + water.
 // Hosted by the Imagery Information Products Program (IIPP) — the new
@@ -1150,7 +1233,7 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'cells'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -1167,11 +1250,13 @@ type LayerStateSnapshot = {
   crowd: boolean
   cameras: boolean
   industrial: boolean
+  cells: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, flood: false, wildfire: false, aqi: false, transit: false, traffic: false,
   costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false, industrial: false,
+  cells: false,
 }
 
 interface LayerPreset {
@@ -1653,6 +1738,8 @@ function MapPage() {
   // address changes (or the user re-enables the layer for a new target)
   // this ref is reset so loadIndustrialData refetches.
   const industrialFetchedKeyRef = useRef<string | null>(null)
+  const cellTowerLayerRef = useRef<L.LayerGroup | null>(null)
+  const cellTowerFetchedKeyRef = useRef<string | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
@@ -1735,6 +1822,9 @@ function MapPage() {
   const [industrialVisible, setIndustrialVisible] = useState(false)
   const [industrialLoading, setIndustrialLoading] = useState(false)
   const [industrialNeedsAddress, setIndustrialNeedsAddress] = useState(false)
+  const [cellTowersVisible, setCellTowersVisible] = useState(false)
+  const [cellTowersLoading, setCellTowersLoading] = useState(false)
+  const [cellTowersNeedsAddress, setCellTowersNeedsAddress] = useState(false)
   const [wildfireVisible, setWildfireVisible] = useState(false)
   const [wildfireLoading, setWildfireLoading] = useState(false)
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
@@ -2164,10 +2254,11 @@ function MapPage() {
     if (crowdVisible) active.push('crowd')
     if (camerasVisible) active.push('cameras')
     if (industrialVisible) active.push('industrial')
+    if (cellTowersVisible) active.push('cells')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, cellTowersVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -2178,9 +2269,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, cellTowersVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, industrialVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, industrialVisible, cellTowersVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -2200,6 +2291,7 @@ function MapPage() {
     crowd: crowdVisible,
     cameras: camerasVisible,
     industrial: industrialVisible,
+    cells: cellTowersVisible,
   })
   useEffect(() => {
     const next: Record<string, boolean> = {
@@ -2217,6 +2309,7 @@ function MapPage() {
       crowd: crowdVisible,
       cameras: camerasVisible,
       industrial: industrialVisible,
+      cells: cellTowersVisible,
     }
     const prev = prevLayerStateRef.current
     for (const k of Object.keys(next)) {
@@ -2225,7 +2318,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, cellTowersVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2774,6 +2867,74 @@ function MapPage() {
       console.error('Failed to load EPA TRI industrial facilities:', err)
     } finally {
       setIndustrialLoading(false)
+    }
+  }, [])
+
+  const loadCellTowers = useCallback(async (layer: L.LayerGroup) => {
+    const target = targetLocationRef.current
+    if (!target) {
+      dbg('cells', 'Skipping — no searched address yet')
+      setCellTowersNeedsAddress(true)
+      layer.clearLayers()
+      cellTowerFetchedKeyRef.current = null
+      return
+    }
+    setCellTowersNeedsAddress(false)
+    const key = `${target.lat.toFixed(5)},${target.lng.toFixed(5)}`
+    if (cellTowerFetchedKeyRef.current === key) {
+      dbg('cells', 'Skipping — already loaded for this address')
+      return
+    }
+    dbg('cells', `Loading FCC ASR towers within ${CELL_TOWER_RADIUS_MI} mi of ${key}…`)
+
+    setCellTowersLoading(true)
+    try {
+      const towers = await fetchCellTowers(target, CELL_TOWER_RADIUS_MI)
+      dbg('cells', `Got ${towers.length} towers`)
+      layer.clearLayers()
+      for (const t of towers) {
+        const icon = L.divIcon({
+          className: 'industrial-label',
+          html: `<div class="industrial-pin" style="background:${CELL_TOWER_COLOR}">${CELL_TOWER_ICON}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        })
+        const marker = L.marker([t.lat, t.lng], { icon })
+        const heightFt = t.heightMeters != null ? Math.round(t.heightMeters * 3.281) : null
+        const tooltipLines = [
+          `<strong>${t.entity || 'Antenna structure'}</strong>`,
+          `${t.distanceMi.toFixed(1)} mi away${heightFt ? ` · ${heightFt} ft tall` : ''}`,
+        ]
+        if (t.city || t.state) {
+          tooltipLines.push([t.city, t.state].filter(Boolean).join(', '))
+        }
+        marker.bindTooltip(tooltipLines.join('<br/>'), { direction: 'top', offset: [0, -14] })
+
+        const addrParts = [t.address, [t.city, t.state].filter(Boolean).join(', ')].filter(Boolean)
+        const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.join('<br/>')}</div>` : ''
+        const heightHtml = heightFt
+          ? `<div style="font-size:11px;color:#666;margin-top:4px">${heightFt} ft (${t.heightMeters!.toFixed(0)} m) · ${t.distanceMi.toFixed(1)} mi from address</div>`
+          : `<div style="font-size:11px;color:#666;margin-top:4px">${t.distanceMi.toFixed(1)} mi from address</div>`
+        const linkHtml = t.url
+          ? `<div style="margin-top:6px"><a href="${t.url}" target="_blank" rel="noopener noreferrer" style="font-size:12px">FCC ASR registration ↗</a></div>`
+          : ''
+        marker.bindPopup(
+          `<div style="min-width:200px;max-width:280px">
+             <div style="font-weight:700;font-size:13px;margin-bottom:4px">${t.entity || 'Antenna structure'}</div>
+             <div style="font-size:11px;color:#666">FCC Reg #${t.regNum}</div>
+             ${addrHtml}
+             ${heightHtml}
+             ${linkHtml}
+           </div>`,
+          { maxWidth: 320 },
+        )
+        marker.addTo(layer)
+      }
+      cellTowerFetchedKeyRef.current = key
+    } catch (err) {
+      console.error('Failed to load FCC ASR cell towers:', err)
+    } finally {
+      setCellTowersLoading(false)
     }
   }, [])
 
@@ -3574,6 +3735,10 @@ function MapPage() {
           if (industrialVisible && industrialLayerRef.current) {
             loadIndustrialData(industrialLayerRef.current)
           }
+          cellTowerFetchedKeyRef.current = null
+          if (cellTowersVisible && cellTowerLayerRef.current) {
+            loadCellTowers(cellTowerLayerRef.current)
+          }
           // Clear analysis-highlight pins from the previous address so the
           // map doesn't show stale markers while the new analysis runs.
           superfundAnalysisLayerRef.current?.clearLayers()
@@ -3688,6 +3853,9 @@ function MapPage() {
 
         // EPA FRS industrial-facility layer (circle markers; not added to map until toggled on)
         industrialLayerRef.current = L.layerGroup()
+
+        // FCC ASR antenna structures (broadcast + cellular + microwave towers)
+        cellTowerLayerRef.current = L.layerGroup()
 
         // Create AirNow AQI layer (polygon contours; not added to map until toggled on)
         aqiLayerRef.current = L.geoJSON(undefined, {
@@ -3821,6 +3989,8 @@ function MapPage() {
       powerLineLoadedBoundsRef.current = null
       industrialLayerRef.current = null
       industrialFetchedKeyRef.current = null
+      cellTowerLayerRef.current = null
+      cellTowerFetchedKeyRef.current = null
       wildfireLayerRef.current = null
       wildfireRenderedBoundsRef.current = null
       transitLayerRef.current = null
@@ -4656,6 +4826,23 @@ function MapPage() {
     setIndustrialVisible(!industrialVisible)
   }
 
+  const toggleCellTowers = () => {
+    const map = mapRef.current
+    const layer = cellTowerLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `cells → ${cellTowersVisible ? 'OFF' : 'ON'}`)
+
+    if (cellTowersVisible) {
+      map.removeLayer(layer)
+      setCellTowersNeedsAddress(false)
+    } else {
+      layer.addTo(map)
+      cellTowerFetchedKeyRef.current = null
+      loadCellTowers(layer)
+    }
+    setCellTowersVisible(!cellTowersVisible)
+  }
+
   const toggleWildfire = () => {
     const map = mapRef.current
     if (!map) return
@@ -4991,6 +5178,7 @@ function MapPage() {
     crowd: crowdVisible,
     cameras: camerasVisible,
     industrial: industrialVisible,
+    cells: cellTowersVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -5009,6 +5197,7 @@ function MapPage() {
       && s.crowd === currentLayerSnapshot.crowd
       && s.cameras === currentLayerSnapshot.cameras
       && s.industrial === currentLayerSnapshot.industrial
+      && s.cells === currentLayerSnapshot.cells
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -5032,6 +5221,7 @@ function MapPage() {
     setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
     setLayer(camerasVisible, toggleCameras, preset.state.cameras)
     setLayer(industrialVisible, toggleIndustrial, preset.state.industrial)
+    setLayer(cellTowersVisible, toggleCellTowers, preset.state.cells)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -5062,6 +5252,7 @@ function MapPage() {
     if (requested.has('crowd')) toggleCrowd()
     if (requested.has('cameras')) toggleCameras()
     if (requested.has('industrial')) toggleIndustrial()
+    if (requested.has('cells')) toggleCellTowers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -5934,6 +6125,37 @@ function MapPage() {
                     <span>{POWER_VOLT_LABELS[cls]}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={cellTowersVisible}
+                onChange={toggleCellTowers}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Cell &amp; Broadcast Towers
+                {cellTowersLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {cellTowersVisible && (
+              <div className="flood-legend">
+                {cellTowersNeedsAddress && (
+                  <p className="flood-legend-hint">Search an address first — towers load within {CELL_TOWER_RADIUS_MI} mi.</p>
+                )}
+                <div className="legend-swatch-row">
+                  <span
+                    className="industrial-pin"
+                    style={{ background: CELL_TOWER_COLOR, width: 22, height: 22, fontSize: 12 }}
+                    aria-hidden="true"
+                  >{CELL_TOWER_ICON}</span>
+                  <span>FCC-registered antenna structure</span>
+                </div>
+                <p className="flood-legend-hint">
+                  Source: FCC Antenna Structure Registration (via PASDA). Covers towers requiring FAA notification — typically &gt;200 ft tall, plus shorter ones near airports. Includes cellular, broadcast, microwave, and radio.
+                </p>
               </div>
             )}
           </div>
