@@ -2722,6 +2722,9 @@ function MapPage() {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
       for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd']) allDone[c] = 'done'
+      // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
+      // so it starts pending on cache hits and transitions to done when fetch lands.
+      allDone['broadband'] = 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -2751,15 +2754,27 @@ function MapPage() {
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
       fetchBroadband(lat, lng).then((bb) => {
-        if (!isLatestRun()) return
+        if (!isLatestRun()) {
+          dbg('analysis', 'Stale run — discarding Broadband result (cache-hit path)')
+          return
+        }
+        dbg('analysis', 'Broadband result:', bb?.summary
+          ? `${bb.summary.providerCount} provider(s), max ${bb.summary.maxDownMbps ?? '?'} Mbps down`
+          : bb?.block ? 'block-only (index not built)' : 'none')
         setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
+        setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
+      }).catch((err) => {
+        dbg('analysis', 'Broadband failed (cache-hit path):', err)
+        if (!isLatestRun()) return
+        setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
+        setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
       })
       return
     }
 
     setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -3094,8 +3109,20 @@ function MapPage() {
     // FCC Broadband fetch runs independently of the other categories. Same
     // pattern as Costco — fire-and-forget, merge result when it lands.
     fetchBroadband(lat, lng).then((bb) => {
-      if (!isLatestRun()) return
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Broadband result')
+        return
+      }
+      dbg('analysis', 'Broadband result:', bb?.summary
+        ? `${bb.summary.providerCount} provider(s), max ${bb.summary.maxDownMbps ?? '?'} Mbps down`
+        : bb?.block ? 'block-only (index not built)' : 'none')
       setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
+      markDone('broadband')
+    }).catch((err) => {
+      dbg('analysis', 'Broadband failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
+      markDone('broadband')
     })
 
     costcoPromise.then((data) => {
@@ -5106,10 +5133,16 @@ function MapPage() {
 
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
-        {status === 'ready' && analysisResults.loading && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
+        {status === 'ready' && (() => {
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
           const done = checks.filter((k) => analysisProgress[k] === 'done').length
           const total = checks.length
+          // Show the strip from the moment an analysis kicks off until every
+          // category lands. Hidden before any analysis starts (progress empty)
+          // and once everything's done. Note: Costco + Broadband resolve after
+          // analysisResults.loading flips false, so we gate on progress, not
+          // the loading flag.
+          if (done >= total || Object.keys(analysisProgress).length === 0) return null
           const pct = Math.round((done / total) * 100)
           return (
             <div
@@ -5203,9 +5236,10 @@ function MapPage() {
           aria-label="Open analysis"
         >
           <span className="fab-label">Report</span>
-          {analysisResults.loading && (() => {
-            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd'] as const
+          {(() => {
+            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
             const done = checks.filter((k) => analysisProgress[k] === 'done').length
+            if (done >= checks.length || Object.keys(analysisProgress).length === 0) return null
             return (
               <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
                 {done}/{checks.length}
