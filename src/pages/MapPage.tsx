@@ -854,6 +854,116 @@ async function fetchPowerLineFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.F
   return res.json()
 }
 
+// ── EPA FRS Industrial Facilities ───────────────────────────────────────
+// EPA Facility Registry Service (FRS_INTERESTS MapServer). Each layer is
+// a filtered point view of all FRS-registered facilities that participate
+// in a given regulatory program. We query the four most "hazard-relevant"
+// programs in parallel and merge by REGISTRY_ID so a facility shows up
+// once with a full list of program badges in its popup.
+//   • TRI (23)         — Toxics Release Inventory (chemical releases)
+//   • RCRA_LQG (18)    — Large Quantity Hazardous-Waste Generators
+//   • AIR_MAJOR (3)    — Clean Air Act major air emitters
+//   • NPDES_MAJOR (12) — Clean Water Act major water dischargers
+const INDUSTRIAL_API_BASE =
+  'https://gispub.epa.gov/arcgis/rest/services/OEI/FRS_INTERESTS/MapServer'
+const INDUSTRIAL_FIELDS = [
+  'REGISTRY_ID', 'PRIMARY_NAME', 'LOCATION_ADDRESS', 'CITY_NAME',
+  'STATE_CODE', 'POSTAL_CODE', 'ACTIVE_STATUS', 'FAC_URL', 'INTEREST_TYPE',
+].join(',')
+const INDUSTRIAL_MIN_ZOOM = 10
+
+type IndustrialProgramKey = 'TRI' | 'RCRA_LQG' | 'AIR_MAJOR' | 'NPDES_MAJOR'
+
+interface IndustrialProgramMeta {
+  key: IndustrialProgramKey
+  layerId: number
+  label: string
+  color: string
+  // Higher tier = more concerning; used to pick a facility's primary color
+  // when it participates in multiple programs.
+  tier: number
+}
+
+const INDUSTRIAL_PROGRAMS: readonly IndustrialProgramMeta[] = [
+  { key: 'TRI',         layerId: 23, label: 'Toxic Release (TRI)',        color: '#ef5350', tier: 4 },
+  { key: 'RCRA_LQG',    layerId: 18, label: 'Hazardous Waste (RCRA-LQG)', color: '#ff7043', tier: 3 },
+  { key: 'AIR_MAJOR',   layerId: 3,  label: 'Major Air Emitter',          color: '#ffb300', tier: 2 },
+  { key: 'NPDES_MAJOR', layerId: 12, label: 'Major Water Discharge',      color: '#42a5f5', tier: 1 },
+] as const
+
+interface IndustrialFacility {
+  registryId: string
+  name: string
+  address: string | null
+  city: string | null
+  state: string | null
+  postal: string | null
+  active: boolean
+  facUrl: string | null
+  programs: IndustrialProgramKey[]
+  primaryProgram: IndustrialProgramMeta
+  lat: number
+  lng: number
+}
+
+async function fetchIndustrialLayer(
+  meta: IndustrialProgramMeta,
+  bounds: L.LatLngBounds,
+): Promise<{ meta: IndustrialProgramMeta; features: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }> }> {
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: "ACTIVE_STATUS = 'ACTIVE' OR ACTIVE_STATUS IS NULL",
+    outFields: INDUSTRIAL_FIELDS,
+    geometry: bbox,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'json',
+    resultRecordCount: '1000',
+  })
+  const res = await fetch(`${INDUSTRIAL_API_BASE}/${meta.layerId}/query?${params}`)
+  if (!res.ok) return { meta, features: [] }
+  const json = await res.json() as { features?: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }> }
+  return { meta, features: json.features || [] }
+}
+
+async function fetchIndustrialFacilities(bounds: L.LatLngBounds): Promise<IndustrialFacility[]> {
+  const results = await Promise.all(INDUSTRIAL_PROGRAMS.map((meta) => fetchIndustrialLayer(meta, bounds)))
+  const byId = new Map<string, IndustrialFacility>()
+  for (const { meta, features } of results) {
+    for (const f of features) {
+      const attrs = f.attributes || {}
+      const id = String(attrs.REGISTRY_ID || '')
+      if (!id) continue
+      const existing = byId.get(id)
+      if (existing) {
+        if (!existing.programs.includes(meta.key)) existing.programs.push(meta.key)
+        if (meta.tier > existing.primaryProgram.tier) existing.primaryProgram = meta
+      } else {
+        const lat = Number(f.geometry?.y)
+        const lng = Number(f.geometry?.x)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+        byId.set(id, {
+          registryId: id,
+          name: String(attrs.PRIMARY_NAME || '').trim() || 'Unknown facility',
+          address: attrs.LOCATION_ADDRESS ? String(attrs.LOCATION_ADDRESS).trim() : null,
+          city: attrs.CITY_NAME ? String(attrs.CITY_NAME).trim() : null,
+          state: attrs.STATE_CODE ? String(attrs.STATE_CODE).trim() : null,
+          postal: attrs.POSTAL_CODE ? String(attrs.POSTAL_CODE).trim() : null,
+          active: String(attrs.ACTIVE_STATUS || '').toUpperCase() !== 'INACTIVE',
+          facUrl: attrs.FAC_URL ? String(attrs.FAC_URL).trim() : null,
+          programs: [meta.key],
+          primaryProgram: meta,
+          lat,
+          lng,
+        })
+      }
+    }
+  }
+  return Array.from(byId.values())
+}
+
 // ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
 // 270m raster, 5 classes (Very Low → Very High) + non-burnable + water.
 // Hosted by the Imagery Information Products Program (IIPP) — the new
@@ -1023,7 +1133,7 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -1039,11 +1149,12 @@ type LayerStateSnapshot = {
   ems: boolean
   crowd: boolean
   cameras: boolean
+  industrial: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, flood: false, wildfire: false, aqi: false, transit: false, traffic: false,
-  costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false,
+  costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false, industrial: false,
 }
 
 interface LayerPreset {
@@ -1520,6 +1631,8 @@ function MapPage() {
   const aqiLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
   const powerLineLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const industrialLayerRef = useRef<L.LayerGroup | null>(null)
+  const industrialLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
@@ -1599,6 +1712,9 @@ function MapPage() {
   const [powerLineVisible, setPowerLineVisible] = useState(false)
   const [powerLineLoading, setPowerLineLoading] = useState(false)
   const [powerLineLowZoom, setPowerLineLowZoom] = useState(false)
+  const [industrialVisible, setIndustrialVisible] = useState(false)
+  const [industrialLoading, setIndustrialLoading] = useState(false)
+  const [industrialLowZoom, setIndustrialLowZoom] = useState(false)
   const [wildfireVisible, setWildfireVisible] = useState(false)
   const [wildfireLoading, setWildfireLoading] = useState(false)
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
@@ -2027,10 +2143,11 @@ function MapPage() {
     if (emsVisible) active.push('ems')
     if (crowdVisible) active.push('crowd')
     if (camerasVisible) active.push('cameras')
+    if (industrialVisible) active.push('industrial')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -2041,9 +2158,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, industrialVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -2062,6 +2179,7 @@ function MapPage() {
     ems: emsVisible,
     crowd: crowdVisible,
     cameras: camerasVisible,
+    industrial: industrialVisible,
   })
   useEffect(() => {
     const next: Record<string, boolean> = {
@@ -2078,6 +2196,7 @@ function MapPage() {
       ems: emsVisible,
       crowd: crowdVisible,
       cameras: camerasVisible,
+      industrial: industrialVisible,
     }
     const prev = prevLayerStateRef.current
     for (const k of Object.keys(next)) {
@@ -2086,7 +2205,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -2567,6 +2686,65 @@ function MapPage() {
       console.error('Failed to load HIFLD transmission lines:', err)
     } finally {
       setPowerLineLoading(false)
+    }
+  }, [])
+
+  const loadIndustrialData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
+    if (map.getZoom() < INDUSTRIAL_MIN_ZOOM) {
+      dbg('industrial', `Skipping — zoom ${map.getZoom()} < ${INDUSTRIAL_MIN_ZOOM}`)
+      setIndustrialLowZoom(true)
+      layer.clearLayers()
+      industrialLoadedBoundsRef.current = null
+      return
+    }
+    setIndustrialLowZoom(false)
+    const bounds = map.getBounds()
+    const loaded = industrialLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('industrial', 'Skipping — bounds already loaded'); return }
+    dbg('industrial', 'Loading EPA FRS facilities…')
+
+    setIndustrialLoading(true)
+    try {
+      const padded = bounds.pad(0.3)
+      const facilities = await fetchIndustrialFacilities(padded)
+      dbg('industrial', `Got ${facilities.length} facilities`)
+      layer.clearLayers()
+      for (const f of facilities) {
+        const marker = L.circleMarker([f.lat, f.lng], {
+          radius: 6,
+          color: '#ffffff',
+          weight: 1.5,
+          fillColor: f.primaryProgram.color,
+          fillOpacity: 0.9,
+        })
+        const programBadges = f.programs
+          .map((k) => INDUSTRIAL_PROGRAMS.find((p) => p.key === k))
+          .filter((p): p is IndustrialProgramMeta => !!p)
+          .sort((a, b) => b.tier - a.tier)
+          .map((p) =>
+            `<span style="display:inline-block;padding:1px 6px;margin:1px 3px 1px 0;border-radius:3px;background:${p.color};color:#fff;font-size:11px;font-weight:600">${p.label}</span>`,
+          ).join('')
+        const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', '), f.postal].filter(Boolean)
+        const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.join('<br/>')}</div>` : ''
+        const linkHtml = f.facUrl
+          ? `<div style="margin-top:6px"><a href="${f.facUrl}" target="_blank" rel="noopener noreferrer" style="font-size:12px">EPA facility report ↗</a></div>`
+          : ''
+        marker.bindPopup(
+          `<div style="min-width:200px;max-width:280px">
+             <div style="font-weight:700;font-size:13px;margin-bottom:4px">${f.name}</div>
+             <div>${programBadges}</div>
+             ${addrHtml}
+             ${linkHtml}
+           </div>`,
+          { maxWidth: 320 },
+        )
+        marker.addTo(layer)
+      }
+      industrialLoadedBoundsRef.current = padded
+    } catch (err) {
+      console.error('Failed to load EPA FRS industrial facilities:', err)
+    } finally {
+      setIndustrialLoading(false)
     }
   }, [])
 
@@ -3474,6 +3652,9 @@ function MapPage() {
           },
         })
 
+        // EPA FRS industrial-facility layer (circle markers; not added to map until toggled on)
+        industrialLayerRef.current = L.layerGroup()
+
         // Create AirNow AQI layer (polygon contours; not added to map until toggled on)
         aqiLayerRef.current = L.geoJSON(undefined, {
           style: (feature) => {
@@ -3604,6 +3785,8 @@ function MapPage() {
       aqiLoadedBoundsRef.current = null
       powerLineLayerRef.current = null
       powerLineLoadedBoundsRef.current = null
+      industrialLayerRef.current = null
+      industrialLoadedBoundsRef.current = null
       wildfireLayerRef.current = null
       wildfireRenderedBoundsRef.current = null
       transitLayerRef.current = null
@@ -4422,6 +4605,38 @@ function MapPage() {
     [loadPowerLineData],
   )
 
+  const toggleIndustrial = () => {
+    const map = mapRef.current
+    const layer = industrialLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `industrial → ${industrialVisible ? 'OFF' : 'ON'}`)
+
+    if (industrialVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleIndustrialMove)
+      map.off('zoomend', handleIndustrialMove)
+      setIndustrialLowZoom(false)
+    } else {
+      layer.addTo(map)
+      industrialLoadedBoundsRef.current = null
+      loadIndustrialData(map, layer)
+      map.on('moveend', handleIndustrialMove)
+      map.on('zoomend', handleIndustrialMove)
+    }
+    setIndustrialVisible(!industrialVisible)
+  }
+
+  const handleIndustrialMove = useCallback(
+    debounce(() => {
+      const map = mapRef.current
+      const layer = industrialLayerRef.current
+      if (map && layer) {
+        loadIndustrialData(map, layer)
+      }
+    }, 250),
+    [loadIndustrialData],
+  )
+
   const toggleWildfire = () => {
     const map = mapRef.current
     if (!map) return
@@ -4756,6 +4971,7 @@ function MapPage() {
     ems: emsVisible,
     crowd: crowdVisible,
     cameras: camerasVisible,
+    industrial: industrialVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -4773,6 +4989,7 @@ function MapPage() {
       && s.ems === currentLayerSnapshot.ems
       && s.crowd === currentLayerSnapshot.crowd
       && s.cameras === currentLayerSnapshot.cameras
+      && s.industrial === currentLayerSnapshot.industrial
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -4795,6 +5012,7 @@ function MapPage() {
     setLayer(emsVisible, toggleEms, preset.state.ems)
     setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
     setLayer(camerasVisible, toggleCameras, preset.state.cameras)
+    setLayer(industrialVisible, toggleIndustrial, preset.state.industrial)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -4824,6 +5042,7 @@ function MapPage() {
     if (requested.has('ems')) toggleEms()
     if (requested.has('crowd')) toggleCrowd()
     if (requested.has('cameras')) toggleCameras()
+    if (requested.has('industrial')) toggleIndustrial()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -5530,6 +5749,36 @@ function MapPage() {
                 </div>
               </div>
             )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={industrialVisible}
+                onChange={toggleIndustrial}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Industrial Facilities
+                {industrialLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {industrialVisible && (
+              <div className="flood-legend">
+                {industrialLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see industrial facilities.</p>
+                )}
+                {INDUSTRIAL_PROGRAMS.map((p) => (
+                  <div key={p.key} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch power"
+                      style={{ background: p.color, borderColor: p.color, borderRadius: '50%' }}
+                      aria-hidden="true"
+                    />
+                    <span>{p.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </details>
 
@@ -6168,7 +6417,7 @@ function MapPage() {
               <h3>Optional map layers</h3>
               <p>
                 Open the <strong>Map Layers</strong> panel to overlay wildfire risk, power transmission lines,
-                FEMA flood zones, FCC broadband coverage, weather, air quality, and more on top of the map.
+                FEMA flood zones, EPA industrial facilities, FCC broadband coverage, weather, air quality, and more on top of the map.
               </p>
               <h3>How scoring works</h3>
               <p>
