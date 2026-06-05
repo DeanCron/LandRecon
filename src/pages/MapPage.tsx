@@ -1762,6 +1762,14 @@ function MapPage() {
   const camerasLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const camerasKnownIdsRef = useRef<Set<string>>(new Set())
   const camerasLoadingRef = useRef(false)
+  // In-flight guards for the GeoJSON polygon/line loaders below. Without
+  // these, a zoom+pan in quick succession can launch overlapping fetches; an
+  // older request resolving last would clobber the newer viewport's features
+  // (and cache the wrong bbox). Mirrors transitStopsLoadingRef / camerasLoadingRef.
+  const superfundLoadingRef = useRef(false)
+  const floodLoadingRef = useRef(false)
+  const aqiLoadingRef = useRef(false)
+  const powerLineLoadingRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
   // Monotonic counter so an in-flight analysis can detect that the user has
   // since kicked off a newer one and silently discard its (now-stale) results.
@@ -2644,9 +2652,11 @@ function MapPage() {
     const bounds = map.getBounds()
     const loaded = superfundLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('superfund', 'Skipping — bounds already loaded'); return }
+    if (superfundLoadingRef.current) { dbg('superfund', 'Skipping — load already in flight'); return }
     dbg('superfund', 'Loading Superfund sites…')
 
     setSuperfundLoading(true)
+    superfundLoadingRef.current = true
     try {
       const padded = bounds.pad(0.5)
       const geojson = await fetchSuperfundFeatures(padded)
@@ -2658,6 +2668,7 @@ function MapPage() {
       console.error('Failed to load Superfund data:', err)
     } finally {
       setSuperfundLoading(false)
+      superfundLoadingRef.current = false
     }
   }, [])
 
@@ -2677,9 +2688,11 @@ function MapPage() {
     const bounds = map.getBounds()
     const loaded = floodLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('flood', 'Skipping — bounds already loaded'); return }
+    if (floodLoadingRef.current) { dbg('flood', 'Skipping — load already in flight'); return }
     dbg('flood', 'Loading FEMA flood zones…')
 
     setFloodLoading(true)
+    floodLoadingRef.current = true
     try {
       const padded = bounds.pad(0.3)
       const geojson = await fetchFloodFeatures(padded)
@@ -2691,6 +2704,7 @@ function MapPage() {
       console.error('Failed to load FEMA flood zones:', err)
     } finally {
       setFloodLoading(false)
+      floodLoadingRef.current = false
     }
   }, [])
 
@@ -2710,9 +2724,11 @@ function MapPage() {
     const bounds = map.getBounds()
     const loaded = aqiLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('aqi', 'Skipping — bounds already loaded'); return }
+    if (aqiLoadingRef.current) { dbg('aqi', 'Skipping — load already in flight'); return }
     dbg('aqi', 'Loading AirNow AQI contours…')
 
     setAqiLoading(true)
+    aqiLoadingRef.current = true
     try {
       const padded = bounds.pad(0.3)
       const geojson = await fetchAqiFeatures(padded)
@@ -2733,6 +2749,7 @@ function MapPage() {
       console.error('Failed to load AirNow AQI contours:', err)
     } finally {
       setAqiLoading(false)
+      aqiLoadingRef.current = false
     }
   }, [])
 
@@ -2751,9 +2768,11 @@ function MapPage() {
     const bounds = map.getBounds()
     const loaded = powerLineLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('power', 'Skipping — bounds already loaded'); return }
+    if (powerLineLoadingRef.current) { dbg('power', 'Skipping — load already in flight'); return }
     dbg('power', 'Loading transmission lines…')
 
     setPowerLineLoading(true)
+    powerLineLoadingRef.current = true
     try {
       const padded = bounds.pad(0.3)
       const geojson = await fetchPowerLineFeatures(padded)
@@ -2765,6 +2784,7 @@ function MapPage() {
       console.error('Failed to load HIFLD transmission lines:', err)
     } finally {
       setPowerLineLoading(false)
+      powerLineLoadingRef.current = false
     }
   }, [])
 
@@ -5250,30 +5270,9 @@ function MapPage() {
       }
     }
 
-    // Costco highlights — the closest in-radius costcos, or the nearest
-    // one beyond range if none are within the radius.
-    {
-      const layer = costcoAnalysisLayerRef.current
-      if (layer) {
-        layer.clearLayers()
-        const auto = analysisResults.costcoNearby.length > 0
-          ? analysisResults.costcoNearby
-          : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
-        for (const c of auto) {
-          const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
-          if (c.address) tooltipParts.push(c.address)
-          const icon = L.divIcon({
-            className: 'costco-label',
-            html: `<div class="costco-pin">C</div>`,
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
-          })
-          L.marker([c.lat, c.lng], { icon })
-            .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
-            .addTo(layer)
-        }
-      }
-    }
+    // Costco highlight pins are dropped by a dedicated effect below (Costco
+    // results arrive in a deferred state update that doesn't toggle
+    // `loading`, so they cannot be handled in this effect).
 
     // Nearest ER — single standalone marker. Distinct from the EMS layer
     // (which is a separate user-toggleable thing), this is the one ER the
@@ -5383,6 +5382,37 @@ function MapPage() {
     dbg('analysis', `fit analysis pins; zoom ${currentZoom} → ${newZoom}`)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisResults.loading])
+
+  // Costco highlight pin — kept separate from the main analysis effect above
+  // because Costco results arrive in a *deferred* state update (after
+  // analysisResults.loading has already flipped to false). Keying this effect
+  // on the Costco fields means the pin is drawn both on a cache-hit revisit
+  // (Costco set synchronously) and on a fresh, uncached analysis (Costco set
+  // later). It deliberately does NOT re-fit the map — the main effect already
+  // framed the viewport, and re-panning a second later would be jarring.
+  useEffect(() => {
+    if (!mapRef.current) return
+    const layer = costcoAnalysisLayerRef.current
+    if (!layer) return
+    layer.clearLayers()
+    if (analysisResults.loading) return
+    const auto = analysisResults.costcoNearby.length > 0
+      ? analysisResults.costcoNearby
+      : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
+    for (const c of auto) {
+      const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
+      if (c.address) tooltipParts.push(c.address)
+      const icon = L.divIcon({
+        className: 'costco-label',
+        html: `<div class="costco-pin">C</div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      })
+      L.marker([c.lat, c.lng], { icon })
+        .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
+        .addTo(layer)
+    }
+  }, [analysisResults.loading, analysisResults.costcoNearby, analysisResults.costcoNearestBeyond])
 
   // Stamp the computed grade onto the Recent search entry so the home page
   // can show it as a badge next to the address.

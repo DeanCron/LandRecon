@@ -9,7 +9,7 @@
 // brand-level OG tags from index.html cover the root URL).
 
 import { createServer } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { addressSvg, defaultSvg, renderPng, LAYER_LABELS, BASE_LABELS } from './render-og-image.mjs'
 import { handleBroadbandRequest } from './broadband.mjs'
 
@@ -93,16 +93,20 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
 
   // Replace a content="..." attribute on a meta tag matched by property/name.
   // Tolerant to attribute order — looks for the tag, then swaps content.
+  // NOTE: we pass a replacement *function* (not a `$1…$2` string) on purpose.
+  // The injected value is user-controlled (the address), and in a replacement
+  // string `$1`/`$&`/`` $` ``/`$'` are special — an address containing `$`
+  // would otherwise corrupt the output. A function return is used verbatim.
   const setMeta = (h, attr, name, value) => {
     const re = new RegExp(`(<meta\\s+${attr}="${name}"[^>]*content=")[^"]*(")`, 'i')
-    if (re.test(h)) return h.replace(re, `$1${esc(value)}$2`)
+    if (re.test(h)) return h.replace(re, (_m, p1, p2) => `${p1}${esc(value)}${p2}`)
     // Also handle reversed attribute order (content first, then property/name).
     const re2 = new RegExp(`(<meta\\s+content=")[^"]*("\\s+${attr}="${name}")`, 'i')
-    if (re2.test(h)) return h.replace(re2, `$1${esc(value)}$2`)
+    if (re2.test(h)) return h.replace(re2, (_m, p1, p2) => `${p1}${esc(value)}${p2}`)
     return h
   }
 
-  let out = html.replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`)
+  let out = html.replace(/<title>[^<]*<\/title>/, () => `<title>${esc(title)}</title>`)
   out = setMeta(out, 'name', 'description', description)
   out = setMeta(out, 'property', 'og:title', title)
   out = setMeta(out, 'property', 'og:description', description)
@@ -121,7 +125,7 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
   // collapse them into one entry.
   const canonRe = /(<link\s+rel="canonical"[^>]*href=")[^"]*(")/i
   if (canonRe.test(out)) {
-    out = out.replace(canonRe, `$1${esc(pageUrl)}$2`)
+    out = out.replace(canonRe, (_m, p1, p2) => `${p1}${esc(pageUrl)}${p2}`)
   } else {
     out = out.replace(/<\/head>/i, `  <link rel="canonical" href="${esc(pageUrl)}" />\n  </head>`)
   }
@@ -135,7 +139,7 @@ function rewriteOgTags(html, { address, layers, base, ogImageUrl, pageUrl }) {
   const body = address ? renderAddressBody({ address, baseLabel, layerLabels, pageUrl }) : renderHomeBody()
   out = out.replace(
     /<div id="root">\s*<\/div>/,
-    `<div id="root">${body}</div>`,
+    () => `<div id="root">${body}</div>`,
   )
   return out
 }
@@ -192,14 +196,21 @@ function renderAddressBody({ address, baseLabel, layerLabels, pageUrl }) {
 
 async function loadIndexHtml() {
   try {
-    const stat = await readFile(INDEX_HTML_PATH).then((b) => ({ data: b, mtime: Date.now() }))
-    if (!indexHtmlCache || stat.mtime !== indexHtmlMtime) {
-      indexHtmlCache = stat.data.toString('utf8')
-      indexHtmlMtime = stat.mtime
+    // Only re-read/decode when the file's real mtime changes. (The previous
+    // version stored Date.now() as the "mtime", so the guard was always true
+    // and the file was re-read on every cache miss.)
+    const info = await stat(INDEX_HTML_PATH)
+    if (!indexHtmlCache || info.mtimeMs !== indexHtmlMtime) {
+      indexHtmlCache = (await readFile(INDEX_HTML_PATH)).toString('utf8')
+      indexHtmlMtime = info.mtimeMs
     }
   } catch (err) {
     console.error('[og] cannot read index.html:', err.message)
-    indexHtmlCache = '<!doctype html><html><head><title>Land Recon</title></head><body></body></html>'
+    // Keep any previously-cached good copy; only fall back to the empty shell
+    // if we never managed to read the file at all.
+    if (!indexHtmlCache) {
+      indexHtmlCache = '<!doctype html><html><head><title>Land Recon</title></head><body></body></html>'
+    }
   }
   return indexHtmlCache
 }
