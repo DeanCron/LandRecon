@@ -1092,6 +1092,35 @@ function buildWhpImageUrl(bounds: L.LatLngBounds, widthPx: number, heightPx: num
   return `${WHP_BASE}?${params}`
 }
 
+// ── NOAA Storm Surge & Sea-Level Rise ───────────────────────────────────
+// Two coastal-hazard raster layers, each served as pre-rendered XYZ tiles
+// (singleFusedMapCache=true on the source MapServer) — meaning we can use
+// L.tileLayer directly with the standard {z}/{x}/{y} pattern instead of
+// the more expensive exportImage round-trip we use for the wildfire WHP
+// raster. One sublayer is shown at a time per parent layer.
+//
+// Storm Surge: NHC's National Storm Surge Hazard Maps v3 (pre-computed
+// SLOSH MOMs). One MapServer per Saffir-Simpson category, hosted on
+// tiles.arcgis.com under the NWS.NCEP.NHC.SSU AGOL org. Covers Atlantic,
+// Gulf, Hawaii, and Puerto Rico/USVI coasts. Max zoom 14.
+const SURGE_CATEGORIES = [1, 2, 3, 4, 5] as const
+type SurgeCategory = typeof SURGE_CATEGORIES[number]
+const SURGE_TILE_URL = (cat: SurgeCategory) =>
+  `https://tiles.arcgis.com/tiles/C8EMgrsFcRFL6LrL/arcgis/rest/services/Storm_Surge_HazardMaps_Category${cat}_v3/MapServer/tile/{z}/{y}/{x}`
+const SURGE_ATTRIBUTION =
+  '<a href="https://www.nhc.noaa.gov/nationalsurge/" target="_blank" rel="noopener">NOAA NHC Storm Surge</a>'
+
+// Sea-Level Rise: NOAA Office for Coastal Management SLR Viewer. One
+// MapServer per foot of rise (0–10 ft). Confidence-symbology raster
+// shows where land would be permanently inundated at that level. Covers
+// all US coasts including AK and HI. Max zoom 16.
+const SLR_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
+type SlrLevel = typeof SLR_LEVELS[number]
+const SLR_TILE_URL = (ft: SlrLevel) =>
+  `https://coast.noaa.gov/arcgis/rest/services/dc_slr/conf_${ft}ft/MapServer/tile/{z}/{y}/{x}`
+const SLR_ATTRIBUTION =
+  '<a href="https://coast.noaa.gov/slr/" target="_blank" rel="noopener">NOAA Sea Level Rise Viewer</a>'
+
 const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   F: { label: 'Final', desc: 'Officially listed on the NPL as a priority cleanup site' },
   P: { label: 'Proposed', desc: 'Proposed for NPL listing; under public comment review' },
@@ -1150,7 +1179,7 @@ function homeTooltipHtml(address: string): string {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
 
 type LayerStateSnapshot = {
   noise: boolean
@@ -1167,11 +1196,14 @@ type LayerStateSnapshot = {
   crowd: boolean
   cameras: boolean
   industrial: boolean
+  surge: boolean
+  slr: boolean
 }
 
 const LAYER_OFF: LayerStateSnapshot = {
   noise: false, superfund: false, flood: false, wildfire: false, aqi: false, transit: false, traffic: false,
   costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false, industrial: false,
+  surge: false, slr: false,
 }
 
 interface LayerPreset {
@@ -1653,6 +1685,10 @@ function MapPage() {
   // address changes (or the user re-enables the layer for a new target)
   // this ref is reset so loadIndustrialData refetches.
   const industrialFetchedKeyRef = useRef<string | null>(null)
+  // NOAA coastal hazards — single L.TileLayer per parent layer; we swap
+  // its URL template when the user picks a different category / SLR foot.
+  const surgeLayerRef = useRef<L.TileLayer | null>(null)
+  const slrLayerRef = useRef<L.TileLayer | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
@@ -1735,6 +1771,10 @@ function MapPage() {
   const [industrialVisible, setIndustrialVisible] = useState(false)
   const [industrialLoading, setIndustrialLoading] = useState(false)
   const [industrialNeedsAddress, setIndustrialNeedsAddress] = useState(false)
+  const [surgeVisible, setSurgeVisible] = useState(false)
+  const [surgeCategory, setSurgeCategory] = useState<SurgeCategory>(3)
+  const [slrVisible, setSlrVisible] = useState(false)
+  const [slrLevel, setSlrLevel] = useState<SlrLevel>(3)
   const [wildfireVisible, setWildfireVisible] = useState(false)
   const [wildfireLoading, setWildfireLoading] = useState(false)
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
@@ -2164,10 +2204,12 @@ function MapPage() {
     if (crowdVisible) active.push('crowd')
     if (camerasVisible) active.push('cameras')
     if (industrialVisible) active.push('industrial')
+    if (surgeVisible) active.push('surge')
+    if (slrVisible) active.push('slr')
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -2178,9 +2220,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, industrialVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, industrialVisible, surgeVisible, slrVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -2200,6 +2242,8 @@ function MapPage() {
     crowd: crowdVisible,
     cameras: camerasVisible,
     industrial: industrialVisible,
+    surge: surgeVisible,
+    slr: slrVisible,
   })
   useEffect(() => {
     const next: Record<string, boolean> = {
@@ -2217,6 +2261,8 @@ function MapPage() {
       crowd: crowdVisible,
       cameras: camerasVisible,
       industrial: industrialVisible,
+      surge: surgeVisible,
+      slr: slrVisible,
     }
     const prev = prevLayerStateRef.current
     for (const k of Object.keys(next)) {
@@ -2225,7 +2271,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -3821,6 +3867,8 @@ function MapPage() {
       powerLineLoadedBoundsRef.current = null
       industrialLayerRef.current = null
       industrialFetchedKeyRef.current = null
+      surgeLayerRef.current = null
+      slrLayerRef.current = null
       wildfireLayerRef.current = null
       wildfireRenderedBoundsRef.current = null
       transitLayerRef.current = null
@@ -4656,6 +4704,100 @@ function MapPage() {
     setIndustrialVisible(!industrialVisible)
   }
 
+  // NOAA Storm Surge — one cached XYZ tile layer per Saffir-Simpson
+  // category. Sublayer changes are handled by tearing down the layer and
+  // recreating it with the new URL template (Leaflet doesn't support
+  // re-pointing a tileLayer in place).
+  const toggleSurge = () => {
+    const map = mapRef.current
+    if (!map) return
+    dbg('toggle', `surge → ${surgeVisible ? 'OFF' : 'ON'}`)
+    if (surgeVisible) {
+      if (surgeLayerRef.current) {
+        map.removeLayer(surgeLayerRef.current)
+        surgeLayerRef.current = null
+      }
+    } else {
+      const layer = L.tileLayer(SURGE_TILE_URL(surgeCategory), {
+        opacity: 0.6,
+        maxNativeZoom: 14,
+        maxZoom: 18,
+        attribution: SURGE_ATTRIBUTION,
+        pane: 'overlayPane',
+      })
+      layer.addTo(map)
+      surgeLayerRef.current = layer
+    }
+    setSurgeVisible(!surgeVisible)
+  }
+
+  // Swap surge category while the layer is on. Tears down the old tile
+  // layer and instantiates a new one pointed at the new MapServer.
+  const changeSurgeCategory = (cat: SurgeCategory) => {
+    if (cat === surgeCategory) return
+    setSurgeCategory(cat)
+    const map = mapRef.current
+    if (!map || !surgeVisible) return
+    if (surgeLayerRef.current) {
+      map.removeLayer(surgeLayerRef.current)
+      surgeLayerRef.current = null
+    }
+    const layer = L.tileLayer(SURGE_TILE_URL(cat), {
+      opacity: 0.6,
+      maxNativeZoom: 14,
+      maxZoom: 18,
+      attribution: SURGE_ATTRIBUTION,
+      pane: 'overlayPane',
+    })
+    layer.addTo(map)
+    surgeLayerRef.current = layer
+  }
+
+  // NOAA Sea-Level Rise — same pattern as surge but with foot increments
+  // 0–10. Each foot is its own MapServer on coast.noaa.gov.
+  const toggleSlr = () => {
+    const map = mapRef.current
+    if (!map) return
+    dbg('toggle', `slr → ${slrVisible ? 'OFF' : 'ON'}`)
+    if (slrVisible) {
+      if (slrLayerRef.current) {
+        map.removeLayer(slrLayerRef.current)
+        slrLayerRef.current = null
+      }
+    } else {
+      const layer = L.tileLayer(SLR_TILE_URL(slrLevel), {
+        opacity: 0.6,
+        maxNativeZoom: 16,
+        maxZoom: 18,
+        attribution: SLR_ATTRIBUTION,
+        pane: 'overlayPane',
+      })
+      layer.addTo(map)
+      slrLayerRef.current = layer
+    }
+    setSlrVisible(!slrVisible)
+  }
+
+  const changeSlrLevel = (ft: SlrLevel) => {
+    if (ft === slrLevel) return
+    setSlrLevel(ft)
+    const map = mapRef.current
+    if (!map || !slrVisible) return
+    if (slrLayerRef.current) {
+      map.removeLayer(slrLayerRef.current)
+      slrLayerRef.current = null
+    }
+    const layer = L.tileLayer(SLR_TILE_URL(ft), {
+      opacity: 0.6,
+      maxNativeZoom: 16,
+      maxZoom: 18,
+      attribution: SLR_ATTRIBUTION,
+      pane: 'overlayPane',
+    })
+    layer.addTo(map)
+    slrLayerRef.current = layer
+  }
+
   const toggleWildfire = () => {
     const map = mapRef.current
     if (!map) return
@@ -4991,6 +5133,8 @@ function MapPage() {
     crowd: crowdVisible,
     cameras: camerasVisible,
     industrial: industrialVisible,
+    surge: surgeVisible,
+    slr: slrVisible,
   }
 
   const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
@@ -5009,6 +5153,8 @@ function MapPage() {
       && s.crowd === currentLayerSnapshot.crowd
       && s.cameras === currentLayerSnapshot.cameras
       && s.industrial === currentLayerSnapshot.industrial
+      && s.surge === currentLayerSnapshot.surge
+      && s.slr === currentLayerSnapshot.slr
   })?.id ?? null
 
   const applyLayerPreset = (presetId: LayerPreset['id']) => {
@@ -5032,6 +5178,8 @@ function MapPage() {
     setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
     setLayer(camerasVisible, toggleCameras, preset.state.cameras)
     setLayer(industrialVisible, toggleIndustrial, preset.state.industrial)
+    setLayer(surgeVisible, toggleSurge, preset.state.surge)
+    setLayer(slrVisible, toggleSlr, preset.state.slr)
   }
 
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
@@ -5062,6 +5210,8 @@ function MapPage() {
     if (requested.has('crowd')) toggleCrowd()
     if (requested.has('cameras')) toggleCameras()
     if (requested.has('industrial')) toggleIndustrial()
+    if (requested.has('surge')) toggleSurge()
+    if (requested.has('slr')) toggleSlr()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
 
@@ -5873,6 +6023,69 @@ function MapPage() {
                     Updated {new Date(aqiTimestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} · EPA AirNow
                   </p>
                 )}
+              </div>
+            )}
+          </div>
+        </details>
+
+        {/* ── Coastal hazards ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🌊 Coastal hazards</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={surgeVisible}
+                onChange={toggleSurge}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Hurricane Storm Surge</span>
+            </label>
+            {surgeVisible && (
+              <div className="flood-legend">
+                <p className="flood-legend-hint">Max water depth from a Saffir-Simpson category storm (NOAA SLOSH model). Coastal US, PR, USVI only.</p>
+                <div className="surge-cat-row">
+                  {SURGE_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`surge-cat-btn${surgeCategory === cat ? ' active' : ''}`}
+                      onClick={() => changeSurgeCategory(cat)}
+                      aria-pressed={surgeCategory === cat}
+                      title={`Category ${cat} hurricane storm surge`}
+                    >
+                      Cat {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={slrVisible}
+                onChange={toggleSlr}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Sea-Level Rise</span>
+            </label>
+            {slrVisible && (
+              <div className="flood-legend">
+                <p className="flood-legend-hint">Land permanently inundated at the selected feet of sea-level rise. Coastal US only.</p>
+                <div className="slr-level-row">
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={slrLevel}
+                    onChange={(e) => changeSlrLevel(Number(e.target.value) as SlrLevel)}
+                    className="slr-slider"
+                    aria-label="Sea-level rise in feet"
+                  />
+                  <span className="slr-level-label">{slrLevel} ft</span>
+                </div>
               </div>
             )}
           </div>
