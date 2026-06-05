@@ -38,7 +38,7 @@ FROM nginx:1.27-alpine AS runtime
 # rasterize text in the OG SVG; without them every glyph renders as a
 # missing-glyph tofu box. ttf-dejavu is ~3MB and covers Latin + em-dash
 # + middle dot which is all the OG card needs.
-RUN apk add --no-cache nodejs npm fontconfig ttf-dejavu \
+RUN apk add --no-cache nodejs npm fontconfig ttf-dejavu su-exec \
     && fc-cache -f
 
 # Install only the runtime npm deps the sidecars need (currently sharp +

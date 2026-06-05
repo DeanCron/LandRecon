@@ -8,16 +8,40 @@
 //
 // The file shape is { items: DevTodo[], checks: Record<string, boolean> }.
 // We only validate the outermost types so old payloads keep working.
+//
+// AUTH: the store is gated by the DEV_TODOS_TOKEN env var.
+//   - If DEV_TODOS_TOKEN is unset/empty the store is DISABLED: GET and PUT
+//     both return 503. This fails closed so an un-configured deploy never
+//     leaks the internal notes and can't be wiped by an anonymous PUT.
+//   - If set, every request must carry `Authorization: Bearer <token>`
+//     (compared in constant time). Missing/wrong token -> 401.
+// The token is a developer secret entered in the browser (localStorage),
+// so it is never shipped in the public JS bundle.
 
 import { createServer } from 'node:http'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { timingSafeEqual } from 'node:crypto'
 
 const PORT = Number(process.env.DEV_TODOS_PORT || 3001)
 const DATA_PATH = process.env.DEV_TODOS_DATA_PATH || '/var/lib/landrecon/dev-todos.json'
 const MAX_BODY = 256 * 1024
+const TOKEN = process.env.DEV_TODOS_TOKEN || ''
 
 const EMPTY = { items: [], checks: {} }
+
+// Constant-time bearer-token check. Returns true only when TOKEN is
+// configured AND the request presents a matching `Authorization: Bearer`.
+function isAuthorized(req) {
+  if (!TOKEN) return false
+  const header = req.headers['authorization'] || ''
+  const m = /^Bearer\s+(.+)$/i.exec(header)
+  if (!m) return false
+  const provided = Buffer.from(m[1])
+  const expected = Buffer.from(TOKEN)
+  // timingSafeEqual throws on length mismatch, so guard length first.
+  return provided.length === expected.length && timingSafeEqual(provided, expected)
+}
 
 function ok(res, payload) {
   const body = JSON.stringify(payload)
@@ -60,6 +84,21 @@ const server = createServer(async (req, res) => {
     return bad(res, 404, 'Not found')
   }
 
+  // Fail closed: with no token configured the store is disabled entirely.
+  // 503 (not an empty 200) so the SPA cleanly drops to its localStorage-only
+  // offline path instead of treating an empty server response as canonical.
+  if (!TOKEN) {
+    return bad(res, 503, 'Dev todos store disabled (DEV_TODOS_TOKEN not set)')
+  }
+
+  if (!isAuthorized(req)) {
+    res.writeHead(401, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'WWW-Authenticate': 'Bearer',
+    })
+    return res.end(JSON.stringify({ error: 'Unauthorized' }))
+  }
+
   if (req.method === 'GET') {
     return ok(res, await readDoc())
   }
@@ -97,5 +136,6 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[dev-todos] listening on 127.0.0.1:${PORT}, data at ${DATA_PATH}`)
+  const authState = TOKEN ? 'token-protected' : 'DISABLED (no DEV_TODOS_TOKEN)'
+  console.log(`[dev-todos] listening on 127.0.0.1:${PORT}, data at ${DATA_PATH}, auth ${authState}`)
 })

@@ -7,7 +7,10 @@
 set -e
 
 mkdir -p /var/lib/landrecon /app/server/data
-chown -R nginx:nginx /var/lib/landrecon 2>/dev/null || true
+# The Node sidecars run as the unprivileged `nginx` user (see below), so the
+# dirs they read/write must be owned by it. /var/lib/landrecon holds the dev
+# todos JSON; /app/server/data holds the FCC broadband SQLite index.
+chown -R nginx:nginx /var/lib/landrecon /app/server/data 2>/dev/null || true
 
 # Pull the FCC broadband SQLite index from blob storage if (a) we have a
 # URL and (b) the local copy is missing. The file is multi-GB so we do
@@ -25,6 +28,9 @@ if [ -n "$BROADBAND_DB_URL" ] && [ ! -f /app/server/data/broadband.db ]; then
     # error body into the .db file.
     if curl -sSL --fail -o /app/server/data/broadband.db.partial "$BROADBAND_DB_URL"; then
       mv /app/server/data/broadband.db.partial /app/server/data/broadband.db
+      # Ensure the unprivileged nginx-user og sidecar can read it regardless
+      # of the root download umask.
+      chmod 0644 /app/server/data/broadband.db 2>/dev/null || true
       echo "[entrypoint] broadband.db ready ($(stat -c%s /app/server/data/broadband.db 2>/dev/null || echo '?') bytes)"
       # Touch a sentinel the sidecar polls for; if the og sidecar restarts
       # after this point it'll pick up the index automatically.
@@ -43,10 +49,15 @@ fi
 cd /app
 
 if command -v node >/dev/null 2>&1; then
-  node /app/server/dev-todos.mjs &
-  echo "[entrypoint] dev-todos sidecar started (pid $!)"
-  node /app/server/og.mjs &
-  echo "[entrypoint] og sidecar started (pid $!)"
+  # Drop privileges: the sidecars parse attacker-influenced input (SVG via
+  # sharp/libvips for OG cards, JSON for dev-todos) so they must NOT run as
+  # root. nginx's master still runs as root (it needs to bind :8000 and drop
+  # its own workers to the nginx user); only these Node processes are demoted
+  # via su-exec. Env vars (DEV_TODOS_TOKEN, LR_DEBUG_OG, …) are preserved.
+  su-exec nginx node /app/server/dev-todos.mjs &
+  echo "[entrypoint] dev-todos sidecar started as nginx (pid $!)"
+  su-exec nginx node /app/server/og.mjs &
+  echo "[entrypoint] og sidecar started as nginx (pid $!)"
 else
   echo "[entrypoint] node not found, skipping sidecars"
 fi

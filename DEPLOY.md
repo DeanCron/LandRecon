@@ -76,6 +76,45 @@ az containerapp create \
 
 ---
 
+## Security Configuration (required)
+
+These are operational settings that the code can't enforce on its own:
+
+### Restrict the TomTom (and Google) API keys
+
+`VITE_*` keys are compiled into the client JS bundle by design and are
+therefore **public** — anyone can read them from the production bundle. Their
+only protection is a provider-side referrer/domain restriction:
+
+- **TomTom** → Developer Portal → your key → restrict to the production
+  domain(s) (e.g. `https://<your-app>.azurecontainerapps.io/*` and any custom
+  domain). Without this, a lifted key burns your quota/billing.
+- **Google Maps Platform** → restrict the key to the same HTTP referrers and
+  to only the APIs actually used (Map Tiles + Places).
+
+Set per-key quotas + billing alerts as a backstop.
+
+### Dev Todos store token (`DEV_TODOS_TOKEN`)
+
+The Dev Todos endpoint (`/api/dev-todos`) is gated by a bearer token:
+
+- If `DEV_TODOS_TOKEN` is **unset**, the store is disabled (GET/PUT → 503) and
+  the UI silently falls back to per-browser localStorage. This is the safe
+  default — leave it unset unless you want the shared server store.
+- If set, supply the same value in the browser once per device:
+  `localStorage.setItem('lr_dev_todos_token', '<token>')`. The token lives only
+  in localStorage, never in the bundle.
+
+Configure it as a Container Apps secret/env var:
+
+```bash
+az containerapp update \
+  --name landrecon --resource-group LandRecon-RG \
+  --set-env-vars DEV_TODOS_TOKEN=secretref:dev-todos-token
+```
+
+---
+
 ## Step 2: Publish the Noise PMTiles Archive
 
 Build the archive once (see `scripts/README.md`) and upload it:
