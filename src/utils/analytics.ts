@@ -25,13 +25,44 @@ declare global {
 
 const MEASUREMENT_ID = (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || ''
 
+// Debug toggle: append `?ga_debug` (or `?ga_debug=0` to clear) to any URL, or
+// set `localStorage.LR_GA_DEBUG = '1'` in the console. When on we (a) bypass
+// the Do-Not-Track opt-out so the tag still fires during testing, (b) set the
+// GA4 `debug_mode` flag so hits surface in DebugView in real time, and (c)
+// mirror every gtag call to the console under the `[LR:analytics]` tag. The
+// URL form is sticky — it's persisted to localStorage so it survives the SPA's
+// query-string scrubbing and subsequent navigations.
+function readGaDebug(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('ga_debug')) {
+      const v = params.get('ga_debug')
+      const on = v === '' || v === '1' || v === 'true'
+      localStorage.setItem('LR_GA_DEBUG', on ? '1' : '0')
+      return on
+    }
+    return localStorage.getItem('LR_GA_DEBUG') === '1'
+  } catch {
+    return false
+  }
+}
+
+const GA_DEBUG = readGaDebug()
+
+function dbg(...args: unknown[]): void {
+  if (GA_DEBUG) console.debug('[LR:analytics]', ...args)
+}
+
 let initialized = false
 
 function isEnabled(): boolean {
   if (!MEASUREMENT_ID) return false
   if (typeof window === 'undefined') return false
-  // Respect the user's Do-Not-Track preference — opt-out, no UI required.
-  if (typeof navigator !== 'undefined' && navigator.doNotTrack === '1') return false
+  // Respect the user's Do-Not-Track preference — opt-out, no UI required. The
+  // explicit ga_debug toggle overrides it so developers can verify the
+  // pipeline from their own DNT-enabled browsers.
+  if (!GA_DEBUG && typeof navigator !== 'undefined' && navigator.doNotTrack === '1') return false
   return true
 }
 
@@ -39,13 +70,28 @@ function isEnabled(): boolean {
  *  call repeatedly — additional calls are ignored. */
 export function initAnalytics(): void {
   if (initialized) return
-  if (!isEnabled()) return
+  if (!isEnabled()) {
+    if (GA_DEBUG) {
+      dbg(
+        'debug toggle ON but analytics stayed disabled —',
+        !MEASUREMENT_ID
+          ? 'no VITE_GA_MEASUREMENT_ID set in this build'
+          : 'unexpected (check isEnabled)',
+      )
+    }
+    return
+  }
   initialized = true
 
   window.dataLayer = window.dataLayer || []
-  // gtag() pushes to dataLayer; the loaded script reads from there.
-  window.gtag = function gtag(...args) {
-    window.dataLayer!.push(args)
+  // gtag() pushes to dataLayer; the loaded gtag.js reads from there. It MUST
+  // push the native `arguments` object — gtag.js inspects each queued item and
+  // silently ignores real arrays (e.g. a spread rest param), so commands never
+  // dispatch and no hit is ever sent. Verified empirically against a live GA4
+  // stream: the array form produces zero /g/collect requests.
+  window.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer!.push(arguments)
   }
 
   const s = document.createElement('script')
@@ -60,7 +106,11 @@ export function initAnalytics(): void {
   window.gtag('config', MEASUREMENT_ID, {
     send_page_view: false,
     anonymize_ip: true,
+    // debug_mode routes this client's hits into GA4 DebugView so they show
+    // up immediately while testing (instead of the 24-48h report lag).
+    ...(GA_DEBUG ? { debug_mode: true } : {}),
   })
+  dbg('initialized', MEASUREMENT_ID, GA_DEBUG ? '(debug_mode on → see GA4 DebugView)' : '')
 }
 
 /** Send a page_view event. Call this on every React Router navigation. */
@@ -76,10 +126,12 @@ export function trackPageView(path: string, title?: string): void {
     page_title: title ?? document.title,
     page_location: sanitizedLocation,
   })
+  dbg('page_view', path)
 }
 
 /** Send a custom GA4 event. Names must be snake_case and ≤40 chars. */
 export function trackEvent(name: string, params?: Record<string, unknown>): void {
   if (!isEnabled() || !window.gtag) return
   window.gtag('event', name, params)
+  dbg('event', name, params ?? {})
 }

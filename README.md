@@ -69,6 +69,11 @@ on demand:
 - **Browser** — `localStorage.setItem('LR_DEBUG','1'); location.reload()`.
   Logs are tagged: `[LR:geocode]`, `[LR:tiles]`, `[LR:cameras]`, `[LR:er]`,
   `[LR:ems]`, `[LR:costco]`, `[LR:superfund]`, `[LR:crowd]`, `[LR:places-cache]` (cache HIT/MISS), etc.
+- **Analytics** — append `?ga_debug` to any URL (or
+  `localStorage.setItem('LR_GA_DEBUG','1')`) to verify the GA4 pipeline. This
+  overrides the Do-Not-Track opt-out, sets GA4 `debug_mode` so hits appear in
+  **GA4 → Admin → DebugView** in real time (instead of the 24–48h report lag),
+  and logs every call under `[LR:analytics]`. Append `?ga_debug=0` to clear it.
 - **OG sidecar** — set `LR_DEBUG_OG=1` (or `LR_DEBUG=1`) on the container.
   Each request logs `[og] png HIT/MISS addr=… layers=N base=… bytes=… 97ms ua=…`.
 
