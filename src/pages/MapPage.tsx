@@ -2300,6 +2300,7 @@ function MapPage() {
     try {
       await navigator.clipboard.writeText(value)
       setShareCopied(true)
+      trackEvent('share_copy', { result: 'success' })
       setTimeout(() => setShareCopied(false), 2000)
     } catch {
       setShareError('Clipboard access denied — please copy manually.')
@@ -2502,17 +2503,21 @@ function MapPage() {
           setLocating(false)
           if (!resolved) {
             dbg('geocode', 'useMyLocation: refusing — no US address at those coords')
+            trackEvent('locate_use', { result: 'no_us_address' })
             setErrorMsg('Land Recon currently supports US addresses only.')
             return
           }
+          trackEvent('locate_use', { result: 'success' })
           submitAddressChange(resolved)
         } catch (err) {
           dbg('geocode', 'useMyLocation: reverseGeocode threw', err)
+          trackEvent('locate_use', { result: 'error' })
           setLocating(false)
         }
       },
       (err) => {
         dbg('geocode', 'useMyLocation: geolocation rejected', err)
+        trackEvent('locate_use', { result: 'denied' })
         setLocating(false)
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
@@ -3956,6 +3961,7 @@ function MapPage() {
       newLayer.bringToBack()
       baseLayerRef.current = newLayer
       setActiveBaseMap(id)
+      trackEvent('basemap_switch', { base: id })
     } catch (e) {
       console.error('Failed to switch base map:', e)
     }
@@ -5415,12 +5421,19 @@ function MapPage() {
   }, [analysisResults.loading, analysisResults.costcoNearby, analysisResults.costcoNearestBeyond])
 
   // Stamp the computed grade onto the Recent search entry so the home page
-  // can show it as a badge next to the address.
+  // can show it as a badge next to the address. Also emit a one-time
+  // `location_grade` GA4 event per address — the Recon Report grade is the
+  // product's signature output, so its A-F distribution is a key signal.
+  const lastGradedAddrRef = useRef<string | null>(null)
   useEffect(() => {
     if (analysisResults.loading || analysisResults.costcoLoading) return
     if (!address) return
     const g = computeLocationGrade(analysisResults)
     updateRecentSearchGrade(address, g.letter, g.color)
+    if (lastGradedAddrRef.current !== address) {
+      lastGradedAddrRef.current = address
+      trackEvent('location_grade', { grade: g.letter, pct: Math.round(g.pct * 100) })
+    }
   }, [address, analysisResults])
 
   return (
@@ -6421,7 +6434,7 @@ function MapPage() {
           const grade = computeLocationGrade(analysisResults)
           return (
             <>
-              <div className="analysis-score-bar" onClick={() => { setShowScoreBreakdown(!showScoreBreakdown); setAnalysisDetail(showScoreBreakdown ? null : 'score') }} style={{ cursor: 'pointer' }} title="Click for score breakdown">
+              <div className="analysis-score-bar" onClick={() => { if (!showScoreBreakdown) trackEvent('score_breakdown_open', { grade: grade.letter }); setShowScoreBreakdown(!showScoreBreakdown); setAnalysisDetail(showScoreBreakdown ? null : 'score') }} style={{ cursor: 'pointer' }} title="Click for score breakdown">
                 <div className={`analysis-chevron${showScoreBreakdown ? ' expanded' : ''}`}>‹</div>
                 <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
                 <div className="analysis-score-label">
