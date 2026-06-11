@@ -95,6 +95,15 @@ export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSO
   const features: GeoJSON.Feature[] = []
   const seen = new Set<string>()
 
+  function addFeatures(fc: GeoJSON.FeatureCollection | null | undefined): void {
+    for (const f of fc?.features ?? []) {
+      const key = floodDedupeKey(f)
+      if (seen.has(key)) continue
+      seen.add(key)
+      features.push(f)
+    }
+  }
+
   async function fetchCell(west: number, south: number, east: number, north: number, depth: number): Promise<void> {
     const params = new URLSearchParams({
       where: '1=1',
@@ -115,25 +124,23 @@ export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSO
       // Skip this cell on a transient failure rather than failing the whole load.
       return
     }
-    if (!data) return
+    if (!data || !Array.isArray(data.features)) return
+
+    // Always keep this cell's own features, so we still render something (the
+    // same truncated set the API would otherwise return) even if the refining
+    // sub-queries below fail or get rate-limited. Subdivision then only *adds*
+    // the high-OID polygons (coastal V/VE zones) that the cap dropped.
+    addFeatures(data)
 
     if (data.exceededTransferLimit && depth < FLOOD_MAX_SUBDIVIDE) {
       const midX = (west + east) / 2
       const midY = (south + north) / 2
-      await Promise.all([
-        fetchCell(west, south, midX, midY, depth + 1),
-        fetchCell(midX, south, east, midY, depth + 1),
-        fetchCell(west, midY, midX, north, depth + 1),
-        fetchCell(midX, midY, east, north, depth + 1),
-      ])
-      return
-    }
-
-    for (const f of data.features ?? []) {
-      const key = floodDedupeKey(f)
-      if (seen.has(key)) continue
-      seen.add(key)
-      features.push(f)
+      // Sequential, not parallel: the FEMA service rate-limits request bursts,
+      // which would make the whole overlay fail intermittently.
+      await fetchCell(west, south, midX, midY, depth + 1)
+      await fetchCell(midX, south, east, midY, depth + 1)
+      await fetchCell(west, midY, midX, north, depth + 1)
+      await fetchCell(midX, midY, east, north, depth + 1)
     }
   }
 
