@@ -1,7 +1,11 @@
 import { quantizeCoord } from '../utils/perf'
 
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v3:'
-const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v4:'
+// Persisted in localStorage so a recently-analyzed address is instant on a
+// return visit (even after closing the tab). The underlying data is mostly
+// static infrastructure (flood zones, Superfund sites, data centers, nearest
+// ER), so a 24-hour TTL keeps revisits fast without serving badly stale info.
+const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 export interface CachedAnalysisPayload {
   ts: number
@@ -32,9 +36,9 @@ function analysisCacheKey(lat: number, lng: number): string {
 }
 
 export function readAnalysisCache(lat: number, lng: number): CachedAnalysisPayload['data'] | null {
-  if (typeof sessionStorage === 'undefined') return null
+  if (typeof localStorage === 'undefined') return null
   try {
-    const raw = sessionStorage.getItem(analysisCacheKey(lat, lng))
+    const raw = localStorage.getItem(analysisCacheKey(lat, lng))
     if (!raw) return null
     const parsed = JSON.parse(raw) as CachedAnalysisPayload
     if (Date.now() - parsed.ts > ANALYSIS_CACHE_TTL_MS) return null
@@ -44,15 +48,45 @@ export function readAnalysisCache(lat: number, lng: number): CachedAnalysisPaylo
   }
 }
 
-export function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysisPayload['data']) {
-  if (typeof sessionStorage === 'undefined') return
+// Drop expired (or unparseable) entries under our prefix. Called before a
+// retry when a write hits the localStorage quota — since entries now persist
+// across sessions, stale ones would otherwise accumulate until writes fail.
+function pruneExpiredEntries() {
+  if (typeof localStorage === 'undefined') return
   try {
-    sessionStorage.setItem(
-      analysisCacheKey(lat, lng),
-      JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload),
-    )
+    const now = Date.now()
+    const stale: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(ANALYSIS_CACHE_PREFIX)) continue
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? 'null') as CachedAnalysisPayload | null
+        if (!parsed || now - parsed.ts > ANALYSIS_CACHE_TTL_MS) stale.push(key)
+      } catch {
+        stale.push(key)
+      }
+    }
+    for (const key of stale) localStorage.removeItem(key)
   } catch {
-    // Storage is full or disabled; not fatal — analysis still ran.
+    // ignore — pruning is best-effort
+  }
+}
+
+export function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysisPayload['data']) {
+  if (typeof localStorage === 'undefined') return
+  const key = analysisCacheKey(lat, lng)
+  const value = JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload)
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Likely the quota is full (persisted entries accumulate over time). Drop
+    // expired entries and retry once before giving up — analysis still ran.
+    pruneExpiredEntries()
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      // Still full or disabled; not fatal.
+    }
   }
 }
 

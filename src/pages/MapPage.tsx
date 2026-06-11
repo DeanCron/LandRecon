@@ -5113,6 +5113,7 @@ function MapPage() {
                 {wildfireLowZoom && (
                   <p className="flood-legend-hint">Zoom in to see wildfire hazard.</p>
                 )}
+                <p className="flood-legend-hint">USFS Wildfire Hazard Potential (2023). Non-burnable covers developed/agricultural land; hazard reflects the surrounding wildland.</p>
                 {WHP_CLASS_COLORS.map((cls) => (
                   <div key={cls.label} className="legend-swatch-row">
                     <span
