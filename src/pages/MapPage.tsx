@@ -3561,14 +3561,10 @@ function MapPage() {
       map.off('moveend', handleFloodMove)
       map.off('zoomend', handleFloodMove)
       setFloodLowZoom(false)
+      setFloodVisible(false)
     } else {
-      layer.addTo(map)
-      floodLoadedBoundsRef.current = null
-      loadFloodData(map, layer)
-      map.on('moveend', handleFloodMove)
-      map.on('zoomend', handleFloodMove)
+      enableFloodLayer()
     }
-    setFloodVisible(!floodVisible)
   }
 
   const handleFloodMove = useCallback(
@@ -3581,6 +3577,37 @@ function MapPage() {
     }, 250),
     [loadFloodData],
   )
+
+  // Idempotently turn the FEMA flood overlay on for the current map view.
+  // Shared by the manual layer toggle and the Recon Report auto-reveal below.
+  const enableFloodLayer = useCallback(() => {
+    const map = mapRef.current
+    const layer = floodLayerRef.current
+    if (!map || !layer || floodVisible) return
+    layer.addTo(map)
+    floodLoadedBoundsRef.current = null
+    loadFloodData(map, layer)
+    map.on('moveend', handleFloodMove)
+    map.on('zoomend', handleFloodMove)
+    setFloodVisible(true)
+  }, [floodVisible, loadFloodData, handleFloodMove])
+
+  // When the Recon Report finds a moderate-or-higher flood risk (anything not
+  // "green"), reveal the FEMA flood zones on the map automatically — scoped to
+  // the visible viewport like the manual toggle. Fires once per flood result;
+  // the user can still toggle the layer off and it won't re-enable for that
+  // same result.
+  const floodAutoShownForRef = useRef<unknown>(null)
+  useEffect(() => {
+    if (analysisProgress.flood !== 'done' || analysisResults.floodError) return
+    const fz = analysisResults.floodZone
+    if (!fz) return
+    const sev = floodSeverity(fz.bucket as keyof typeof FLOOD_ZONE_COLORS)
+    if (sev !== 'warning' && sev !== 'danger') return
+    if (floodAutoShownForRef.current === fz) return
+    floodAutoShownForRef.current = fz
+    enableFloodLayer()
+  }, [analysisProgress.flood, analysisResults.floodError, analysisResults.floodZone, enableFloodLayer])
 
   const toggleAqi = () => {
     const map = mapRef.current
