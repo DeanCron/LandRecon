@@ -70,16 +70,36 @@ export const FLOOD_BUCKET_RANK: Record<string, number> = {
   coastal: 5, high: 4, moderate: 3, undetermined: 1, minimal: 0, water: 0,
 }
 
-// FEMA NFHL caps each response at maxRecordCount (2000) and returns features in
-// OID order, so a large viewport silently drops the highest-OID polygons — which
-// in coastal metros are the V/VE coastal zones (they get added later than the
-// sprawling inland X zones). The service errors (HTTP 500) on orderByFields and
-// resultOffset for heavy queries, so we can't prioritise or page. Instead, when a
-// cell comes back truncated we split its envelope into quadrants and re-query
+// FEMA NFHL polygons carry full survey-grade vertex precision: a single
+// coastal viewport can be 100+ MB of raw GeoJSON, which makes the service time
+// out and return HTTP 500 on the larger queries (and chews bandwidth on the
+// rest). We pass maxAllowableOffset to have the server generalise geometry to a
+// tolerance suited to the current zoom — this shrinks payloads ~10-100x (e.g. a
+// query that 500s at full precision returns in ~2s at ~1 MB) with no visible
+// change at overlay zoom levels, and as a bonus drops the feature footprint
+// under the transfer cap so coastal zones stop being truncated.
+//
+// FEMA NFHL still caps each response at maxRecordCount (2000) and returns
+// features in OID order, so a very dense viewport can drop the highest-OID
+// polygons — in coastal metros the V/VE coastal zones (added after the sprawling
+// inland X zones). The service errors (HTTP 500) on orderByFields and
+// resultOffset for heavy queries, so we can't prioritise or page. Instead, when
+// a cell comes back truncated we split its envelope into quadrants and re-query
 // each until every cell returns whole — using only the plain bbox query that the
 // service reliably serves. This keeps every flood polygon, coastal included.
 const FLOOD_PAGE_SIZE = 2000
 const FLOOD_MAX_SUBDIVIDE = 2 // depth cap → at most 4^2 = 16 leaf queries
+const FLOOD_FETCH_RETRIES = 2 // extra attempts after the first, for transient 500s/resets
+const FLOOD_FETCH_TIMEOUT_MS = 20000
+
+// Server-side geometry generalisation tolerance (in degrees, matching outSR
+// 4326), scaled to the queried span so it stays roughly sub-pixel at the zoom
+// the viewport implies. Clamped so we never demand survey precision (huge,
+// 500-prone payloads) nor over-simplify a wide view into blocky polygons.
+function floodSimplifyTolerance(west: number, east: number): number {
+  const span = Math.abs(east - west)
+  return Math.min(0.001, Math.max(0.00002, span / 4000))
+}
 
 function floodDedupeKey(feature: GeoJSON.Feature): string {
   const props = (feature.properties as Record<string, unknown> | null) ?? {}
@@ -94,6 +114,11 @@ function floodDedupeKey(feature: GeoJSON.Feature): string {
 export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
   const features: GeoJSON.Feature[] = []
   const seen = new Set<string>()
+  // A single tolerance for the whole call (derived from the original bounds, not
+  // each sub-cell) so a feature returned by both a parent and a child query has
+  // identical generalised geometry — otherwise its first-vertex dedupe key would
+  // differ between zoom levels and we'd render duplicates.
+  const tolerance = floodSimplifyTolerance(bounds.getWest(), bounds.getEast())
 
   function addFeatures(fc: GeoJSON.FeatureCollection | null | undefined): void {
     for (const f of fc?.features ?? []) {
@@ -114,15 +139,25 @@ export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSO
       inSR: '4326',
       outSR: '4326',
       f: 'geojson',
+      maxAllowableOffset: String(tolerance),
       resultRecordCount: String(FLOOD_PAGE_SIZE),
     })
+    const url = `${FLOOD_API}?${params}`
     let data: (GeoJSON.FeatureCollection & { exceededTransferLimit?: boolean }) | null = null
-    try {
-      const res = await fetch(`${FLOOD_API}?${params}`)
-      data = await res.json()
-    } catch {
-      // Skip this cell on a transient failure rather than failing the whole load.
-      return
+    // Retry transient FEMA failures (intermittent HTTP 500s, connection resets)
+    // with a short backoff before giving up on the cell.
+    for (let attempt = 0; attempt <= FLOOD_FETCH_RETRIES; attempt++) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(FLOOD_FETCH_TIMEOUT_MS) })
+        if (!res.ok) throw new Error(`FEMA NFHL ${res.status}`)
+        data = await res.json()
+        break
+      } catch {
+        data = null
+        if (attempt < FLOOD_FETCH_RETRIES) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+        }
+      }
     }
     if (!data || !Array.isArray(data.features)) return
 
@@ -161,6 +196,7 @@ export async function fetchFloodAtPoint(lat: number, lng: number): Promise<Flood
     inSR: '4326',
     outSR: '4326',
     f: 'geojson',
+    returnGeometry: 'false',
     resultRecordCount: '50',
   })
   const res = await fetch(`${FLOOD_API}?${params}`, { signal: AbortSignal.timeout(10000) })
