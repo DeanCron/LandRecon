@@ -1809,14 +1809,9 @@
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  /* Two-column card grid so the report's height scales at roughly half the
-   * rate of the layer count. Mirrors the mobile layout (see media query).
-   * Card detail opens in the separate .analysis-popout flyout, so a narrow
-   * grid cell never has to host the expanded content. */
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-content: start;
 }
 
 .analysis-loading {
@@ -2040,6 +2035,43 @@
   opacity: 0.85;
 }
 
+/* Severity grouping: a small header above problem cards and a collapsible
+ * toggle that hides the clear/good layers so the report stays compact. */
+.analysis-group-head {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  margin: 2px 2px 0;
+}
+
+.analysis-clear-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed rgba(102, 187, 106, 0.6);
+  background: rgba(102, 187, 106, 0.08);
+  color: #2e7d32;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.analysis-clear-toggle:hover {
+  background: rgba(102, 187, 106, 0.14);
+}
+
+.analysis-clear-toggle .analysis-chevron {
+  margin-left: auto;
+}
+
 .analysis-card-spinner {
   width: 14px;
   height: 14px;
@@ -2080,18 +2112,12 @@
   margin-bottom: 3px;
   font-size: 0.82rem;
   color: var(--color-text);
-  /* Wrap the title across lines so names like "Superfund Sites" are never
-   * clipped in the narrow two-column cells. */
-  overflow-wrap: anywhere;
 }
 
 .analysis-detail p {
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .analysis-list {
@@ -2854,6 +2880,11 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
+  }
+  /* The grouping header and the clear-layers toggle always span both columns. */
+  .analysis-group-head,
+  .analysis-clear-toggle {
+    grid-column: 1 / -1;
   }
   .analysis-card {
     margin-bottom: 0;
