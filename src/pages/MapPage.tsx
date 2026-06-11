@@ -525,6 +525,9 @@ function MapPage() {
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const floodLayerRef = useRef<L.GeoJSON | null>(null)
   const floodLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  // True while the map is animating a pan/zoom (e.g. a post-search flyTo).
+  // Lets bounds-scoped layer loads wait for the final viewport.
+  const mapMovingRef = useRef(false)
   const aqiLayerRef = useRef<L.GeoJSON | null>(null)
   const aqiLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
@@ -2754,6 +2757,9 @@ function MapPage() {
           errorTileUrl: '',
         })
 
+        map.on('movestart zoomstart', () => { mapMovingRef.current = true })
+        map.on('moveend zoomend', () => { mapMovingRef.current = false })
+
         mapRef.current = map
         setStatus('ready')
 
@@ -3586,10 +3592,20 @@ function MapPage() {
     if (!map || !layer || floodVisible) return
     layer.addTo(map)
     floodLoadedBoundsRef.current = null
-    loadFloodData(map, layer)
     map.on('moveend', handleFloodMove)
     map.on('zoomend', handleFloodMove)
     setFloodVisible(true)
+    if (mapMovingRef.current) {
+      // A post-search flyTo is still animating — loading now would fetch an
+      // intermediate, zoomed-out viewport and cache those wide bounds, leaving
+      // the final view only partially populated. Wait for the map to settle.
+      map.once('moveend', () => {
+        floodLoadedBoundsRef.current = null
+        loadFloodData(map, layer)
+      })
+    } else {
+      loadFloodData(map, layer)
+    }
   }, [floodVisible, loadFloodData, handleFloodMove])
 
   // When the Recon Report finds a moderate-or-higher flood risk (anything not
