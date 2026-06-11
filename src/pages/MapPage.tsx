@@ -11,7 +11,7 @@ const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce, quantizeCoord } from '../utils/perf'
 import { trackEvent } from '../utils/analytics'
-import { cachedPlacesSearchText, type PlacesSearchTextBody } from '../utils/placesCache'
+import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
 import type { DistrictLayerId } from '../utils/districtsLayer'
 import { DISTRICT_LAYER_LABELS, marginToColor, loadDistrictLayer } from '../utils/districtsLayer'
@@ -27,6 +27,20 @@ import {
   fetchFloodAtPoint,
   type FloodPointResult,
 } from '../map/flood'
+import {
+  SUPERFUND_API,
+  SUPERFUND_ICON,
+  superfundFeaturesToPoints,
+  fetchSuperfundFeatures,
+} from '../map/superfund'
+import {
+  type BroadbandResponse,
+  broadbandSeverity,
+  formatBroadbandSpeed,
+  fetchBroadband,
+  BROADBAND_TECH_LABELS,
+} from '../map/broadband'
+import { fetchCostcosViaPlaces, parseCostcoAddress } from '../map/costco'
 
 // The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
 // dynamic-imported on first use so it stays out of the initial MapPage chunk.
@@ -156,149 +170,9 @@ async function createBaseLayer(id: BaseMapId): Promise<L.TileLayer> {
   )
 }
 
-// Fetch nearby Costco Wholesale warehouses via Google Places Text Search.
-// We previously queried Overpass/OSM but OSM coverage of Costco brand tags
-// is uneven — many real warehouses are missing the brand or shop tags and
-// were silently excluded, producing results like "nearest is 24mi away"
-// when there's actually one much closer. Google Places matches what users
-// see when they search "costco" on maps.google.com.
-type CostcoPlace = { id: string; name: string; addr: string; lat: number; lng: number }
-async function fetchCostcosViaPlaces(opts: {
-  circle?: { lat: number; lng: number; radiusM: number }
-  rectangle?: { south: number; west: number; north: number; east: number }
-  signal?: AbortSignal
-}): Promise<CostcoPlace[]> {
-  if (!GOOGLE_MAPS_KEY) return []
-  const body: PlacesSearchTextBody = {
-    textQuery: 'Costco Wholesale',
-    maxResultCount: 20,
-  }
-  if (opts.circle) {
-    body.locationBias = {
-      circle: {
-        center: { latitude: opts.circle.lat, longitude: opts.circle.lng },
-        radius: Math.min(opts.circle.radiusM, 50000),
-      },
-    }
-  } else if (opts.rectangle) {
-    body.locationRestriction = {
-      rectangle: {
-        low: { latitude: opts.rectangle.south, longitude: opts.rectangle.west },
-        high: { latitude: opts.rectangle.north, longitude: opts.rectangle.east },
-      },
-    }
-  }
+// Costco Places search + address parsing live in src/map/costco.ts.
 
-  const data = await cachedPlacesSearchText({
-    body,
-    fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress',
-    apiKey: GOOGLE_MAPS_KEY,
-    signal: opts.signal,
-  })
-  if (!data) return []
-  const out: CostcoPlace[] = []
-  for (const raw of (data.places || []) as Record<string, unknown>[]) {
-    const loc = raw.location as { latitude: number; longitude: number } | undefined
-    if (!loc) continue
-    const displayName = raw.displayName as { text?: string } | undefined
-    const name = (displayName?.text || 'Costco').trim()
-    // The store warehouse always matches /costco/. Filter out adjacent
-    // Costco Gas, Costco Tire Center, Costco Pharmacy, etc. so they don't
-    // count as separate locations.
-    if (!/costco/i.test(name)) continue
-    if (/\b(gas|fuel|tire|pharmacy|optical|food court|hearing|liquor)\b/i.test(name)) continue
-    out.push({
-      id: raw.id as string,
-      name,
-      addr: (raw.formattedAddress as string) || '',
-      lat: loc.latitude,
-      lng: loc.longitude,
-    })
-  }
-  return out
-}
-
-// Split "123 Main St, Springfield, IL 62701, USA" into street + locality.
-function parseCostcoAddress(addr: string): { street: string; locality: string } {
-  if (!addr) return { street: '', locality: '' }
-  const parts = addr.split(',').map((s) => s.trim()).filter(Boolean)
-  // Drop trailing "USA"
-  if (parts.length && /^USA?$/i.test(parts[parts.length - 1])) parts.pop()
-  const street = parts[0] || ''
-  let city = ''
-  let state = ''
-  if (parts.length >= 3) {
-    city = parts[1]
-    state = (parts[2].split(/\s+/)[0] || '')
-  } else if (parts.length === 2) {
-    city = parts[1]
-  }
-  const locality = [city, state].filter(Boolean).join(', ')
-  return { street, locality }
-}
-
-// FCC Broadband Data Collection (BDC) types + helpers. Data ships through
-// the same-origin /api/broadband sidecar endpoint, so no CSP burn and the
-// FCC API token never reaches the browser. See server/broadband.mjs and
-// scripts/build-broadband-index.mjs for the bootstrap pipeline.
-type BroadbandTech = { code: number; label: string }
-type BroadbandProvider = { name: string; tech: number; down: number; up: number; br: string }
-type BroadbandBlock = {
-  blockFips: string
-  county: string
-  countyFips: string
-  state: string
-  stateName: string
-  stateFips: string
-}
-type BroadbandSummary = {
-  providerCount: number
-  maxDownMbps: number | null
-  maxUpMbps: number | null
-  bestProvider: string | null
-  hasFiber: boolean
-  speedTier: 'gig' | 'fast' | 'served' | 'underserved' | null
-  technologies: BroadbandTech[]
-  providers: BroadbandProvider[] | null
-}
-type BroadbandResponse = {
-  block: BroadbandBlock | null
-  summary: BroadbandSummary | null
-  source: string | null
-  asOfDate: string | null
-  attribution: string
-}
-function broadbandSeverity(tier: BroadbandSummary['speedTier'] | null | undefined): 'good' | 'warning' | 'danger' | 'clear' {
-  if (tier === 'gig' || tier === 'fast') return 'good'
-  if (tier === 'served') return 'warning'
-  if (tier === 'underserved') return 'danger'
-  return 'clear'
-}
-function formatBroadbandSpeed(mbps: number | null | undefined): string {
-  if (mbps == null || !Number.isFinite(mbps) || mbps <= 0) return '—'
-  if (mbps >= 1000) return `${(mbps / 1000).toFixed(mbps % 1000 === 0 ? 0 : 1)} Gbps`
-  return `${mbps} Mbps`
-}
-async function fetchBroadband(lat: number, lng: number, signal?: AbortSignal): Promise<BroadbandResponse | null> {
-  try {
-    const res = await fetch(`/api/broadband?lat=${lat}&lng=${lng}`, { signal })
-    if (!res.ok) return null
-    return await res.json() as BroadbandResponse
-  } catch {
-    return null
-  }
-}
-const BROADBAND_TECH_LABELS: Record<number, string> = {
-  0: 'Other',
-  10: 'DSL',
-  40: 'Cable',
-  50: 'Fiber',
-  60: 'GSO Satellite',
-  61: 'LEO Satellite',
-  70: 'Wireless (Unlicensed)',
-  71: 'Wireless (Licensed)',
-  72: 'Wireless (CBRS)',
-}
+// FCC Broadband types + helpers live in src/map/broadband.ts.
 
 // Per-tab cache of completed analyses keyed by quantized coordinates
 // (~110 m precision). Re-running for an address near a prior one returns
@@ -445,74 +319,11 @@ function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unknown) {
 }
 
 
-const SUPERFUND_API =
-  'https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/FAC_Superfund_Site_Boundaries_EPA_Public/FeatureServer/0/query'
-
-const SUPERFUND_FIELDS = [
-  'SITE_NAME', 'EPA_ID', 'NPL_STATUS_CODE', 'CITY_NAME',
-  'STATE_CODE', 'SITE_FEATURE_TYPE', 'URL_ALIAS_TXT',
-].join(',')
-
 const LEGEND_STOPS = LEGEND_BANDS
-
-const SUPERFUND_ICON = L.divIcon({
-  className: 'superfund-marker',
-  html: `<div class="superfund-marker-inner" aria-hidden="true">☢️</div>`,
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-  popupAnchor: [0, -16],
-})
 
 // ── FEMA National Flood Hazard Layer (NFHL) ────────────────────────────
 // Flood constants, buckets, severity and fetchers live in src/map/flood.ts.
 
-type GeoJSONCoord = number[]
-type GeoJSONRing = GeoJSONCoord[]
-
-function superfundFeatureToPoint(
-  feat: GeoJSON.Feature,
-): GeoJSON.Feature<GeoJSON.Point> | null {
-  const geom = feat.geometry
-  if (!geom) return null
-  let lat: number | undefined
-  let lon: number | undefined
-  if (geom.type === 'Point') {
-    const [x, y] = geom.coordinates
-    lon = x
-    lat = y
-  } else if (geom.type === 'Polygon') {
-    const ring = geom.coordinates[0] as GeoJSONRing | undefined
-    if (ring && ring.length) {
-      lon = ring.reduce((s, c) => s + c[0], 0) / ring.length
-      lat = ring.reduce((s, c) => s + c[1], 0) / ring.length
-    }
-  } else if (geom.type === 'MultiPolygon') {
-    const ring = geom.coordinates[0]?.[0] as GeoJSONRing | undefined
-    if (ring && ring.length) {
-      lon = ring.reduce((s, c) => s + c[0], 0) / ring.length
-      lat = ring.reduce((s, c) => s + c[1], 0) / ring.length
-    }
-  }
-  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return null
-  }
-  return {
-    type: 'Feature',
-    properties: feat.properties || {},
-    geometry: { type: 'Point', coordinates: [lon, lat] },
-  }
-}
-
-function superfundFeaturesToPoints(
-  fc: GeoJSON.FeatureCollection,
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
-  for (const f of fc.features || []) {
-    const pt = superfundFeatureToPoint(f)
-    if (pt) features.push(pt)
-  }
-  return { type: 'FeatureCollection', features }
-}
 
 // Overpass requests are routed through a same-origin nginx proxy (see
 // nginx.conf and vite.config.ts) that injects a non-Mozilla User-Agent.
@@ -737,23 +548,6 @@ function transitPopup(stop: TransitStop): string {
       </div>
     </div>
   `
-}
-
-async function fetchSuperfundFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-  const params = new URLSearchParams({
-    where: "NPL_STATUS_CODE <> 'D'",
-    outFields: SUPERFUND_FIELDS,
-    geometry: bbox,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'geojson',
-    resultRecordCount: '500',
-  })
-  const res = await fetch(`${SUPERFUND_API}?${params}`)
-  return res.json()
 }
 
 // ── HIFLD Electric Power Transmission Lines ─────────────────────────────
