@@ -9,7 +9,7 @@ import logo from '../assets/landrecon-logo.webp'
 import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker, fetchCamerasInWorker } from '../workers/overpassClient'
 const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
-import { debounce, quantizeCoord } from '../utils/perf'
+import { debounce } from '../utils/perf'
 import { trackEvent } from '../utils/analytics'
 import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
@@ -41,6 +41,21 @@ import {
   BROADBAND_TECH_LABELS,
 } from '../map/broadband'
 import { fetchCostcosViaPlaces, parseCostcoAddress } from '../map/costco'
+import {
+  readAnalysisCache,
+  writeAnalysisCache,
+  patchAnalysisCacheFlood,
+} from '../map/analysisCache'
+import {
+  type DevTodo,
+  DEV_TODOS,
+  readDevTodoItems,
+  writeDevTodoItems,
+  readDevTodoChecks,
+  writeDevTodoChecks,
+  fetchDevTodosFromServer,
+  saveDevTodosToServer,
+} from '../map/devTodos'
 
 // The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
 // dynamic-imported on first use so it stays out of the initial MapPage chunk.
@@ -174,151 +189,8 @@ async function createBaseLayer(id: BaseMapId): Promise<L.TileLayer> {
 
 // FCC Broadband types + helpers live in src/map/broadband.ts.
 
-// Per-tab cache of completed analyses keyed by quantized coordinates
-// (~110 m precision). Re-running for an address near a prior one returns
-// instantly with no Google/EPA/ArcGIS calls.
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v3:'
-const ANALYSIS_CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
-
-// Developer todo list, shown via the hidden Experimental menu. DEV_TODOS
-// below is the initial seed used the first time the modal is opened; after
-// that the canonical list lives in localStorage (under DEV_TODOS_ITEMS_KEY)
-// so add/delete from the UI persists across sessions. Per-item checkbox
-// state is stored separately under DEV_TODOS_CHECKS_KEY.
-interface DevTodo { id: string; label: string; note?: string }
-const DEV_TODOS: DevTodo[] = [
-  { id: 'crowd-tune', label: 'Tune Crowd Magnets filters once we see more sample addresses' },
-  { id: 'mobile-polish', label: 'Mobile: verify analysis panel + layer panel ergonomics on small screens' },
-  { id: 'grade-rebalance', label: 'Revisit Location Grade weights now that Crowd Magnets is included' },
-]
-const DEV_TODOS_ITEMS_KEY = 'lr_dev_todos_items'
-const DEV_TODOS_CHECKS_KEY = 'lr_dev_todos'
-const DEV_TODOS_TOKEN_KEY = 'lr_dev_todos_token'
-const DEV_TODOS_API = '/api/dev-todos'
-
-// The server store is gated by a developer secret. It is read from
-// localStorage (set once via the console: localStorage.setItem(
-// 'lr_dev_todos_token', '<token>')) so it never ships in the public bundle.
-// Without it, the modal stays in localStorage-only mode.
-function devTodosToken(): string {
-  try { return localStorage.getItem(DEV_TODOS_TOKEN_KEY) || '' } catch { return '' }
-}
-function devTodosAuthHeaders(): Record<string, string> {
-  const token = devTodosToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
-function readDevTodoItems(): DevTodo[] {
-  try {
-    const raw = localStorage.getItem(DEV_TODOS_ITEMS_KEY)
-    if (!raw) return DEV_TODOS
-    const parsed = JSON.parse(raw) as DevTodo[]
-    if (!Array.isArray(parsed)) return DEV_TODOS
-    return parsed.filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string')
-  } catch { return DEV_TODOS }
-}
-function writeDevTodoItems(items: DevTodo[]) {
-  try { localStorage.setItem(DEV_TODOS_ITEMS_KEY, JSON.stringify(items)) } catch { /* ignore */ }
-}
-function readDevTodoChecks(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(DEV_TODOS_CHECKS_KEY)
-    return raw ? JSON.parse(raw) as Record<string, boolean> : {}
-  } catch { return {} }
-}
-function writeDevTodoChecks(state: Record<string, boolean>) {
-  try { localStorage.setItem(DEV_TODOS_CHECKS_KEY, JSON.stringify(state)) } catch { /* ignore */ }
-}
-
-async function fetchDevTodosFromServer(signal?: AbortSignal): Promise<{ items: DevTodo[]; checks: Record<string, boolean> } | null> {
-  if (!devTodosToken()) return null
-  try {
-    const res = await fetch(DEV_TODOS_API, { signal, cache: 'no-store', headers: devTodosAuthHeaders() })
-    if (!res.ok) return null
-    const data = await res.json()
-    const items = Array.isArray(data?.items)
-      ? data.items.filter((t: unknown): t is DevTodo =>
-          !!t && typeof (t as DevTodo).id === 'string' && typeof (t as DevTodo).label === 'string')
-      : []
-    const checks = data?.checks && typeof data.checks === 'object' ? data.checks as Record<string, boolean> : {}
-    return { items, checks }
-  } catch { return null }
-}
-async function saveDevTodosToServer(payload: { items: DevTodo[]; checks: Record<string, boolean> }): Promise<boolean> {
-  if (!devTodosToken()) return false
-  try {
-    const res = await fetch(DEV_TODOS_API, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...devTodosAuthHeaders() },
-      body: JSON.stringify(payload),
-    })
-    return res.ok
-  } catch { return false }
-}
-
-interface CachedAnalysisPayload {
-  ts: number
-  data: {
-    noiseLevel: number | null
-    noiseAirport: string | null
-    noiseAirportCode: string | null
-    superfunds: unknown[]
-    costco: unknown
-    costcoNearby: unknown[]
-    costcoNearestBeyond: unknown
-    costcoError: boolean
-    dataCenters: unknown[]
-    nearestER: unknown
-    erError: boolean
-    crowdMagnets: unknown[]
-    // Optional: present (object or null) once the FEMA point query has
-    // produced a determined result. Absent means "not determined" (errored or
-    // never resolved) so a cache hit re-fetches instead of showing "no hazard".
-    floodZone?: unknown
-  }
-}
-
-function analysisCacheKey(lat: number, lng: number): string {
-  return `${ANALYSIS_CACHE_PREFIX}${quantizeCoord(lat)},${quantizeCoord(lng)}`
-}
-
-function readAnalysisCache(lat: number, lng: number): CachedAnalysisPayload['data'] | null {
-  if (typeof sessionStorage === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(analysisCacheKey(lat, lng))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as CachedAnalysisPayload
-    if (Date.now() - parsed.ts > ANALYSIS_CACHE_TTL_MS) return null
-    return parsed.data
-  } catch {
-    return null
-  }
-}
-
-function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysisPayload['data']) {
-  if (typeof sessionStorage === 'undefined') return
-  try {
-    sessionStorage.setItem(
-      analysisCacheKey(lat, lng),
-      JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload),
-    )
-  } catch {
-    // Storage is full or disabled; not fatal — analysis still ran.
-  }
-}
-
-// Flood resolves independently of the rest of the analysis, so it may land
-// after the cache entry has already been written (by the Costco step). Merge
-// the determined flood result into the existing entry when that happens. No-op
-// if there is no current entry (the Costco write will include the captured
-// value instead).
-function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unknown) {
-  const existing = readAnalysisCache(lat, lng)
-  if (!existing) return
-  writeAnalysisCache(lat, lng, { ...existing, floodZone })
-}
-
-
+// Analysis sessionStorage cache (schema + read/write/patch) lives in
+// src/map/analysisCache.ts. Dev-todo storage lives in src/map/devTodos.ts.
 const LEGEND_STOPS = LEGEND_BANDS
 
 // ── FEMA National Flood Hazard Layer (NFHL) ────────────────────────────
