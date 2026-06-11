@@ -14,8 +14,6 @@ import {
 import { trackEvent } from '../utils/analytics'
 import './HomePage.css'
 
-declare const __BUILD_VERSION__: string
-
 // Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
 // Mirrors MapPage's pattern so flipping the flag once instruments both pages.
 const LR_DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('LR_DEBUG') === '1'

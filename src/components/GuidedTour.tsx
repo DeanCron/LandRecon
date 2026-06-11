@@ -52,15 +52,16 @@ export default function GuidedTour({ steps, storageKey = 'lr_tour_done', forceSh
   useEffect(() => {
     if (!active) return
     steps[step]?.beforeShow?.()
-    // Measure immediately for steps that don't need panel transitions, then
-    // again after the longest reasonable transition (panel slide-in ~280ms)
-    // so panel-targeted steps land on the final on-screen rect.
-    measureTarget()
+    // Measure on the next frame (avoids a synchronous setState in the effect
+    // body), then again after the longest reasonable transition (panel
+    // slide-in ~280ms) so panel-targeted steps land on the final on-screen rect.
+    const t0 = requestAnimationFrame(measureTarget)
     const t1 = setTimeout(measureTarget, 120)
     const t2 = setTimeout(measureTarget, 380)
     window.addEventListener('resize', measureTarget)
     window.addEventListener('orientationchange', measureTarget)
     return () => {
+      cancelAnimationFrame(t0)
       clearTimeout(t1)
       clearTimeout(t2)
       window.removeEventListener('resize', measureTarget)

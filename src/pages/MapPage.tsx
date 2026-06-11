@@ -387,6 +387,10 @@ interface CachedAnalysisPayload {
     nearestER: unknown
     erError: boolean
     crowdMagnets: unknown[]
+    // Optional: present (object or null) once the FEMA point query has
+    // produced a determined result. Absent means "not determined" (errored or
+    // never resolved) so a cache hit re-fetches instead of showing "no hazard".
+    floodZone?: unknown
   }
 }
 
@@ -417,6 +421,17 @@ function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysisPayloa
   } catch {
     // Storage is full or disabled; not fatal — analysis still ran.
   }
+}
+
+// Flood resolves independently of the rest of the analysis, so it may land
+// after the cache entry has already been written (by the Costco step). Merge
+// the determined flood result into the existing entry when that happens. No-op
+// if there is no current entry (the Costco write will include the captured
+// value instead).
+function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unknown) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, floodZone })
 }
 
 
@@ -3120,7 +3135,10 @@ function MapPage() {
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
-      allDone['flood'] = 'pending'
+      // Flood is cached only once the FEMA query produced a determined result
+      // (the floodZone key is present). Otherwise it stays pending and re-fetches.
+      const floodIsCached = cached.floodZone !== undefined
+      allDone['flood'] = floodIsCached ? 'done' : 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -3146,9 +3164,10 @@ function MapPage() {
         crowdMagnets: (cached.crowdMagnets ?? []) as any,
         broadband: null,
         broadbandLoading: true,
-        floodZone: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        floodZone: floodIsCached ? (cached.floodZone as any) : null,
         floodError: false,
-        floodLoading: true,
+        floodLoading: !floodIsCached,
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
@@ -3168,18 +3187,22 @@ function MapPage() {
         setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
         setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
       })
-      // Flood zone is not cached either — fire the point query independently.
-      fetchFloodAtPoint(lat, lng).then((fz) => {
-        if (!isLatestRun()) return
-        dbg('analysis', 'Flood result (cache-hit path):', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
-        setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
-        setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
-      }).catch((err) => {
-        dbg('analysis', 'Flood failed (cache-hit path):', err)
-        if (!isLatestRun()) return
-        setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
-        setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
-      })
+      // Flood is cached once determined; only re-fetch on a cache hit when the
+      // cached entry predates the flood feature (no floodZone key stored).
+      if (!floodIsCached) {
+        fetchFloodAtPoint(lat, lng).then((fz) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Flood result (cache-hit path):', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
+          setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
+          patchAnalysisCacheFlood(lat, lng, fz)
+        }).catch((err) => {
+          dbg('analysis', 'Flood failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
+        })
+      }
       return
     }
 
@@ -3540,6 +3563,9 @@ function MapPage() {
     })
 
     // FEMA flood zone for the exact point — same fire-and-forget pattern.
+    // Captured for the cache write below; stays undefined ("not determined")
+    // until the query produces a result so errors aren't cached as "no hazard".
+    let floodForCache: unknown
     fetchFloodAtPoint(lat, lng).then((fz) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Flood result')
@@ -3547,6 +3573,8 @@ function MapPage() {
       }
       dbg('analysis', 'Flood result:', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
       setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+      floodForCache = fz
+      patchAnalysisCacheFlood(lat, lng, fz)
       markDone('flood')
     }).catch((err) => {
       dbg('analysis', 'Flood failed:', err)
@@ -3579,6 +3607,9 @@ function MapPage() {
         dataCenters,
         nearestER, erError,
         crowdMagnets,
+        // Omitted (left undefined) if flood hasn't resolved yet — the flood
+        // .then patches it in once it lands.
+        ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
       })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
@@ -5340,6 +5371,8 @@ function MapPage() {
     const layersParam = searchParams.get('layers')
     if (!layersParam) return
     const requested = new Set(layersParam.split(',').map((s) => s.trim()))
+    const unknown = [...requested].filter((id) => !SHARE_LAYER_IDS.includes(id as ShareLayerId))
+    if (unknown.length) dbg('share', `Ignoring unknown layer id(s) from share link: ${unknown.join(', ')}`)
     if (requested.has('noise')) toggleNoise()
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('flood')) toggleFlood()
@@ -6237,8 +6270,8 @@ function MapPage() {
                 <div className="slr-level-row">
                   <input
                     type="range"
-                    min={0}
-                    max={10}
+                    min={SLR_LEVELS[0]}
+                    max={SLR_LEVELS[SLR_LEVELS.length - 1]}
                     step={1}
                     value={slrLevel}
                     onChange={(e) => changeSlrLevel(Number(e.target.value) as SlrLevel)}
