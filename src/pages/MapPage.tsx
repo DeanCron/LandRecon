@@ -497,6 +497,22 @@ function floodZoneLabel(props: GeoJSON.GeoJsonProperties): string {
   return sub ? `Zone ${zone} — ${sub}` : `Zone ${zone}`
 }
 
+type FloodPointResult = { bucket: keyof typeof FLOOD_ZONE_COLORS; zone: string; label: string }
+
+// Recon Report severity: only flag moderate risk or higher. High-risk SFHA
+// (A/AE/…) and coastal V zones are dangers; the 0.2%/500-yr shaded-X bucket is
+// a warning; everything else (minimal, undetermined, open water) stays clear.
+function floodSeverity(bucket: keyof typeof FLOOD_ZONE_COLORS): 'danger' | 'warning' | 'clear' {
+  if (bucket === 'high' || bucket === 'coastal') return 'danger'
+  if (bucket === 'moderate') return 'warning'
+  return 'clear'
+}
+
+// Used to pick the worst bucket when a point intersects multiple polygons.
+const FLOOD_BUCKET_RANK: Record<string, number> = {
+  coastal: 5, high: 4, moderate: 3, undetermined: 1, minimal: 0, water: 0,
+}
+
 type GeoJSONCoord = number[]
 type GeoJSONRing = GeoJSONCoord[]
 
@@ -802,6 +818,39 @@ async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.Featu
   })
   const res = await fetch(`${FLOOD_API}?${params}`)
   return res.json()
+}
+
+// Point-in-polygon query against the FEMA NFHL layer for a single location —
+// used by the Recon Report. Returns the worst-severity flood bucket that the
+// point falls inside, or null when the point isn't in any mapped flood zone.
+async function fetchFloodAtPoint(lat: number, lng: number): Promise<FloodPointResult | null> {
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: FLOOD_FIELDS,
+    geometry: `${lng},${lat}`,
+    geometryType: 'esriGeometryPoint',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'geojson',
+    resultRecordCount: '50',
+  })
+  const res = await fetch(`${FLOOD_API}?${params}`, { signal: AbortSignal.timeout(10000) })
+  if (!res.ok) throw new Error(`FEMA NFHL ${res.status}`)
+  const data: GeoJSON.FeatureCollection = await res.json()
+  const feats = data.features ?? []
+  let best: FloodPointResult | null = null
+  let bestRank = -1
+  for (const f of feats) {
+    const bucket = floodBucket(f.properties)
+    const rank = FLOOD_BUCKET_RANK[bucket] ?? 0
+    if (rank > bestRank) {
+      bestRank = rank
+      const zone = String((f.properties as Record<string, unknown> | null | undefined)?.FLD_ZONE || '').trim() || 'Unknown'
+      best = { bucket, zone, label: floodZoneLabel(f.properties) }
+    }
+  }
+  return best
 }
 
 // ── HIFLD Electric Power Transmission Lines ─────────────────────────────
@@ -1849,9 +1898,12 @@ function MapPage() {
     crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
     broadband: BroadbandResponse | null
     broadbandLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true })
+    floodZone: { bucket: string; zone: string; label: string } | null
+    floodError: boolean
+    floodLoading: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -3051,6 +3103,7 @@ function MapPage() {
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
+      allDone['flood'] = 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -3076,6 +3129,9 @@ function MapPage() {
         crowdMagnets: (cached.crowdMagnets ?? []) as any,
         broadband: null,
         broadbandLoading: true,
+        floodZone: null,
+        floodError: false,
+        floodLoading: true,
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
@@ -3095,12 +3151,24 @@ function MapPage() {
         setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
         setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
       })
+      // Flood zone is not cached either — fire the point query independently.
+      fetchFloodAtPoint(lat, lng).then((fz) => {
+        if (!isLatestRun()) return
+        dbg('analysis', 'Flood result (cache-hit path):', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
+        setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+        setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
+      }).catch((err) => {
+        dbg('analysis', 'Flood failed (cache-hit path):', err)
+        if (!isLatestRun()) return
+        setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
+        setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
+      })
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -3430,6 +3498,9 @@ function MapPage() {
       crowdMagnets,
       broadband: null,
       broadbandLoading: true,
+      floodZone: null,
+      floodError: false,
+      floodLoading: true,
     })
 
     // FCC Broadband fetch runs independently of the other categories. Same
@@ -3449,6 +3520,22 @@ function MapPage() {
       if (!isLatestRun()) return
       setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
       markDone('broadband')
+    })
+
+    // FEMA flood zone for the exact point — same fire-and-forget pattern.
+    fetchFloodAtPoint(lat, lng).then((fz) => {
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Flood result')
+        return
+      }
+      dbg('analysis', 'Flood result:', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
+      setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+      markDone('flood')
+    }).catch((err) => {
+      dbg('analysis', 'Flood failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
+      markDone('flood')
     })
 
     costcoPromise.then((data) => {
@@ -5613,7 +5700,7 @@ function MapPage() {
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
         {status === 'ready' && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
           const done = checks.filter((k) => analysisProgress[k] === 'done').length
           const total = checks.length
           // Show the strip from the moment an analysis kicks off until every
@@ -5716,7 +5803,7 @@ function MapPage() {
         >
           <span className="fab-label">Report</span>
           {(() => {
-            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband'] as const
+            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
             const done = checks.filter((k) => analysisProgress[k] === 'done').length
             if (done >= checks.length || Object.keys(analysisProgress).length === 0) return null
             return (
@@ -6616,6 +6703,46 @@ function MapPage() {
             }
 
             {
+              const pFlood = analysisProgress.flood !== 'done'
+              const fz = analysisResults.floodZone
+              const severity = pFlood
+                ? 'pending'
+                : analysisResults.floodError
+                  ? 'clear'
+                  : fz
+                    ? floodSeverity(fz.bucket as keyof typeof FLOOD_ZONE_COLORS)
+                    : 'clear'
+              const subtitle = pFlood
+                ? 'Checking…'
+                : analysisResults.floodError
+                  ? 'Flood data unavailable'
+                  : fz
+                    ? FLOOD_ZONE_LABELS[fz.bucket]
+                    : 'Minimal flood hazard'
+              cards.push({ key: 'flood', severity, node: (
+                <div className={`analysis-card ${severity}`} key="flood">
+                  <div
+                    className={`analysis-item${pFlood ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (pFlood) return
+                      if (analysisDetail === 'flood') setAnalysisDetail(null)
+                      else setAnalysisDetail('flood')
+                    }}
+                    aria-busy={pFlood || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'flood' ? ' expanded' : ''}${pFlood ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🌊</div>
+                    <div className="analysis-detail">
+                      <strong>Flood Zone</strong>
+                      <p>{subtitle}</p>
+                    </div>
+                    {pFlood && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               // Broadband at this address — FCC BDC
               const bbLoading = analysisResults.broadbandLoading
               const bb = analysisResults.broadband
@@ -6792,6 +6919,7 @@ function MapPage() {
                analysisDetail === 'er' ? '🏥 Emergency Room' :
                analysisDetail === 'crowd' ? '🎟️ Crowd Magnets' :
                analysisDetail === 'broadband' ? '📶 Broadband at this Address' :
+               analysisDetail === 'flood' ? '🌊 Flood Zone' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -7415,6 +7543,60 @@ function MapPage() {
                 )}
               </>
             )}
+
+            {analysisDetail === 'flood' && (() => {
+              const fz = analysisResults.floodZone
+              const sev = analysisResults.floodError ? 'clear' : fz ? floodSeverity(fz.bucket as keyof typeof FLOOD_ZONE_COLORS) : 'clear'
+              if (analysisResults.floodError) {
+                return (
+                  <>
+                    <p className="analysis-expand-level clear">FEMA flood data couldn’t be loaded for this location.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Flood zone designation affects flood-insurance requirements, premiums, and risk.
+                        Try re-analyzing, or look up the address directly on the{' '}
+                        <a href="https://msc.fema.gov/portal/home" target="_blank" rel="noopener noreferrer">FEMA Flood Map Service Center</a>.
+                      </p>
+                    </div>
+                  </>
+                )
+              }
+              return (
+                <>
+                  <p className={`analysis-expand-level ${sev}`}>
+                    {fz ? `${FLOOD_ZONE_LABELS[fz.bucket]} — ${fz.label}` : 'Not within a mapped FEMA flood hazard zone'}
+                  </p>
+                  <div className="analysis-expand-rec">
+                    <strong>Why this matters</strong>
+                    <p>
+                      {sev === 'danger'
+                        ? 'This address sits in a Special Flood Hazard Area (1% annual-chance / “100-year” floodplain). Federally backed mortgages here require flood insurance, premiums are typically higher, and the structure faces meaningful flood risk.'
+                        : sev === 'warning'
+                        ? 'This address is in a moderate-risk zone (0.2% annual-chance / “500-year” floodplain). Flood insurance is usually optional but recommended — moderate-risk areas still account for a substantial share of flood claims.'
+                        : fz
+                        ? 'This address is in a minimal-hazard or undetermined zone. Flood insurance is generally not federally required, though no area is completely risk-free.'
+                        : 'This address is outside FEMA’s mapped flood hazard zones, so flood insurance is generally not federally required. Mapping is periodic, so it can lag local changes.'}
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Risk bands</strong>
+                    <p>
+                      <span className="analysis-band danger">A/AE/V</span> high · {' '}
+                      <span className="analysis-band warning">0.2% shaded X</span> moderate · {' '}
+                      <span className="analysis-band good">unshaded X / D</span> minimal
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Source</strong>
+                    <p>
+                      FEMA National Flood Hazard Layer via the{' '}
+                      <a href="https://msc.fema.gov/portal/home" target="_blank" rel="noopener noreferrer">Flood Map Service Center</a>. Flag shown only for moderate risk or higher.
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </aside>
       )}
