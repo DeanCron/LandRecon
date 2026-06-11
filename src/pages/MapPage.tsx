@@ -153,6 +153,14 @@ import {
   erSeverity,
   computeLocationGrade,
 } from '../map/scoring'
+import { patchTooltipClickBehavior } from '../map/tooltipFix'
+
+// Enforce one consistent map-marker interaction on every device: hover shows
+// the simple tooltip (desktop only) and a click/tap opens the detailed popup.
+// Without this, Leaflet's built-in click->open-tooltip handler makes a tap on
+// touch devices open both the tooltip and the popup, leaving the tooltip stuck
+// on screen. See src/map/tooltipFix.ts for the full rationale.
+patchTooltipClickBehavior(L)
 
 // The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
 // dynamic-imported on first use so it stays out of the initial MapPage chunk.
