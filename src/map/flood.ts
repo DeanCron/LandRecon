@@ -93,12 +93,15 @@ const FLOOD_FETCH_RETRIES = 2 // extra attempts after the first, for transient 5
 const FLOOD_FETCH_TIMEOUT_MS = 20000
 
 // Server-side geometry generalisation tolerance (in degrees, matching outSR
-// 4326), scaled to the queried span so it stays roughly sub-pixel at the zoom
-// the viewport implies. Clamped so we never demand survey precision (huge,
-// 500-prone payloads) nor over-simplify a wide view into blocky polygons.
+// 4326), scaled to the queried span so it stays roughly one screen pixel at the
+// zoom the viewport implies — flood-zone edges don't need sub-pixel precision
+// for an overlay, and a coarser tolerance roughly halves the payload (faster
+// transfer and faster Leaflet rendering). Clamped so we never demand survey
+// precision (huge, 500-prone payloads) nor over-simplify a wide view into
+// visibly blocky polygons.
 function floodSimplifyTolerance(west: number, east: number): number {
   const span = Math.abs(east - west)
-  return Math.min(0.001, Math.max(0.00002, span / 4000))
+  return Math.min(0.0015, Math.max(0.00003, span / 1500))
 }
 
 function floodDedupeKey(feature: GeoJSON.Feature): string {
@@ -170,12 +173,18 @@ export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSO
     if (data.exceededTransferLimit && depth < FLOOD_MAX_SUBDIVIDE) {
       const midX = (west + east) / 2
       const midY = (south + north) / 2
-      // Sequential, not parallel: the FEMA service rate-limits request bursts,
-      // which would make the whole overlay fail intermittently.
-      await fetchCell(west, south, midX, midY, depth + 1)
-      await fetchCell(midX, south, east, midY, depth + 1)
-      await fetchCell(west, midY, midX, north, depth + 1)
-      await fetchCell(midX, midY, east, north, depth + 1)
+      // Query the four quadrants in parallel. This used to be sequential to
+      // avoid FEMA's burst rate-limiting, but the coarse-geometry payloads are
+      // now small and each request has retry-with-backoff, while the parent's
+      // features were already added above as a never-zero fallback — so a
+      // throttled child self-heals or, worst case, just misses some refinement
+      // rather than blanking the overlay. Parallel is ~4x faster on dense views.
+      await Promise.all([
+        fetchCell(west, south, midX, midY, depth + 1),
+        fetchCell(midX, south, east, midY, depth + 1),
+        fetchCell(west, midY, midX, north, depth + 1),
+        fetchCell(midX, midY, east, north, depth + 1),
+      ])
     }
   }
 
