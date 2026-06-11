@@ -2770,6 +2770,12 @@
   to { transform: rotate(360deg); }
 }
 
+/* Generic layer-load error toast — sits just below the transit toast so the
+   two can coexist without overlapping. */
+.layer-error-toast {
+  top: 124px;
+}
+
 @media (max-width: 768px) {
   .map-toast {
     top: 64px;
@@ -2779,6 +2785,9 @@
   }
   .map-toast-text {
     white-space: normal;
+  }
+  .layer-error-toast {
+    top: 108px;
   }
 }
 

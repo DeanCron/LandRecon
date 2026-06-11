@@ -704,6 +704,15 @@ function MapPage() {
   const [camerasVisible, setCamerasVisible] = useState(false)
   const [camerasLoading, setCamerasLoading] = useState(false)
   const [camerasStatus, setCamerasStatus] = useState<{ kind: 'loading' | 'error' | 'empty'; text: string } | null>(null)
+  // Generic "a map layer failed to load its data" toast. Layer loaders that
+  // would otherwise fail silently (console.warn only) push a friendly message
+  // here so the user knows the data source was unavailable rather than
+  // assuming the area is simply empty. Transit and cameras have their own
+  // dedicated status toasts and don't use this one.
+  const [layerNotice, setLayerNotice] = useState<string | null>(null)
+  const notifyLayerErrorRef = useRef((label: string) => {
+    setLayerNotice(`Couldn't load ${label}. The data source may be busy — try again in a moment.`)
+  })
   // Voting districts — experimental layer set; each chamber loads lazily on
   // first toggle and is cached on the L.Map afterward.
   const districtLayerRefs = useRef<Record<DistrictLayerId, L.GeoJSON | null>>({
@@ -1561,6 +1570,7 @@ function MapPage() {
       costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
     } catch (err) {
       console.warn('Costco label fetch failed:', err)
+      notifyLayerErrorRef.current('Costco locations')
     }
   }, [])
 
@@ -1582,6 +1592,7 @@ function MapPage() {
       superfundLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load Superfund data:', err)
+      notifyLayerErrorRef.current('Superfund sites')
     } finally {
       setSuperfundLoading(false)
       superfundLoadingRef.current = false
@@ -1630,6 +1641,7 @@ function MapPage() {
       floodLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load FEMA flood zones:', err)
+      notifyLayerErrorRef.current('flood zones')
     } finally {
       setFloodLoading(false)
       floodLoadingRef.current = false
@@ -1675,6 +1687,7 @@ function MapPage() {
       if (latest !== null) setAqiTimestamp(latest)
     } catch (err) {
       console.error('Failed to load AirNow AQI contours:', err)
+      notifyLayerErrorRef.current('air quality data')
     } finally {
       setAqiLoading(false)
       aqiLoadingRef.current = false
@@ -1710,6 +1723,7 @@ function MapPage() {
       powerLineLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load HIFLD transmission lines:', err)
+      notifyLayerErrorRef.current('power transmission lines')
     } finally {
       setPowerLineLoading(false)
       powerLineLoadingRef.current = false
@@ -1779,6 +1793,7 @@ function MapPage() {
       industrialFetchedKeyRef.current = key
     } catch (err) {
       console.error('Failed to load EPA TRI industrial facilities:', err)
+      notifyLayerErrorRef.current('industrial facilities')
     } finally {
       setIndustrialLoading(false)
     }
@@ -1828,6 +1843,7 @@ function MapPage() {
     overlay.on('error', () => {
       setWildfireLoading(false)
       dbg('wildfire', 'Image load failed')
+      notifyLayerErrorRef.current('wildfire hazard')
     })
 
     if (wildfireLayerRef.current) {
@@ -3033,6 +3049,13 @@ function MapPage() {
     return () => clearTimeout(t)
   }, [transitStatus])
 
+  // Auto-dismiss the generic layer-error toast a few seconds after it appears.
+  useEffect(() => {
+    if (!layerNotice) return
+    const t = setTimeout(() => setLayerNotice(null), 6000)
+    return () => clearTimeout(t)
+  }, [layerNotice])
+
   const toggleNoise = async () => {
     const map = mapRef.current
     const airportLayer = airportLayerRef.current
@@ -3124,6 +3147,7 @@ function MapPage() {
         dbg('datacenters', `Loaded ${data.length} data centers from JSON`)
       } catch (err) {
         console.warn('Data center fetch failed:', err)
+        notifyLayerErrorRef.current('data centers')
         return
       }
     }
@@ -3331,6 +3355,7 @@ function MapPage() {
       dbg('ems', `Total known EMS places: ${known.size}`)
     } catch (err) {
       console.warn('EMS data fetch failed:', err)
+      notifyLayerErrorRef.current('emergency services')
     } finally {
       setEmsLoading(false)
     }
@@ -3591,6 +3616,7 @@ function MapPage() {
       dbg('crowd', `[${source}] Added ${added} new (total known: ${known.size})`)
     } catch (err) {
       console.warn('Crowd magnet fetch failed:', err)
+      notifyLayerErrorRef.current('points of interest')
     } finally {
       setCrowdLoading(false)
     }
@@ -4864,6 +4890,24 @@ function MapPage() {
               ×
             </button>
           )}
+        </div>
+      )}
+
+      {/* Generic layer-load failure toast — any environmental/POI layer whose
+          data fetch fails surfaces a short, dismissible message here so the
+          empty map isn't mistaken for "nothing in this area." */}
+      {layerNotice && (
+        <div className="map-toast layer-error-toast transit-status-error" role="alert">
+          <span className="transit-status-icon" aria-hidden="true">⚠️</span>
+          <span className="map-toast-text">{layerNotice}</span>
+          <button
+            type="button"
+            className="map-toast-dismiss"
+            onClick={() => setLayerNotice(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
         </div>
       )}
 
