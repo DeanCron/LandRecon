@@ -2080,9 +2080,9 @@
   margin-bottom: 3px;
   font-size: 0.82rem;
   color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wrap the title across lines so names like "Superfund Sites" are never
+   * clipped in the narrow two-column cells. */
+  overflow-wrap: anywhere;
 }
 
 .analysis-detail p {
