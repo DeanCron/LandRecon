@@ -3264,11 +3264,13 @@ function MapPage() {
     })()
 
     // Run the other checks in parallel with timeouts. We *don't* await Costco
-    // here so the report can render as soon as these four resolve.
-    const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult] = await Promise.allSettled([
-      // Check noise via PMTiles vector query, then find nearest airport
-      (async () => {
-        try {
+    // here so the report can render as soon as these checks resolve. Each one
+    // commits its own slice of state and marks itself done the moment it
+    // individually resolves (see the commit chains below the IIFEs), so each
+    // report tile flips to its real value as its check lands — never showing a
+    // resolved-but-not-yet-committed state.
+    // Check noise via PMTiles vector query, then find nearest airport
+    const noiseP = (async () => {
         const { queryNoiseLevelAtPoint } = await loadAirportNoiseModule()
         const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
         if (!band) return null
@@ -3310,12 +3312,10 @@ function MapPage() {
         }
 
         return { level, airport: airportName, code: airportCode }
-        } finally { markDone('noise') }
-      })(),
+      })()
 
-      // Check Superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI miles
-      (async () => {
-        try {
+    // Check Superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI miles
+    const superfundP = (async () => {
         const radiusDeg = (SUPERFUND_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
         const env = `${lng - radiusDeg * 1.3},${lat - radiusDeg},${lng + radiusDeg * 1.3},${lat + radiusDeg}`
         const params = new URLSearchParams({
@@ -3366,12 +3366,10 @@ function MapPage() {
         }
         results.sort((a, b) => a.distanceMi - b.distanceMi)
         return results
-        } finally { markDone('superfund') }
-      })(),
+      })()
 
-      // Data centers within radius (static JSON)
-      (async () => {
-        try {
+    // Data centers within radius (static JSON)
+    const dataCenterP = (async () => {
         let data = dataCenterDataRef.current
         if (!data) {
           const res = await fetch('/data/data-centers.json')
@@ -3399,12 +3397,10 @@ function MapPage() {
         }
         nearby.sort((a, b) => a.distanceMi - b.distanceMi)
         return nearby
-        } finally { markDone('datacenters') }
-      })(),
+      })()
 
-      // Emergency Room proximity via Google Places
-      (async () => {
-        try {
+    // Emergency Room proximity via Google Places
+    const erP = (async () => {
         type ERHit = { name: string; address: string; distanceMi: number; lat: number; lng: number }
         const radiusM = ER_ANALYSIS_RADIUS_MI * milesToMeters
         const queries = ['emergency room', 'hospital emergency department']
@@ -3479,11 +3475,10 @@ function MapPage() {
         hits.sort((a, b) => a.distanceMi - b.distanceMi)
         dbg('er', `${hits.length} ER hits after filter; nearest=${hits[0]?.name ?? 'none'}`)
         return hits[0] ?? null
-        } finally { markDone('er') }
-      })(),
+      })()
 
-      // Crowd magnets within 5mi (OSM Overpass)
-      (async () => {
+    // Crowd magnets within 5mi (OSM Overpass)
+    const crowdP = (async () => {
         try {
           const radiusDeg = (CROWD_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
           const bbox = L.latLngBounds(
@@ -3503,9 +3498,54 @@ function MapPage() {
           return hits
         } catch {
           return []
-        } finally { markDone('crowd') }
-      })(),
-    ])
+        }
+      })()
+
+    // Commit each check's result and mark it done together, the moment it
+    // resolves, so each report tile's progress flag and its data stay in sync.
+    noiseP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, noiseLevel: r?.level ?? null, noiseAirport: r?.airport ?? null, noiseAirportCode: r?.code ?? null }))
+      markDone('noise')
+    }).catch(() => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, noiseLevel: null, noiseAirport: null, noiseAirportCode: null }))
+      markDone('noise')
+    })
+    superfundP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, superfunds: r }))
+      markDone('superfund')
+    }).catch(() => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, superfunds: [] }))
+      markDone('superfund')
+    })
+    dataCenterP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, dataCenters: r }))
+      markDone('datacenters')
+    }).catch(() => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, dataCenters: [] }))
+      markDone('datacenters')
+    })
+    erP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, nearestER: r, erError: false }))
+      markDone('er')
+    }).catch(() => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, nearestER: null, erError: true }))
+      markDone('er')
+    })
+    crowdP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r }))
+      markDone('crowd')
+    })
+
+    const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult] = await Promise.allSettled([noiseP, superfundP, dataCenterP, erP, crowdP])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
     const noiseLevel = noiseData?.level ?? null
@@ -3528,20 +3568,9 @@ function MapPage() {
       dbg('analysis', 'Stale run — discarding primary results')
       return
     }
-    setAnalysisResults({
-      loading: false,
-      noiseLevel, noiseAirport, noiseAirportCode,
-      superfunds,
-      costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true,
-      dataCenters,
-      nearestER, erError,
-      crowdMagnets,
-      broadband: null,
-      broadbandLoading: true,
-      floodZone: null,
-      floodError: false,
-      floodLoading: true,
-    })
+    // All in-batch values were already committed by the per-check chains above;
+    // just flip the top-level loading flag so the grade/score section renders.
+    setAnalysisResults((prev) => ({ ...prev, loading: false }))
 
     // FCC Broadband fetch runs independently of the other categories. Same
     // pattern as Costco — fire-and-forget, merge result when it lands.
@@ -6615,7 +6644,7 @@ function MapPage() {
             const cards: CardDesc[] = []
 
             {
-              const pNoise = analysisProgress.noise !== 'done' || analysisResults.loading
+              const pNoise = analysisProgress.noise !== 'done'
               const severity = pNoise ? 'pending' : (analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear')
               cards.push({ key: 'noise', severity, node: (
                 <div className={`analysis-card ${severity}`} key="noise">
@@ -6641,7 +6670,7 @@ function MapPage() {
             }
 
             {
-              const pSF = analysisProgress.superfund !== 'done' || analysisResults.loading
+              const pSF = analysisProgress.superfund !== 'done'
               const severity = pSF ? 'pending' : superfundSeverity(analysisResults.superfunds)
               cards.push({ key: 'superfunds', severity, node: (
                 <div className={`analysis-card ${severity}`} key="superfunds">
@@ -6669,7 +6698,7 @@ function MapPage() {
             }
 
             {
-              const pER = analysisProgress.er !== 'done' || analysisResults.loading
+              const pER = analysisProgress.er !== 'done'
               const severity = pER ? 'pending' : (analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger')
               cards.push({ key: 'er', severity, node: (
                 <div className={`analysis-card ${severity}`} key="er">
@@ -6697,7 +6726,7 @@ function MapPage() {
             }
 
             {
-              const pDC = analysisProgress.datacenters !== 'done' || analysisResults.loading
+              const pDC = analysisProgress.datacenters !== 'done'
               const severity = pDC ? 'pending' : dataCenterSeverity(analysisResults.dataCenters.length)
               cards.push({ key: 'datacenters', severity, node: (
                 <div className={`analysis-card ${severity}`} key="datacenters">
@@ -6725,7 +6754,7 @@ function MapPage() {
             }
 
             {
-              const pCrowd = analysisProgress.crowd !== 'done' || analysisResults.loading
+              const pCrowd = analysisProgress.crowd !== 'done'
               const severity = pCrowd ? 'pending' : crowdMagnetsSeverity(analysisResults.crowdMagnets.length)
               cards.push({ key: 'crowd', severity, node: (
                 <div className={`analysis-card ${severity}`} key="crowd">
