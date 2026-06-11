@@ -25,7 +25,6 @@ import {
   floodSeverity,
   fetchFloodFeatures,
   fetchFloodAtPoint,
-  type FloodPointResult,
 } from '../map/flood'
 import {
   SUPERFUND_API,
@@ -57,6 +56,99 @@ import {
   saveDevTodosToServer,
 } from '../map/devTodos'
 import { fetchOverpass } from '../map/overpass'
+import {
+  POWER_MIN_ZOOM,
+  POWER_VOLT_COLORS,
+  POWER_VOLT_ORDER,
+  POWER_VOLT_LABELS,
+  powerColor,
+  fetchPowerLineFeatures,
+} from '../map/power'
+import {
+  INDUSTRIAL_RADIUS_MI,
+  INDUSTRIAL_INDUSTRIES,
+  fetchIndustrialFacilities,
+} from '../map/industrial'
+import {
+  WHP_MIN_ZOOM,
+  WHP_MAX_USEFUL_ZOOM,
+  WHP_CLASS_COLORS,
+  buildWhpImageUrl,
+} from '../map/wildfire'
+import {
+  AQI_MIN_ZOOM,
+  AQI_CATEGORY_COLORS,
+  AQI_CATEGORY_LABELS,
+  aqiCategory,
+  aqiColor,
+  fetchAqiFeatures,
+} from '../map/aqi'
+import {
+  SURGE_CATEGORIES,
+  type SurgeCategory,
+  SURGE_TILE_URL,
+  SURGE_ATTRIBUTION,
+} from '../map/surge'
+import {
+  SLR_LEVELS,
+  type SlrLevel,
+  SLR_TILE_URL,
+  SLR_ATTRIBUTION,
+} from '../map/slr'
+import {
+  type DataCenter,
+  DC_STATUS_COLORS,
+  DC_STATUSES,
+  DC_STATUS_LABELS,
+  DATA_CENTER_ANALYSIS_RADIUS_MI,
+} from '../map/datacenters'
+import {
+  EMS_TYPES,
+  type EmsType,
+  EMS_COLORS,
+  EMS_LABELS,
+  EMS_ICONS,
+  EMS_QUERIES,
+} from '../map/ems'
+import {
+  type TransitStop,
+  TRANSIT_COLORS,
+  TRANSIT_LABELS,
+  transitPopup,
+} from '../map/transit'
+import {
+  CAMERA_COLORS,
+  type CameraRecord,
+  cameraPopup,
+} from '../map/cameras'
+import {
+  CROWD_TYPES,
+  type CrowdType,
+  CROWD_COLORS,
+  CROWD_LABELS,
+  CROWD_ICONS,
+  CROWD_LABEL_SINGULAR,
+  CROWD_ANALYSIS_RADIUS_MI,
+  type CrowdMagnet,
+  fetchCrowdMagnets,
+} from '../map/crowd'
+import {
+  CONUS_BOUNDS,
+  loadCamerasSnapshot,
+  loadCrowdSnapshot,
+  loadTransitStopsSnapshot,
+  loadTransitLinesSnapshot,
+} from '../map/snapshots'
+import {
+  getExpFlag,
+  costcoSeverity,
+  noiseSeverity,
+  superfundSeverity,
+  dataCenterSeverity,
+  crowdMagnetsSeverity,
+  erSeverity,
+  computeLocationGrade,
+} from '../map/scoring'
 
 // The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
 // dynamic-imported on first use so it stays out of the initial MapPage chunk.
@@ -200,487 +292,10 @@ const LEGEND_STOPS = LEGEND_BANDS
 
 // Overpass proxy fetch helper + types live in src/map/overpass.ts.
 
-interface TransitStop {
-  lat: number
-  lon: number
-  name: string
-  type: 'rail' | 'subway' | 'tram' | 'bus'
-}
-
-const TRANSIT_COLORS: Record<TransitStop['type'], string> = {
-  rail: '#0072B2',
-  subway: '#D55E00',
-  tram: '#009E73',
-  bus: '#E69F00',
-}
-
-const TRANSIT_LABELS: Record<TransitStop['type'], string> = {
-  rail: 'Rail Stations',
-  subway: 'Subway Stations',
-  tram: 'Tram Stops',
-  bus: 'Bus Stops',
-}
-
 // fetchTransitFromOverpass / loadTransitLines / loadBusLines now offload
 // the network fetch + JSON.parse + element classification to a Web Worker
 // (see src/workers/overpassWorker.ts). The main thread only receives the
 // parsed, typed payload and creates the Leaflet polylines / markers.
-
-// ALPR (automatic license plate reader) cameras. Flock Safety gets its own
-// color because it's the most-deployed brand and the namesake of the
-// DeFlock crowdsourcing project that supplies most of the underlying OSM
-// tags. Everything else (Motorola Vigilant, Genetec, Rekor, etc.) shares
-// a single neutral color.
-//
-// Magenta + violet are deliberately picked outside the rest of the layer
-// palette (Wong colorblind-safe set + traffic gradient) so a camera pin
-// is never mistaken for transit, EMS, data centers, or crowd magnets.
-const CAMERA_COLORS = { flock: '#db2777', other: '#7c3aed' } as const
-
-// Daily CONUS snapshots of every Overpass dataset, hydrated by
-// .github/workflows/snapshot-overpass.yml and served from Azure Blob with
-// Content-Encoding: gzip (browser auto-decompresses). The client prefers
-// each over its per-bbox live Overpass call whenever the map center is
-// inside CONUS — collapses dozens of pan-driven 1–5s Overpass calls into
-// one CDN-cached fetch held in module-scope memory for the page session.
-const SNAPSHOT_BASE =
-  'https://landreconstorage.blob.core.windows.net/snapshots'
-const CONUS_BOUNDS: [[number, number], [number, number]] = [
-  [24.5, -125.0],
-  [49.4, -66.9],
-]
-
-interface SnapshotEnvelope {
-  version: number
-  generated_at: string
-  region: string
-  bbox: number[]
-  count: number
-}
-
-interface CameraSnapshot extends SnapshotEnvelope { cameras: CameraRecord[] }
-interface CrowdSnapshotPayload extends SnapshotEnvelope { magnets: CrowdMagnet[] }
-interface TransitStopsSnapshot extends SnapshotEnvelope { stops: SnapshotTransitStop[] }
-interface TransitLinesSnapshot extends SnapshotEnvelope { lines: SnapshotTransitLine[] }
-
-interface SnapshotTransitStop { id: string; type: 'rail' | 'subway' | 'tram'; lat: number; lon: number; name: string }
-interface SnapshotTransitLine { id: string; type: 'rail' | 'subway' | 'tram'; coords: number[] }
-
-// Factory: returns a memoized snapshot fetcher with single-flight semantics.
-// Multiple concurrent callers (e.g. layer toggle + URL replay) share one
-// in-flight Promise; subsequent callers get the resolved cache instantly.
-function makeSnapshotLoader<T>(filename: string, dbgLabel: string) {
-  let cache: T | null = null
-  let inFlight: Promise<T | null> | null = null
-  return function load(): Promise<T | null> {
-    if (cache) return Promise.resolve(cache)
-    if (inFlight) return inFlight
-    const t0 = performance.now()
-    inFlight = (async () => {
-      try {
-        const res = await fetch(`${SNAPSHOT_BASE}/${filename}`, { cache: 'force-cache' })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const snap = (await res.json()) as T
-        cache = snap
-        const meta = snap as unknown as SnapshotEnvelope
-        dbg(dbgLabel, `Snapshot ${filename} loaded in ${(performance.now() - t0).toFixed(0)}ms — ${meta.count} records, generated ${meta.generated_at}`)
-        return snap
-      } catch (err) {
-        dbg(dbgLabel, `Snapshot ${filename} fetch failed; will fall back to live Overpass:`, err)
-        inFlight = null
-        return null
-      }
-    })()
-    return inFlight
-  }
-}
-
-const loadCamerasSnapshot = makeSnapshotLoader<CameraSnapshot>('cameras-us.json', 'cameras')
-const loadCrowdSnapshot = makeSnapshotLoader<CrowdSnapshotPayload>('crowd-us.json', 'crowd')
-const loadTransitStopsSnapshot = makeSnapshotLoader<TransitStopsSnapshot>('transit-stops-us.json', 'transit')
-const loadTransitLinesSnapshot = makeSnapshotLoader<TransitLinesSnapshot>('transit-lines-us.json', 'transit')
-
-interface CameraRecord {
-  id: string
-  lat: number
-  lon: number
-  manufacturer: string
-  operator: string
-  direction: string
-  isFlock: boolean
-}
-
-function cameraPopup(c: CameraRecord): string {
-  const label = c.isFlock ? 'Flock Safety ALPR' : (c.manufacturer ? `${c.manufacturer} ALPR` : 'ALPR camera')
-  const color = c.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
-  const rows: string[] = []
-  if (c.operator) rows.push(`<div><strong>Operator:</strong> ${escapeHtml(c.operator)}</div>`)
-  if (c.direction) rows.push(`<div><strong>Direction:</strong> ${escapeHtml(c.direction)}</div>`)
-  const nodeId = c.id.replace(/^node\//, '')
-  return `
-    <div class="transit-popup">
-      <div class="transit-popup-title" style="color:${color}">${label}</div>
-      ${rows.join('')}
-      <div class="camera-popup-source">
-        Source: <a href="https://www.openstreetmap.org/node/${nodeId}" target="_blank" rel="noopener noreferrer">OSM node ${nodeId}</a>
-        &middot; <a href="https://deflock.me/" target="_blank" rel="noopener noreferrer">DeFlock</a>
-      </div>
-    </div>
-  `.trim()
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
-}
-
-function transitPopup(stop: TransitStop): string {
-  const label = TRANSIT_LABELS[stop.type]
-  const color = TRANSIT_COLORS[stop.type]
-  return `
-    <div class="transit-popup">
-      <div class="popup-header">
-        <span class="transit-icon" style="background:${color}"></span>
-        <strong>${stop.name || 'Unnamed Stop'}</strong>
-      </div>
-      <div class="popup-body">
-        <div class="popup-row">
-          <span class="popup-label">Type</span>
-          <span>${label}</span>
-        </div>
-      </div>
-    </div>
-  `
-}
-
-// ── HIFLD Electric Power Transmission Lines ─────────────────────────────
-// Public ArcGIS FeatureServer hosted by Esri on behalf of the Homeland
-// Infrastructure Foundation-Level Data (HIFLD) Open program. ~88k feature
-// polylines nationally — gated to zoom >= POWER_MIN_ZOOM to keep the fetch
-// payload bounded.
-const POWER_API =
-  'https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services/Electric_Power_Transmission_Lines/FeatureServer/0/query'
-
-const POWER_FIELDS = ['OWNER', 'VOLTAGE', 'VOLT_CLASS', 'TYPE', 'STATUS', 'SUB_1', 'SUB_2'].join(',')
-
-const POWER_MIN_ZOOM = 10
-
-// Color bands keyed by VOLT_CLASS value. The dataset uses these exact
-// strings for the bucketing field; values like "NOT AVAILABLE" and "DC"
-// fall through to a neutral gray and a distinct blue respectively.
-const POWER_VOLT_COLORS: Record<string, string> = {
-  'UNDER 100': '#fde725',
-  '100-161': '#f7a51b',
-  '220-287': '#ef4035',
-  '345': '#c724b1',
-  '500': '#7e1ce9',
-  '735 AND ABOVE': '#3b0f7a',
-  'DC': '#1f6feb',
-  'NOT AVAILABLE': '#9ca3af',
-}
-
-const POWER_VOLT_ORDER: readonly string[] = [
-  'UNDER 100', '100-161', '220-287', '345', '500', '735 AND ABOVE', 'DC', 'NOT AVAILABLE',
-] as const
-
-const POWER_VOLT_LABELS: Record<string, string> = {
-  'UNDER 100': '< 100 kV',
-  '100-161': '100–161 kV',
-  '220-287': '220–287 kV',
-  '345': '345 kV',
-  '500': '500 kV',
-  '735 AND ABOVE': '735 kV+',
-  'DC': 'HVDC',
-  'NOT AVAILABLE': 'Unknown',
-}
-
-function powerColor(props: GeoJSON.GeoJsonProperties): string {
-  const cls = String((props as Record<string, unknown> | null | undefined)?.VOLT_CLASS || '').toUpperCase().trim()
-  return POWER_VOLT_COLORS[cls] || POWER_VOLT_COLORS['NOT AVAILABLE']
-}
-
-async function fetchPowerLineFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-  const params = new URLSearchParams({
-    where: '1=1',
-    outFields: POWER_FIELDS,
-    geometry: bbox,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'geojson',
-    resultRecordCount: '2000',
-  })
-  const res = await fetch(`${POWER_API}?${params}`)
-  return res.json()
-}
-
-// ── EPA FRS Industrial Facilities ───────────────────────────────────────
-// EPA Facility Registry Service (FRS_INTERESTS MapServer). Each layer is
-// a filtered point view of all FRS-registered facilities that participate
-// EPA TRI Reporting Facilities — narrow industrial-hazard layer.
-// We query a single MapServer layer that exposes facility-level rollups
-// of toxic chemical releases from EPA's Toxics Release Inventory, with
-// a clean INDUSTRY field that maps to NAICS prefixes. We filter to the
-// three industry sectors that almost always indicate a heavy-emissions
-// facility next door:
-//   • 324 Petroleum  — oil refineries
-//   • 325 Chemicals  — chemical plants
-//   • 322 Paper      — paper / pulp mills
-const INDUSTRIAL_API_BASE =
-  'https://gispub.epa.gov/arcgis/rest/services/OEI/TRI_Reporting_Facilities/MapServer/0'
-const INDUSTRIAL_FIELDS = [
-  'EPA_REGISTRY_ID', 'TRI_FACILITY_ID', 'FACILITY_NAME', 'STREET_ADDRESS',
-  'CITY', 'STATE', 'INDUSTRY', 'TOTAL_RELEASES_lb', 'REPORTING_YEAR',
-].join(',')
-// Scope the layer to a radius around the searched address rather than the
-// viewport — refinery / chemical / paper-mill impact is meaningfully tied
-// to the property the user is researching. 10 mi keeps the focus tight on
-// the immediate neighborhood (most acute air-quality + nuisance reach).
-const INDUSTRIAL_RADIUS_MI = 10
-
-type IndustrialIndustryKey = 'PETROLEUM' | 'CHEMICALS' | 'PAPER'
-
-interface IndustrialIndustryMeta {
-  key: IndustrialIndustryKey
-  // EPA INDUSTRY field literal (e.g. "324 Petroleum")
-  industryValue: string
-  label: string
-  color: string
-  icon: string
-}
-
-const INDUSTRIAL_INDUSTRIES: readonly IndustrialIndustryMeta[] = [
-  { key: 'PETROLEUM', industryValue: '324 Petroleum', label: 'Oil refineries',  color: '#37474f', icon: '🛢️' },
-  { key: 'CHEMICALS', industryValue: '325 Chemicals', label: 'Chemical plants', color: '#ef5350', icon: '⚗️' },
-  { key: 'PAPER',     industryValue: '322 Paper',     label: 'Paper mills',     color: '#6d4c41', icon: '📄' },
-] as const
-
-const INDUSTRIAL_INDUSTRY_BY_VALUE = new Map(
-  INDUSTRIAL_INDUSTRIES.map((m) => [m.industryValue, m]),
-)
-
-interface IndustrialFacility {
-  registryId: string
-  name: string
-  address: string | null
-  city: string | null
-  state: string | null
-  industry: IndustrialIndustryMeta
-  totalReleasesLb: number | null
-  reportingYear: string | null
-  facUrl: string | null
-  lat: number
-  lng: number
-  distanceMi: number
-}
-
-async function fetchIndustrialFacilities(
-  center: L.LatLng,
-  radiusMi: number,
-): Promise<IndustrialFacility[]> {
-  // Bounding box that fully contains a `radiusMi` circle around `center`.
-  const dLat = radiusMi / 69.0
-  const dLng = radiusMi / (69.0 * Math.max(Math.cos((center.lat * Math.PI) / 180), 0.01))
-  const west = center.lng - dLng
-  const east = center.lng + dLng
-  const south = center.lat - dLat
-  const north = center.lat + dLat
-  const industryList = INDUSTRIAL_INDUSTRIES.map((m) => `'${m.industryValue}'`).join(',')
-  const params = new URLSearchParams({
-    where: `INDUSTRY IN (${industryList})`,
-    outFields: INDUSTRIAL_FIELDS,
-    geometry: `${west},${south},${east},${north}`,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'json',
-    resultRecordCount: '2000',
-  })
-  const res = await fetch(`${INDUSTRIAL_API_BASE}/query?${params}`)
-  if (!res.ok) return []
-  const json = await res.json() as {
-    features?: Array<{ attributes: Record<string, unknown>; geometry: { x: number; y: number } }>
-  }
-  const radiusM = radiusMi * 1609.34
-  // Dedupe by EPA_REGISTRY_ID (or TRI_FACILITY_ID); keep most recent report.
-  const byId = new Map<string, IndustrialFacility>()
-  for (const f of json.features || []) {
-    const attrs = f.attributes || {}
-    const id = String(attrs.EPA_REGISTRY_ID || attrs.TRI_FACILITY_ID || '').trim()
-    if (!id) continue
-    const industryValue = String(attrs.INDUSTRY || '').trim()
-    const industry = INDUSTRIAL_INDUSTRY_BY_VALUE.get(industryValue)
-    if (!industry) continue
-    const lat = Number(f.geometry?.y)
-    const lng = Number(f.geometry?.x)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-    const distM = center.distanceTo(L.latLng(lat, lng))
-    if (distM > radiusM) continue
-    const year = attrs.REPORTING_YEAR ? String(attrs.REPORTING_YEAR).trim() : null
-    const existing = byId.get(id)
-    if (existing && existing.reportingYear && year && existing.reportingYear >= year) continue
-    const releases = Number(attrs.TOTAL_RELEASES_lb)
-    byId.set(id, {
-      registryId: id,
-      name: String(attrs.FACILITY_NAME || '').trim() || 'Unknown facility',
-      address: attrs.STREET_ADDRESS ? String(attrs.STREET_ADDRESS).trim() : null,
-      city: attrs.CITY ? String(attrs.CITY).trim() : null,
-      state: attrs.STATE ? String(attrs.STATE).trim() : null,
-      industry,
-      totalReleasesLb: Number.isFinite(releases) ? releases : null,
-      reportingYear: year,
-      facUrl: attrs.EPA_REGISTRY_ID
-        ? `https://echo.epa.gov/detailed-facility-report?fid=${String(attrs.EPA_REGISTRY_ID).trim()}`
-        : null,
-      lat,
-      lng,
-      distanceMi: distM / 1609.34,
-    })
-  }
-  return Array.from(byId.values()).sort((a, b) => a.distanceMi - b.distanceMi)
-}
-
-// ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
-// 270m raster, 5 classes (Very Low → Very High) + non-burnable + water.
-// Hosted by the Imagery Information Products Program (IIPP) — the new
-// home for what used to live on apps.fs.usda.gov. We request a single
-// pre-symbolized PNG per viewport via the ImageServer's exportImage
-// endpoint and overlay it via Leaflet's L.imageOverlay (re-fetched on
-// moveend). The "WHP_CLS_2023_8bit" raster function bakes in the
-// canonical USFS color ramp.
-const WHP_BASE =
-  'https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/USFS_EDW_RMRS_WildfireHazardPotentialClassified/ImageServer/exportImage'
-
-const WHP_RENDERING_RULE = JSON.stringify({ rasterFunction: 'WHP_CLS_2023_8bit' })
-
-// Min zoom where overlay reads usefully. Below this the 270m pixels
-// degenerate into noise and the request size cap kicks in.
-const WHP_MIN_ZOOM = 6
-// Above this zoom the source raster (270m / pixel) is heavily upsampled
-// and looks blocky. Keep the overlay attached but request the same image
-// size — the browser will scale it. No additional fetch needed.
-const WHP_MAX_USEFUL_ZOOM = 14
-
-const WHP_CLASS_COLORS: Array<{ label: string; color: string }> = [
-  { label: 'Very low',      color: '#1a9850' },
-  { label: 'Low',           color: '#a6d96a' },
-  { label: 'Moderate',      color: '#fee08b' },
-  { label: 'High',          color: '#fc8d59' },
-  { label: 'Very high',     color: '#d73027' },
-  { label: 'Non-burnable',  color: '#bdbdbd' },
-  { label: 'Water',         color: '#6baed6' },
-]
-
-// ── EPA AirNow Latest AQI Contours (combined Ozone + PM2.5) ─────────────
-// Hourly-refreshed polygon contour layer hosted on EPA's public ArcGIS
-// Online org. `gridcode` is the AQI category (1–6); "Combined" means the
-// worst-of Ozone and PM2.5 at the contour location. Polygons are coarse
-// and useful even at low zoom for visualizing regional smoke / dust /
-// ozone events, so the gate is permissive.
-const AQI_API =
-  'https://services.arcgis.com/cJ9YHowT8TU7DUyn/ArcGIS/rest/services/AirNowLatestContoursCombined/FeatureServer/0/query'
-
-const AQI_FIELDS = ['gridcode', 'Timestamp'].join(',')
-
-const AQI_MIN_ZOOM = 4
-
-// EPA standard AQI category colors (https://www.airnow.gov/aqi/aqi-basics/)
-const AQI_CATEGORY_COLORS: Record<number, string> = {
-  1: '#00e400',
-  2: '#ffff00',
-  3: '#ff7e00',
-  4: '#ff0000',
-  5: '#8f3f97',
-  6: '#7e0023',
-}
-
-const AQI_CATEGORY_LABELS: Record<number, string> = {
-  1: 'Good (0–50)',
-  2: 'Moderate (51–100)',
-  3: 'Unhealthy for sensitive (101–150)',
-  4: 'Unhealthy (151–200)',
-  5: 'Very unhealthy (201–300)',
-  6: 'Hazardous (301+)',
-}
-
-function aqiCategory(props: GeoJSON.GeoJsonProperties): number {
-  const raw = (props as Record<string, unknown> | null | undefined)?.gridcode
-  const n = typeof raw === 'number' ? raw : Number(raw)
-  if (!Number.isFinite(n)) return 1
-  return Math.min(Math.max(Math.round(n), 1), 6)
-}
-
-function aqiColor(props: GeoJSON.GeoJsonProperties): string {
-  return AQI_CATEGORY_COLORS[aqiCategory(props)] || AQI_CATEGORY_COLORS[1]
-}
-
-async function fetchAqiFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-  const params = new URLSearchParams({
-    where: '1=1',
-    outFields: AQI_FIELDS,
-    geometry: bbox,
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326',
-    outSR: '4326',
-    f: 'geojson',
-    resultRecordCount: '2000',
-  })
-  const res = await fetch(`${AQI_API}?${params}`)
-  return res.json()
-}
-
-function buildWhpImageUrl(bounds: L.LatLngBounds, widthPx: number, heightPx: number): string {
-  // ArcGIS exportImage accepts bbox in EPSG:4326 if bboxSR=4326 is set;
-  // the service reprojects internally. Cap pixel dimensions so we don't
-  // accidentally request a huge tile on a 4K display.
-  const w = Math.min(Math.max(Math.round(widthPx), 256), 1600)
-  const h = Math.min(Math.max(Math.round(heightPx), 256), 1600)
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-  const params = new URLSearchParams({
-    bbox,
-    bboxSR: '4326',
-    imageSR: '3857',
-    size: `${w},${h}`,
-    format: 'png32',
-    f: 'image',
-    transparent: 'true',
-    renderingRule: WHP_RENDERING_RULE,
-  })
-  return `${WHP_BASE}?${params}`
-}
-
-// ── NOAA Storm Surge & Sea-Level Rise ───────────────────────────────────
-// Two coastal-hazard raster layers, each served as pre-rendered XYZ tiles
-// (singleFusedMapCache=true on the source MapServer) — meaning we can use
-// L.tileLayer directly with the standard {z}/{x}/{y} pattern instead of
-// the more expensive exportImage round-trip we use for the wildfire WHP
-// raster. One sublayer is shown at a time per parent layer.
-//
-// Storm Surge: NHC's National Storm Surge Hazard Maps v3 (pre-computed
-// SLOSH MOMs). One MapServer per Saffir-Simpson category, hosted on
-// tiles.arcgis.com under the NWS.NCEP.NHC.SSU AGOL org. Covers Atlantic,
-// Gulf, Hawaii, and Puerto Rico/USVI coasts. Max zoom 14.
-const SURGE_CATEGORIES = [1, 2, 3, 4, 5] as const
-type SurgeCategory = typeof SURGE_CATEGORIES[number]
-const SURGE_TILE_URL = (cat: SurgeCategory) =>
-  `https://tiles.arcgis.com/tiles/C8EMgrsFcRFL6LrL/arcgis/rest/services/Storm_Surge_HazardMaps_Category${cat}_v3/MapServer/tile/{z}/{y}/{x}`
-const SURGE_ATTRIBUTION =
-  '<a href="https://www.nhc.noaa.gov/nationalsurge/" target="_blank" rel="noopener">NOAA NHC Storm Surge</a>'
-
-// Sea-Level Rise: NOAA Office for Coastal Management SLR Viewer. One
-// MapServer per foot of rise (0–10 ft). Confidence-symbology raster
-// shows where land would be permanently inundated at that level. Covers
-// all US coasts including AK and HI. Max zoom 16.
-const SLR_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
-type SlrLevel = typeof SLR_LEVELS[number]
-const SLR_TILE_URL = (ft: SlrLevel) =>
-  `https://coast.noaa.gov/arcgis/rest/services/dc_slr/conf_${ft}ft/MapServer/tile/{z}/{y}/{x}`
-const SLR_ATTRIBUTION =
-  '<a href="https://coast.noaa.gov/slr/" target="_blank" rel="noopener">NOAA Sea Level Rise Viewer</a>'
 
 const NPL_STATUS_INFO: Record<string, { label: string; desc: string }> = {
   F: { label: 'Final', desc: 'Officially listed on the NPL as a priority cleanup site' },
@@ -801,355 +416,11 @@ const LAYER_PRESETS: readonly LayerPreset[] = [
   },
 ] as const
 
-interface DataCenter {
-  name: string
-  address: string
-  city: string
-  state: string
-  lat: number
-  lng: number
-  status: string
-  operator: string
-  mw: string
-  sizerank: string
-}
-
-const DC_STATUS_COLORS: Record<string, string> = {
-  'Operating': '#009E73',
-  'Proposed': '#56B4E9',
-  'Approved/Permitted/Under construction': '#E69F00',
-  'Expanding': '#CC79A7',
-  'Suspended': '#6b7280',
-}
-
-const DC_STATUSES = Object.keys(DC_STATUS_COLORS) as string[]
-
-const DC_STATUS_LABELS: Record<string, string> = {
-  'Operating': 'Operating',
-  'Proposed': 'Proposed',
-  'Approved/Permitted/Under construction': 'Under Construction',
-  'Expanding': 'Expanding',
-  'Suspended': 'Suspended',
-}
-
-const DATA_CENTER_ANALYSIS_RADIUS_MI = 3
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
-const EMS_TYPES = ['fire_station', 'hospital', 'police'] as const
-type EmsType = typeof EMS_TYPES[number]
-const EMS_COLORS: Record<EmsType, string> = {
-  fire_station: '#D55E00',
-  hospital: '#0072B2',
-  police: '#332288',
-}
-const EMS_LABELS: Record<EmsType, string> = {
-  fire_station: 'Fire Stations',
-  hospital: 'Hospitals',
-  police: 'Police Stations',
-}
-const EMS_ICONS: Record<EmsType, string> = {
-  fire_station: '🚒',
-  hospital: '🏥',
-  police: '🚔',
-}
-const EMS_QUERIES: Record<EmsType, string[]> = {
-  fire_station: ['fire stations'],
-  hospital: ['hospitals', 'emergency rooms'],
-  police: ['police stations'],
-}
-
-const CROWD_TYPES = ['stadium', 'concert', 'park', 'raceway', 'themepark'] as const
-type CrowdType = typeof CROWD_TYPES[number]
-const CROWD_COLORS: Record<CrowdType, string> = {
-  stadium: '#D55E00',
-  concert: '#CC79A7',
-  park: '#009E73',
-  raceway: '#332288',
-  themepark: '#E69F00',
-}
-const CROWD_LABELS: Record<CrowdType, string> = {
-  stadium: 'Stadiums',
-  concert: 'Concert Venues',
-  park: 'National Parks',
-  raceway: 'Racetracks',
-  themepark: 'Theme Parks',
-}
-const CROWD_ICONS: Record<CrowdType, string> = {
-  stadium: '🏟️',
-  concert: '🎵',
-  park: '🌲',
-  raceway: '🏁',
-  themepark: '🎢',
-}
-const CROWD_LABEL_SINGULAR: Record<CrowdType, string> = {
-  stadium: 'Stadium',
-  concert: 'Concert Venue',
-  park: 'National Park',
-  raceway: 'Racetrack',
-  themepark: 'Theme Park',
-}
-const CROWD_ANALYSIS_RADIUS_MI = 2
-
-interface CrowdMagnet {
-  id: string
-  name: string
-  type: CrowdType
-  lat: number
-  lng: number
-}
-
-const SCHOOL_NAME_RE = /\b(elementary|middle school|high school|junior high|preparatory|prep school|academy|charter|catholic school|christian school|christian academy|day school|public schools?)\b/i
-const COMMUNITY_NAME_RE = /\b(community (center|centre|park)|recreation (center|centre)|rec center|rec centre|ymca|ywca|civic center|civic centre)\b/i
-
-function isSchoolVenue(tags: Record<string, string>, name: string): boolean {
-  if (SCHOOL_NAME_RE.test(name)) return true
-  if (tags.school) return true
-  if (tags.amenity === 'school') return true
-  const op = (tags.operator || '').toLowerCase()
-  if (op.includes('school') || op.includes('academy') || op.includes('isd')) return true
-  return false
-}
-
-function isCommunityVenue(tags: Record<string, string>, name: string): boolean {
-  if (COMMUNITY_NAME_RE.test(name)) return true
-  if (tags.amenity === 'community_centre') return true
-  return false
-}
-
-function classifyCrowdElement(tags: Record<string, string>): CrowdType | null {
-  if (tags.boundary === 'national_park') return 'park'
-  if (tags.tourism === 'theme_park') return 'themepark'
-  if (tags.leisure === 'stadium') return 'stadium'
-  if (tags.amenity === 'amphitheatre') return 'concert'
-  if (tags.highway === 'raceway') return 'raceway'
-  if (tags.leisure === 'track') {
-    const sport = (tags.sport || '').toLowerCase()
-    if (/motor|drag|karting|horse_racing/.test(sport)) return 'raceway'
-  }
-  return null
-}
-
-async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): Promise<CrowdMagnet[]> {
-  const s = bounds.getSouth(), w = bounds.getWest()
-  const n = bounds.getNorth(), e = bounds.getEast()
-  const bbox = `${s},${w},${n},${e}`
-  const q = `[out:json][timeout:25];(
-    nwr["leisure"="stadium"]["name"](${bbox});
-    nwr["tourism"="theme_park"]["name"](${bbox});
-    nwr["amenity"="amphitheatre"]["name"][!"historic"](${bbox});
-    nwr["highway"="raceway"]["name"](${bbox});
-    way["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"]["name"](${bbox});
-    relation["leisure"="track"]["sport"~"motor|drag_racing|karting|horse_racing"]["name"](${bbox});
-    way["boundary"="national_park"]["name"](${bbox});
-    relation["boundary"="national_park"]["name"](${bbox});
-  );out body center;`
-  const data = await fetchOverpass(q, { label: 'crowd', signal })
-  if (!data?.elements) return []
-  const seen = new Set<string>()
-  const out: CrowdMagnet[] = []
-  for (const el of data.elements) {
-    const lat = el.lat ?? el.center?.lat
-    const lon = el.lon ?? el.center?.lon
-    if (lat == null || lon == null) continue
-    const tags = el.tags || {}
-    const type = classifyCrowdElement(tags)
-    if (!type) continue
-    const rawName = tags.name || tags['name:en'] || tags.short_name
-    if (!rawName) continue
-    // Skip school stadiums/fields and community/rec centers — too many in
-    // residential areas, and they don't really qualify as crowd magnets
-    // compared to pro/college venues.
-    if ((type === 'stadium' || type === 'concert') && (isSchoolVenue(tags, rawName) || isCommunityVenue(tags, rawName))) continue
-    const id = `${el.type}-${el.id}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push({ id, name: rawName, type, lat, lng: lon })
-  }
-  // Dedupe by name+type within ~1.5 mi (catches multi-polygon parks and
-  // stadiums tagged as both way and relation).
-  const merged: CrowdMagnet[] = []
-  for (const m of out) {
-    const dup = merged.find((x) => x.type === m.type
-      && x.name.toLowerCase() === m.name.toLowerCase()
-      && L.latLng(x.lat, x.lng).distanceTo(L.latLng(m.lat, m.lng)) / 1609.34 < 1.5)
-    if (!dup) merged.push(m)
-  }
-  return merged
-}
-
 const COSTCO_ANALYSIS_RADIUS_MI = 100
-const COSTCO_GREEN_RADIUS_MI = 30
 const ER_ANALYSIS_RADIUS_MI = 15
 const SUPERFUND_ANALYSIS_RADIUS_MI = 3
-
-function getExpFlag(key: string, fallback: boolean): boolean {
-  const v = localStorage.getItem(key)
-  return v === null ? fallback : v === '1'
-}
-
-function costcoSeverity(distMi: number): 'good' | 'warning' | 'danger' {
-  if (distMi <= COSTCO_GREEN_RADIUS_MI) return 'good'
-  if (distMi <= 50) return 'warning'
-  return 'danger'
-}
-
-function noiseSeverity(db: number): 'warning' | 'danger' {
-  if (db < 65) return 'warning'
-  return 'danger'
-}
-
-function superfundSeverity(sites: { status: string }[]): 'clear' | 'warning' | 'danger' {
-  if (sites.length === 0) return 'clear'
-  const hasActive = sites.some(s => s.status !== 'Deleted')
-  return hasActive ? 'danger' : 'warning'
-}
-
-function dataCenterSeverity(count: number): 'clear' | 'warning' | 'danger' {
-  if (count === 0) return 'clear'
-  if (count <= 2) return 'warning'
-  return 'danger'
-}
-
-function crowdMagnetsSeverity(count: number): 'clear' | 'warning' | 'danger' {
-  if (count === 0) return 'clear'
-  if (count <= 2) return 'warning'
-  return 'danger'
-}
-
-function erSeverity(distMi: number | null): 'clear' | 'good' | 'warning' | 'danger' {
-  if (distMi === null) return 'danger'
-  if (distMi <= 10) return 'clear'
-  if (distMi <= 15) return 'warning'
-  return 'danger'
-}
-
-type SeverityLevel = 'clear' | 'good' | 'warning' | 'danger'
-
-function computeLocationGrade(results: {
-  noiseLevel: number | null
-  superfunds: { status: string }[]
-  costco: { distanceMi: number } | null
-  costcoError: boolean
-  costcoLoading?: boolean
-  dataCenters: unknown[]
-  nearestER: { distanceMi: number } | null
-  crowdMagnets: unknown[]
-  broadband?: BroadbandResponse | null
-  broadbandLoading?: boolean
-  floodZone?: FloodPointResult | null
-  floodError?: boolean
-  floodLoading?: boolean
-}): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
-  const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
-
-  // Tiered weighting (introduced 2026-06-04):
-  //   Safety     — Noise, Superfund, ER, Flood — max 3 each
-  //   Lifestyle  — Data Centers, Crowd, Bband   — max 2 each
-  //   Convenience — Costco                      — max 1
-  // Total possible penalty = 19. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
-
-  // --- SAFETY (max 3) ---
-
-  // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+)
-  let noiseScore = 0
-  let noiseDetail = 'No airport noise detected'
-  if (results.noiseLevel) {
-    if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
-    else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
-  }
-  breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 3, detail: noiseDetail, tier: 'safety' })
-
-  // Superfund: clear=0, warning=2, danger=3
-  const sfSev = superfundSeverity(results.superfunds)
-  const sfScore = sfSev === 'clear' ? 0 : sfSev === 'warning' ? 2 : 3
-  const sfDetail = results.superfunds.length === 0 ? `None within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi`
-    : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
-  breakdown.push({ label: 'Superfund Sites', icon: '☢️', score: sfScore, max: 3, detail: sfDetail, tier: 'safety' })
-
-  // Emergency Room: good/clear=0, warning=2, danger=3
-  const erDist = results.nearestER?.distanceMi ?? null
-  const erSev = erSeverity(erDist)
-  const erScore = (erSev === 'clear' || erSev === 'good') ? 0 : erSev === 'warning' ? 2 : 3
-  const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
-  breakdown.push({ label: 'Emergency Room', icon: '🏥', score: erScore, max: 3, detail: erDetail, tier: 'safety' })
-
-  // Flood zone: clear=0, warning=2 (moderate / 0.2%), danger=3 (SFHA / coastal).
-  // Skipped while still loading so the grade isn't penalized before the FEMA
-  // point query resolves. On error, included as a neutral 0 with a note.
-  if (!results.floodLoading) {
-    const floodSev = results.floodZone ? floodSeverity(results.floodZone.bucket) : 'clear'
-    const floodScore = floodSev === 'danger' ? 3 : floodSev === 'warning' ? 2 : 0
-    const floodDetail = results.floodError
-      ? 'Flood data unavailable'
-      : results.floodZone
-        ? FLOOD_ZONE_LABELS[results.floodZone.bucket]
-        : 'No mapped FEMA hazard'
-    breakdown.push({ label: 'Flood Zone', icon: '🌊', score: floodScore, max: 3, detail: floodDetail, tier: 'safety' })
-  }
-
-  // --- LIFESTYLE (max 2) ---
-
-  // Data centers: clear=0, warning=1, danger=2
-  const dcSev = dataCenterSeverity(results.dataCenters.length)
-  const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
-  const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
-  breakdown.push({ label: 'Data Centers', icon: '🏢', score: dcScore, max: 2, detail: dcDetail, tier: 'lifestyle' })
-
-  // Crowd magnets: clear=0, warning=1, danger=2
-  const cmCount = results.crowdMagnets.length
-  const cmSev = crowdMagnetsSeverity(cmCount)
-  const cmScore = cmSev === 'clear' ? 0 : cmSev === 'warning' ? 1 : 2
-  const cmDetail = cmCount === 0
-    ? `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`
-    : `${cmCount} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
-  breakdown.push({ label: 'Crowd Magnets', icon: '🎟️', score: cmScore, max: 2, detail: cmDetail, tier: 'lifestyle' })
-
-  // Broadband: good/clear=0, warning=1, danger=2
-  // Skip entirely while still loading (so the grade isn't artificially
-  // penalized before broadband resolves). If broadband resolved but returned
-  // no summary (block-only fallback or no data), include it as 0 with a
-  // "data not available" note so it stays neutral.
-  if (!results.broadbandLoading) {
-    const bbSummary = results.broadband?.summary ?? null
-    const bbSev = broadbandSeverity(bbSummary?.speedTier)
-    const bbScore = (bbSev === 'clear' || bbSev === 'good') ? 0 : bbSev === 'warning' ? 1 : 2
-    let bbDetail = 'No data available'
-    if (bbSummary) {
-      const speed = formatBroadbandSpeed(bbSummary.maxDownMbps)
-      bbDetail = `${speed} down · ${bbSummary.providerCount} ${bbSummary.providerCount === 1 ? 'provider' : 'providers'}${bbSummary.hasFiber ? ' · fiber' : ''}`
-    }
-    breakdown.push({ label: 'Broadband', icon: '📶', score: bbScore, max: 2, detail: bbDetail, tier: 'lifestyle' })
-  }
-
-  // --- CONVENIENCE (max 1) ---
-
-  // Costco: good=0, warning=0, danger=1. Only the worst case (no Costco
-  // within range, or search timed out) costs a point. Skipped while loading
-  // so the grade isn't artificially penalized.
-  if (!results.costcoLoading) {
-    let costcoScore = 0
-    let costcoDetail: string
-    if (!results.costco) {
-      costcoScore = 1
-      costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
-    } else {
-      const cs = costcoSeverity(results.costco.distanceMi)
-      costcoScore = cs === 'danger' ? 1 : 0
-      costcoDetail = `${results.costco.distanceMi} mi away`
-    }
-    breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 1, detail: costcoDetail, tier: 'convenience' })
-  }
-
-  const total = breakdown.reduce((a, b) => a + b.score, 0)
-  const max = breakdown.reduce((a, b) => a + b.max, 0)
-
-  const pct = max > 0 ? 1 - total / max : 1
-  if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct, breakdown }
-  if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct, breakdown }
-  if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct, breakdown }
-  if (pct >= 0.25) return { letter: 'D', color: '#ff7043', severity: 'warning', pct, breakdown }
-  return { letter: 'F', color: '#ef5350', severity: 'danger', pct, breakdown }
-}
 
 // leaflet.markercluster is a side-effect plugin that extends the L.* namespace.
 // Defer loading it until a layer that needs clustering is enabled, so it
