@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import { fetchJsonWithRetry } from './fetchRetry'
 
 // ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
 // 270m raster, 5 classes (Very Low → Very High) + non-burnable + water.
@@ -86,9 +87,7 @@ export async function fetchWildfireAtPoint(lat: number, lng: number): Promise<Wi
     returnCatalogItems: 'false',
     f: 'json',
   })
-  const res = await fetch(`${WHP_IDENTIFY}?${params}`, { signal: AbortSignal.timeout(10000) })
-  if (!res.ok) throw new Error(`USFS WHP ${res.status}`)
-  const data: { value?: string } = await res.json()
+  const data = await fetchJsonWithRetry<{ value?: string }>(`${WHP_IDENTIFY}?${params}`)
   const raw = data?.value
   const value = typeof raw === 'string' ? parseInt(raw, 10) : NaN
   if (!Number.isFinite(value) || value < 1 || value > 7) return null

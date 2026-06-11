@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import { fetchJsonWithRetry } from './fetchRetry'
 
 // ── FEMA National Flood Hazard Layer (NFHL) ─────────────────────────────
 export const FLOOD_API =
@@ -219,9 +220,7 @@ export async function fetchFloodAtPoint(lat: number, lng: number): Promise<Flood
     returnGeometry: 'false',
     resultRecordCount: '50',
   })
-  const res = await fetch(`${FLOOD_API}?${params}`, { signal: AbortSignal.timeout(10000) })
-  if (!res.ok) throw new Error(`FEMA NFHL ${res.status}`)
-  const data: GeoJSON.FeatureCollection = await res.json()
+  const data = await fetchJsonWithRetry<GeoJSON.FeatureCollection>(`${FLOOD_API}?${params}`)
   const feats = data.features ?? []
   let best: FloodPointResult | null = null
   let bestRank = -1
