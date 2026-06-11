@@ -1537,14 +1537,17 @@ function computeLocationGrade(results: {
   crowdMagnets: unknown[]
   broadband?: BroadbandResponse | null
   broadbandLoading?: boolean
+  floodZone?: FloodPointResult | null
+  floodError?: boolean
+  floodLoading?: boolean
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
   // Tiered weighting (introduced 2026-06-04):
-  //   Safety     — Noise, Superfund, ER       — max 3 each
-  //   Lifestyle  — Data Centers, Crowd, Bband — max 2 each
-  //   Convenience — Costco                    — max 1
-  // Total possible penalty = 16. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
+  //   Safety     — Noise, Superfund, ER, Flood — max 3 each
+  //   Lifestyle  — Data Centers, Crowd, Bband   — max 2 each
+  //   Convenience — Costco                      — max 1
+  // Total possible penalty = 19. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
 
   // --- SAFETY (max 3) ---
 
@@ -1570,6 +1573,20 @@ function computeLocationGrade(results: {
   const erScore = (erSev === 'clear' || erSev === 'good') ? 0 : erSev === 'warning' ? 2 : 3
   const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
   breakdown.push({ label: 'Emergency Room', icon: '🏥', score: erScore, max: 3, detail: erDetail, tier: 'safety' })
+
+  // Flood zone: clear=0, warning=2 (moderate / 0.2%), danger=3 (SFHA / coastal).
+  // Skipped while still loading so the grade isn't penalized before the FEMA
+  // point query resolves. On error, included as a neutral 0 with a note.
+  if (!results.floodLoading) {
+    const floodSev = results.floodZone ? floodSeverity(results.floodZone.bucket) : 'clear'
+    const floodScore = floodSev === 'danger' ? 3 : floodSev === 'warning' ? 2 : 0
+    const floodDetail = results.floodError
+      ? 'Flood data unavailable'
+      : results.floodZone
+        ? FLOOD_ZONE_LABELS[results.floodZone.bucket]
+        : 'No mapped FEMA hazard'
+    breakdown.push({ label: 'Flood Zone', icon: '🌊', score: floodScore, max: 3, detail: floodDetail, tier: 'safety' })
+  }
 
   // --- LIFESTYLE (max 2) ---
 
@@ -6993,6 +7010,11 @@ function MapPage() {
                         clear: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
                         warning: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
                         danger: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.'
+                      },
+                      'Flood Zone': {
+                        clear: 'This address is outside FEMA\'s moderate- and high-risk flood zones. Flood insurance is generally not federally required, though no area is completely risk-free.',
+                        warning: 'This address is in a moderate-risk zone (0.2% annual-chance / "500-year" floodplain). Flood insurance is usually optional but recommended — moderate-risk areas still see a meaningful share of claims.',
+                        danger: 'This address is in a Special Flood Hazard Area (1% annual-chance / "100-year" floodplain) or coastal V zone. Federally backed mortgages require flood insurance, premiums run higher, and flood risk is real.'
                       }
                     }
                     return (
