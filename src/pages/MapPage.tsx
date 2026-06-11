@@ -6006,6 +6006,11 @@ function MapPage() {
                         clear: 'This address is outside FEMA\'s moderate- and high-risk flood zones. Flood insurance is generally not federally required, though no area is completely risk-free.',
                         warning: 'This address is in a moderate-risk zone (0.2% annual-chance / "500-year" floodplain). Flood insurance is usually optional but recommended — moderate-risk areas still see a meaningful share of claims.',
                         danger: 'This address is in a Special Flood Hazard Area (1% annual-chance / "100-year" floodplain) or coastal V zone. Federally backed mortgages require flood insurance, premiums run higher, and flood risk is real.'
+                      },
+                      'Wildfire Hazard': {
+                        clear: 'This address is in a Low / Very Low USFS wildfire hazard class (or a non-burnable developed/water area). Wildfire risk here is minimal, though no area is entirely risk-free.',
+                        warning: 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.',
+                        danger: 'This address is in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space obligations, and meaningful wildfire risk in fire season.'
                       }
                     }
                     return (
@@ -6013,7 +6018,7 @@ function MapPage() {
                         <div className="score-breakdown-label">
                           <span>{b.icon}</span>
                           <span>{b.label}</span>
-                          <span className="score-breakdown-tier" title={`${tierLabel} tier · weighted up to ${b.max} pt${b.max === 1 ? '' : 's'}`}>{tierLabel}</span>
+                          <span className="score-breakdown-tier" title={`${tierLabel} tier · ${b.max === 1 ? 'sole factor in its tier' : `weight ${b.max} within the ${tierLabel} tier`}`}>{tierLabel}</span>
                           <span className="score-breakdown-status" style={{ color: barColor }}>{statusLabel}</span>
                         </div>
                         <div className="score-breakdown-bar-track">

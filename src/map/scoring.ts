@@ -80,11 +80,16 @@ export function computeLocationGrade(results: {
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
-  // Tiered weighting (introduced 2026-06-04):
-  //   Safety     — Noise, Superfund, ER, Flood, Wildfire — max 3 each
-  //   Lifestyle  — Data Centers, Crowd, Bband   — max 2 each
-  //   Convenience — Costco                      — max 1
-  // Total possible penalty = 22. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
+  // Tiered weighting. Each tier contributes a FIXED share of the grade,
+  // independent of how many checks it contains — so adding a new check (e.g.
+  // Wildfire) refines its tier's sub-score rather than inflating that tier's
+  // overall influence. Within a tier, items split the weight in proportion to
+  // their per-item `max` (Safety items are equal at 3, Lifestyle at 2, etc.).
+  //   Safety 55%  — Noise, Superfund, ER, Flood, Wildfire
+  //   Lifestyle 30% — Data Centers, Crowd, Broadband
+  //   Convenience 15% — Costco
+  // A tier whose items are all still loading drops out and its weight is
+  // redistributed across the present tiers. A=≥90% / B=≥75% / C=≥50% / D=≥25%.
 
   // --- SAFETY (max 3) ---
 
@@ -192,10 +197,28 @@ export function computeLocationGrade(results: {
     breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 1, detail: costcoDetail, tier: 'convenience' })
   }
 
-  const total = breakdown.reduce((a, b) => a + b.score, 0)
-  const max = breakdown.reduce((a, b) => a + b.max, 0)
+  // Combine tiers by their fixed weights. Each tier's penalty fraction is its
+  // items' total score over their total max (0 = all clear, 1 = all maxed),
+  // so the number of checks in a tier doesn't change the tier's clout. Tiers
+  // with no scored items yet (everything still loading) are skipped and their
+  // weight redistributed via the running weightSum.
+  const TIER_WEIGHTS: Record<'safety' | 'lifestyle' | 'convenience', number> = {
+    safety: 0.55,
+    lifestyle: 0.30,
+    convenience: 0.15,
+  }
+  let weightedPenalty = 0
+  let weightSum = 0
+  for (const tier of ['safety', 'lifestyle', 'convenience'] as const) {
+    const items = breakdown.filter((b) => b.tier === tier)
+    const tierMax = items.reduce((a, b) => a + b.max, 0)
+    if (tierMax <= 0) continue
+    const tierScore = items.reduce((a, b) => a + b.score, 0)
+    weightedPenalty += TIER_WEIGHTS[tier] * (tierScore / tierMax)
+    weightSum += TIER_WEIGHTS[tier]
+  }
 
-  const pct = max > 0 ? 1 - total / max : 1
+  const pct = weightSum > 0 ? 1 - weightedPenalty / weightSum : 1
   if (pct >= 0.9) return { letter: 'A', color: '#4caf50', severity: 'clear', pct, breakdown }
   if (pct >= 0.75) return { letter: 'B', color: '#8bc34a', severity: 'good', pct, breakdown }
   if (pct >= 0.5) return { letter: 'C', color: '#ffb300', severity: 'warning', pct, breakdown }
