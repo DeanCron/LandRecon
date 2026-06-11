@@ -85,9 +85,9 @@ export function computeLocationGrade(results: {
   // Wildfire) refines its tier's sub-score rather than inflating that tier's
   // overall influence. Within a tier, items split the weight in proportion to
   // their per-item `max` (Safety items are equal at 3, Lifestyle at 2, etc.).
-  //   Safety 55%  — Noise, Superfund, ER, Flood, Wildfire
+  //   Safety 60%  — Noise, Superfund, ER, Flood, Wildfire
   //   Lifestyle 30% — Data Centers, Crowd, Broadband
-  //   Convenience 15% — Costco
+  //   Convenience 10% — Costco
   // A tier whose items are all still loading drops out and its weight is
   // redistributed across the present tiers. A=≥90% / B=≥75% / C=≥50% / D=≥25%.
 
@@ -203,9 +203,9 @@ export function computeLocationGrade(results: {
   // with no scored items yet (everything still loading) are skipped and their
   // weight redistributed via the running weightSum.
   const TIER_WEIGHTS: Record<'safety' | 'lifestyle' | 'convenience', number> = {
-    safety: 0.55,
+    safety: 0.60,
     lifestyle: 0.30,
-    convenience: 0.15,
+    convenience: 0.10,
   }
   let weightedPenalty = 0
   let weightSum = 0
