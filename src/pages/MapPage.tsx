@@ -353,6 +353,42 @@ function homeTooltipHtml(address: string): string {
   return `<strong>${escapeHtml(nickname)}</strong><br/>${addr}`
 }
 
+function escPopupHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+// Detailed click-popup for point facility markers. Mirrors the EPA
+// industrial-facility popup so every pin behaves the same way: a simple
+// hover tooltip plus this richer popup on click.
+function facilityPopupHtml(opts: {
+  title: string
+  badges?: Array<{ text: string; color?: string }>
+  rows?: Array<string | null | undefined | false>
+  linkHref?: string | null
+  linkText?: string
+}): string {
+  const badgeHtml = (opts.badges || [])
+    .map((b, i) =>
+      `<span style="display:inline-block;padding:1px 6px;${i ? 'margin-left:4px;' : ''}border-radius:3px;background:${b.color || '#eceff1'};color:${b.color ? '#fff' : '#37474f'};font-size:11px;font-weight:600">${escPopupHtml(b.text)}</span>`,
+    )
+    .join('')
+  const rowsHtml = (opts.rows || [])
+    .filter((r): r is string => Boolean(r))
+    .map((r) => `<div style="font-size:12px;color:#555;margin-top:4px">${escPopupHtml(r)}</div>`)
+    .join('')
+  const linkHtml = opts.linkHref
+    ? `<div style="margin-top:6px"><a href="${opts.linkHref}" target="_blank" rel="noopener noreferrer" style="font-size:12px">${escPopupHtml(opts.linkText || 'More info')} ↗</a></div>`
+    : ''
+  return `<div style="min-width:200px;max-width:280px">
+     <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escPopupHtml(opts.title)}</div>
+     ${badgeHtml ? `<div>${badgeHtml}</div>` : ''}
+     ${rowsHtml}
+     ${linkHtml}
+   </div>`
+}
+
 // Superfund details are now rendered in the analysis flyout
 // (analysisDetail === 'superfunds'), not in the map hover tooltip.
 // The map tooltip is just the site name.
@@ -1443,7 +1479,17 @@ function MapPage() {
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         })
-        L.marker([lat, lon], { icon }).bindTooltip(label, { direction: 'top', offset: [0, -16] }).addTo(layer)
+        const airportRows: string[] = []
+        if (tags.icao) airportRows.push(`ICAO: ${tags.icao}`)
+        if (tags.operator) airportRows.push(`Operator: ${tags.operator}`)
+        L.marker([lat, lon], { icon })
+          .bindTooltip(label, { direction: 'top', offset: [0, -16] })
+          .bindPopup(facilityPopupHtml({
+            title: name || iata,
+            badges: iata ? [{ text: iata, color: '#1565c0' }] : [],
+            rows: airportRows,
+          }), { maxWidth: 320 })
+          .addTo(layer)
         known.add(id)
       }
 
@@ -1493,7 +1539,14 @@ function MapPage() {
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         })
-        L.marker([p.lat, p.lng], { icon }).bindTooltip(tooltip, { direction: 'top', offset: [0, -16] }).addTo(layer)
+        L.marker([p.lat, p.lng], { icon })
+          .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
+          .bindPopup(facilityPopupHtml({
+            title: locality ? `Costco — ${locality}` : 'Costco',
+            badges: [{ text: 'Warehouse', color: '#0060a9' }],
+            rows: [street || null],
+          }), { maxWidth: 320 })
+          .addTo(layer)
         known.add(p.id)
       }
 
@@ -1871,6 +1924,7 @@ function MapPage() {
         const color = TRANSIT_COLORS[stop.type]
         const size = stop.type === 'bus' ? 10 : 14
         L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
+          .bindTooltip(stop.name || 'Transit stop', { direction: 'top', offset: [0, -10] })
           .bindPopup(transitPopup(stop), { maxWidth: 260 })
           .addTo(subLayers[stop.type])
         added++
@@ -2705,7 +2759,17 @@ function MapPage() {
           onEachFeature: (_feature, layer) => {
             const props = (_feature as GeoJSON.Feature).properties || {}
             const name = (props.SITE_NAME as string | undefined) || 'Superfund Site'
+            const sfCity = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
+            const sfUrl = (props.URL_ALIAS_TXT as string | undefined)
+              || (props.EPA_ID ? `https://cumulis.epa.gov/supercpad/CurSites/csitinfo.cfm?id=${props.EPA_ID}` : null)
             layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
+            layer.bindPopup(facilityPopupHtml({
+              title: name,
+              badges: [{ text: 'EPA Superfund', color: '#b71c1c' }],
+              rows: [sfCity || null, props.SITE_FEATURE_TYPE ? String(props.SITE_FEATURE_TYPE) : null],
+              linkHref: sfUrl,
+              linkText: 'EPA site report',
+            }), { maxWidth: 320 })
           },
         })
 
@@ -3091,15 +3155,23 @@ function MapPage() {
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       })
-      const lines = [dc.name || 'Data Center']
-      if (dc.operator) lines[0] += ` (${dc.operator})`
-      if (dc.city || dc.state) lines.push([dc.city, dc.state].filter(Boolean).join(', '))
-      if (dc.address) lines.push(dc.address)
-      lines.push(`Status: ${dc.status}`)
-      if (dc.mw) lines.push(`Capacity: ${dc.mw} MW`)
-      if (dc.sizerank && dc.sizerank !== 'Unknown') lines.push(dc.sizerank)
+      const dcTitle = dc.name || 'Data Center'
+      const dcTip = [dc.operator ? `${dcTitle} (${dc.operator})` : dcTitle]
+      if (dc.city || dc.state) dcTip.push([dc.city, dc.state].filter(Boolean).join(', '))
+      const dcRows: string[] = []
+      if (dc.operator) dcRows.push(`Operator: ${dc.operator}`)
+      if (dc.address) dcRows.push(dc.address)
+      const dcLoc = [dc.city, dc.state].filter(Boolean).join(', ')
+      if (dcLoc) dcRows.push(dcLoc)
+      if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
+      if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
       L.marker([dc.lat, dc.lng], { icon })
-        .bindTooltip(lines.join('<br/>'), { direction: 'top', offset: [0, -14] })
+        .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
+        .bindPopup(facilityPopupHtml({
+          title: dcTitle,
+          badges: [{ text: `Status: ${dc.status}`, color }],
+          rows: dcRows,
+        }), { maxWidth: 320 })
         .addTo(sub)
     }
   }, [])
@@ -3235,6 +3307,11 @@ function MapPage() {
           const tooltip = [name, address].filter(Boolean).join('<br/>')
           L.marker([loc.latitude, loc.longitude], { icon })
             .bindTooltip(tooltip, { direction: 'top', offset: [0, -14] })
+            .bindPopup(facilityPopupHtml({
+              title: name || 'Emergency service',
+              badges: [{ text: EMS_LABELS[type].replace(/s$/, ''), color }],
+              rows: [address || null],
+            }), { maxWidth: 320 })
             .addTo(sub)
           known.add(id)
         }
@@ -3358,7 +3435,11 @@ function MapPage() {
         if (known.has(cam.id)) continue
         known.add(cam.id)
         const color = cam.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
+        const camLabel = cam.isFlock
+          ? 'Flock Safety ALPR'
+          : (cam.manufacturer ? `${cam.manufacturer} ALPR` : 'ALPR camera')
         L.marker([cam.lat, cam.lon], { icon: makeCameraIcon(color, cam.direction) })
+          .bindTooltip(camLabel, { direction: 'top', offset: [0, -10] })
           .bindPopup(cameraPopup(cam), { maxWidth: 280 })
           .addTo(cluster)
         added++
@@ -3487,6 +3568,10 @@ function MapPage() {
         })
         L.marker([m.lat, m.lng], { icon })
           .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
+          .bindPopup(facilityPopupHtml({
+            title: m.name || CROWD_LABEL_SINGULAR[m.type],
+            badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color }],
+          }), { maxWidth: 320 })
           .addTo(sub)
         known.add(m.id)
         added++
@@ -4326,6 +4411,13 @@ function MapPage() {
         for (const s of analysisResults.superfunds) {
           L.marker([s.lat, s.lng], { icon: SUPERFUND_ICON, riseOnHover: true })
             .bindTooltip(s.name, { direction: 'top', offset: [0, -16] })
+            .bindPopup(facilityPopupHtml({
+              title: s.name,
+              badges: [{ text: s.status || 'EPA Superfund', color: '#b71c1c' }],
+              rows: [s.city || null, `${s.distanceMi} mi away`],
+              linkHref: s.url || null,
+              linkText: 'EPA site report',
+            }), { maxWidth: 320 })
             .addTo(layer)
         }
       }
@@ -4355,6 +4447,11 @@ function MapPage() {
       if (er.address) tooltipParts.push(er.address)
       const marker = L.marker([er.lat, er.lng], { icon })
         .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
+        .bindPopup(facilityPopupHtml({
+          title: er.name,
+          badges: [{ text: 'Emergency Room', color: '#0072B2' }],
+          rows: [er.address || null, `${er.distanceMi} mi away`],
+        }), { maxWidth: 320 })
         .addTo(map)
       nearestErMarkerRef.current = marker
       dbg('er', `Auto-pinned nearest ER: ${er.name} (${er.distanceMi} mi)`)
@@ -4373,13 +4470,23 @@ function MapPage() {
             iconSize: [28, 28],
             iconAnchor: [14, 14],
           })
-          const lines = [dc.name || 'Data Center']
-          if (dc.operator) lines[0] += ` (${dc.operator})`
-          if (dc.city || dc.state) lines.push([dc.city, dc.state].filter(Boolean).join(', '))
-          lines.push(`Status: ${dc.status}`)
-          if (dc.mw) lines.push(`Capacity: ${dc.mw} MW`)
+          const dcTitle = dc.name || 'Data Center'
+          const dcTip = [dc.operator ? `${dcTitle} (${dc.operator})` : dcTitle]
+          if (dc.city || dc.state) dcTip.push([dc.city, dc.state].filter(Boolean).join(', '))
+          const dcRows: string[] = []
+          if (dc.operator) dcRows.push(`Operator: ${dc.operator}`)
+          const dcLoc = [dc.city, dc.state].filter(Boolean).join(', ')
+          if (dcLoc) dcRows.push(dcLoc)
+          dcRows.push(`${dc.distanceMi} mi away`)
+          if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
+          if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
           L.marker([dc.lat, dc.lng], { icon })
-            .bindTooltip(lines.join('<br/>'), { direction: 'top', offset: [0, -14] })
+            .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
+            .bindPopup(facilityPopupHtml({
+              title: dcTitle,
+              badges: [{ text: `Status: ${dc.status}`, color }],
+              rows: dcRows,
+            }), { maxWidth: 320 })
             .addTo(layer)
         }
       }
@@ -4401,6 +4508,11 @@ function MapPage() {
           })
           L.marker([m.lat, m.lng], { icon })
             .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
+            .bindPopup(facilityPopupHtml({
+              title: m.name || CROWD_LABEL_SINGULAR[m.type],
+              badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color }],
+              rows: [`${m.distanceMi} mi away`],
+            }), { maxWidth: 320 })
             .addTo(layer)
         }
       }
@@ -4471,6 +4583,11 @@ function MapPage() {
       })
       L.marker([c.lat, c.lng], { icon })
         .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
+        .bindPopup(facilityPopupHtml({
+          title: c.city ? `Costco — ${c.city}` : 'Costco',
+          badges: [{ text: 'Warehouse', color: '#0060a9' }],
+          rows: [c.address || null, `${c.distanceMi} mi away`],
+        }), { maxWidth: 320 })
         .addTo(layer)
     }
   }, [analysisResults.loading, analysisResults.costcoNearby, analysisResults.costcoNearestBeyond])
