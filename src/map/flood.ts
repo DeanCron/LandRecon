@@ -114,7 +114,10 @@ function floodDedupeKey(feature: GeoJSON.Feature): string {
   return `${props.FLD_ZONE ?? ''}|${props.ZONE_SUBTY ?? ''}|${vertex}`
 }
 
-export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSON.FeatureCollection> {
+export async function fetchFloodFeatures(
+  bounds: L.LatLngBounds,
+  onChunk?: (newFeatures: GeoJSON.Feature[]) => void,
+): Promise<GeoJSON.FeatureCollection> {
   const features: GeoJSON.Feature[] = []
   const seen = new Set<string>()
   // A single tolerance for the whole call (derived from the original bounds, not
@@ -123,13 +126,21 @@ export async function fetchFloodFeatures(bounds: L.LatLngBounds): Promise<GeoJSO
   // differ between zoom levels and we'd render duplicates.
   const tolerance = floodSimplifyTolerance(bounds.getWest(), bounds.getEast())
 
+  // Collect a cell's newly-seen (de-duplicated) features and hand them to the
+  // optional onChunk callback so the caller can paint incrementally — the
+  // parent query's inland zones render immediately, then each subdivided
+  // quadrant's coastal zones fill in as they arrive, instead of the whole
+  // overlay waiting on the slowest sub-request.
   function addFeatures(fc: GeoJSON.FeatureCollection | null | undefined): void {
+    const fresh: GeoJSON.Feature[] = []
     for (const f of fc?.features ?? []) {
       const key = floodDedupeKey(f)
       if (seen.has(key)) continue
       seen.add(key)
       features.push(f)
+      fresh.push(f)
     }
+    if (fresh.length && onChunk) onChunk(fresh)
   }
 
   async function fetchCell(west: number, south: number, east: number, north: number, depth: number): Promise<void> {

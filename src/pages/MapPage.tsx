@@ -1549,11 +1549,23 @@ function MapPage() {
     setFloodLoading(true)
     floodLoadingRef.current = true
     try {
-      const padded = bounds.pad(0.3)
-      const geojson = await fetchFloodFeatures(padded)
+      // Smaller padding than other overlays: the FEMA polygons are heavy, so a
+      // tighter query area loads markedly faster (a wide pad roughly tripled the
+      // payload). Panning re-fetches a little sooner, which the progressive
+      // paint below keeps feeling responsive.
+      const padded = bounds.pad(0.15)
+      // Paint progressively: clear once the first chunk (the parent query's
+      // inland zones) lands, then append each subdivided quadrant's coastal
+      // zones as they arrive instead of waiting on the slowest sub-request.
+      let painted = false
+      const geojson = await fetchFloodFeatures(padded, (chunk) => {
+        if (!painted) { layer.clearLayers(); painted = true }
+        layer.addData({ type: 'FeatureCollection', features: chunk } as GeoJSON.FeatureCollection)
+      })
       dbg('flood', `Got ${geojson.features?.length || 0} features`)
-      layer.clearLayers()
-      layer.addData(geojson)
+      // No features at all (or no callback fired) — make sure the layer reflects
+      // the empty result rather than stale geometry from a previous view.
+      if (!painted) layer.clearLayers()
       floodLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load FEMA flood zones:', err)
