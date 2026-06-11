@@ -50,3 +50,47 @@ export function buildWhpImageUrl(bounds: L.LatLngBounds, widthPx: number, height
   })
   return `${WHP_BASE}?${params}`
 }
+
+// ── Recon Report point lookup ───────────────────────────────────────────
+// The classified WHP raster encodes each pixel as an integer class 1-7
+// (matching WHP_CLASS_COLORS by index): 1 Very low … 5 Very high, then
+// 6 Non-burnable and 7 Water. We read the value at a single point via the
+// ImageServer's identify endpoint (no rendering rule, so we get the raw
+// class value rather than a colour).
+const WHP_IDENTIFY =
+  'https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/USFS_EDW_RMRS_WildfireHazardPotentialClassified/ImageServer/identify'
+
+export type WildfirePointResult = { value: number; label: string }
+
+// Recon Report severity. Auto-reveal and the red flag are reserved for High
+// (4) and Very high (5); Moderate (3) is an amber warning; Low/Very low and
+// the non-burnable/water classes are clear.
+export function wildfireSeverity(value: number): 'danger' | 'warning' | 'clear' {
+  if (value === 4 || value === 5) return 'danger'
+  if (value === 3) return 'warning'
+  return 'clear'
+}
+
+export function wildfireClassLabel(value: number): string {
+  return WHP_CLASS_COLORS[value - 1]?.label ?? 'Unknown'
+}
+
+// Identify the WHP class at a single location for the Recon Report. Returns
+// null when the point has no mapped class (NoData — e.g. outside CONUS or
+// open ocean). Throws on network/HTTP failure so the caller can flag an error.
+export async function fetchWildfireAtPoint(lat: number, lng: number): Promise<WildfirePointResult | null> {
+  const params = new URLSearchParams({
+    geometry: JSON.stringify({ x: lng, y: lat, spatialReference: { wkid: 4326 } }),
+    geometryType: 'esriGeometryPoint',
+    returnGeometry: 'false',
+    returnCatalogItems: 'false',
+    f: 'json',
+  })
+  const res = await fetch(`${WHP_IDENTIFY}?${params}`, { signal: AbortSignal.timeout(10000) })
+  if (!res.ok) throw new Error(`USFS WHP ${res.status}`)
+  const data: { value?: string } = await res.json()
+  const raw = data?.value
+  const value = typeof raw === 'string' ? parseInt(raw, 10) : NaN
+  if (!Number.isFinite(value) || value < 1 || value > 7) return null
+  return { value, label: wildfireClassLabel(value) }
+}

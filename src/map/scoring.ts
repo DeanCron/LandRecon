@@ -4,6 +4,10 @@ import {
   type FloodPointResult,
 } from '../map/flood'
 import {
+  wildfireSeverity,
+  type WildfirePointResult,
+} from '../map/wildfire'
+import {
   type BroadbandResponse,
   broadbandSeverity,
   formatBroadbandSpeed,
@@ -70,14 +74,17 @@ export function computeLocationGrade(results: {
   floodZone?: FloodPointResult | null
   floodError?: boolean
   floodLoading?: boolean
+  wildfireHazard?: WildfirePointResult | null
+  wildfireError?: boolean
+  wildfireLoading?: boolean
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
   // Tiered weighting (introduced 2026-06-04):
-  //   Safety     — Noise, Superfund, ER, Flood — max 3 each
+  //   Safety     — Noise, Superfund, ER, Flood, Wildfire — max 3 each
   //   Lifestyle  — Data Centers, Crowd, Bband   — max 2 each
   //   Convenience — Costco                      — max 1
-  // Total possible penalty = 19. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
+  // Total possible penalty = 22. A=≤10% / B=≤25% / C=≤50% / D=≤75% / F=>75%.
 
   // --- SAFETY (max 3) ---
 
@@ -116,6 +123,20 @@ export function computeLocationGrade(results: {
         ? FLOOD_ZONE_LABELS[results.floodZone.bucket]
         : 'No mapped FEMA hazard'
     breakdown.push({ label: 'Flood Zone', icon: '🌊', score: floodScore, max: 3, detail: floodDetail, tier: 'safety' })
+  }
+
+  // Wildfire: clear=0, warning=2 (moderate), danger=3 (high / very high).
+  // Same loading/error contract as flood — skipped while loading, neutral 0 on
+  // error so a flaky USFS lookup doesn't penalize the grade.
+  if (!results.wildfireLoading) {
+    const wfSev = results.wildfireHazard ? wildfireSeverity(results.wildfireHazard.value) : 'clear'
+    const wfScore = wfSev === 'danger' ? 3 : wfSev === 'warning' ? 2 : 0
+    const wfDetail = results.wildfireError
+      ? 'Wildfire data unavailable'
+      : results.wildfireHazard
+        ? `${results.wildfireHazard.label} wildfire hazard`
+        : 'No mapped USFS hazard'
+    breakdown.push({ label: 'Wildfire Hazard', icon: '🔥', score: wfScore, max: 3, detail: wfDetail, tier: 'safety' })
   }
 
   // --- LIFESTYLE (max 2) ---

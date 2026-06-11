@@ -44,6 +44,7 @@ import {
   readAnalysisCache,
   writeAnalysisCache,
   patchAnalysisCacheFlood,
+  patchAnalysisCacheWildfire,
 } from '../map/analysisCache'
 import {
   type DevTodo,
@@ -74,6 +75,9 @@ import {
   WHP_MAX_USEFUL_ZOOM,
   WHP_CLASS_COLORS,
   buildWhpImageUrl,
+  wildfireSeverity,
+  fetchWildfireAtPoint,
+  type WildfirePointResult,
 } from '../map/wildfire'
 import {
   AQI_MIN_ZOOM,
@@ -691,9 +695,12 @@ function MapPage() {
     floodZone: { bucket: string; zone: string; label: string } | null
     floodError: boolean
     floodLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true })
+    wildfireHazard: WildfirePointResult | null
+    wildfireError: boolean
+    wildfireLoading: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -1897,6 +1904,8 @@ function MapPage() {
       // (the floodZone key is present). Otherwise it stays pending and re-fetches.
       const floodIsCached = cached.floodZone !== undefined
       allDone['flood'] = floodIsCached ? 'done' : 'pending'
+      const wildfireIsCached = cached.wildfireHazard !== undefined
+      allDone['wildfire'] = wildfireIsCached ? 'done' : 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -1926,6 +1935,10 @@ function MapPage() {
         floodZone: floodIsCached ? (cached.floodZone as any) : null,
         floodError: false,
         floodLoading: !floodIsCached,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wildfireHazard: wildfireIsCached ? (cached.wildfireHazard as any) : null,
+        wildfireError: false,
+        wildfireLoading: !wildfireIsCached,
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
@@ -1961,12 +1974,26 @@ function MapPage() {
           setAnalysisProgress((prev) => ({ ...prev, flood: 'done' }))
         })
       }
+      if (!wildfireIsCached) {
+        fetchWildfireAtPoint(lat, lng).then((wf) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Wildfire result (cache-hit path):', wf ? `${wf.label} (${wf.value})` : 'no mapped hazard')
+          setAnalysisResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, wildfire: 'done' }))
+          patchAnalysisCacheWildfire(lat, lng, wf)
+        }).catch((err) => {
+          dbg('analysis', 'Wildfire failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, wildfire: 'done' }))
+        })
+      }
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -2370,6 +2397,26 @@ function MapPage() {
       markDone('flood')
     })
 
+    // USFS Wildfire Hazard Potential class for the exact point — same
+    // fire-and-forget + cache-patch pattern as flood.
+    let wildfireForCache: unknown
+    fetchWildfireAtPoint(lat, lng).then((wf) => {
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Wildfire result')
+        return
+      }
+      dbg('analysis', 'Wildfire result:', wf ? `${wf.label} (${wf.value})` : 'no mapped hazard')
+      setAnalysisResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
+      wildfireForCache = wf
+      patchAnalysisCacheWildfire(lat, lng, wf)
+      markDone('wildfire')
+    }).catch((err) => {
+      dbg('analysis', 'Wildfire failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
+      markDone('wildfire')
+    })
+
     costcoPromise.then((data) => {
       dbg('analysis', 'Costco result:', data.nearest ? `${data.nearest.distanceMi.toFixed(1)} mi` : 'none')
       if (!isLatestRun()) {
@@ -2397,6 +2444,7 @@ function MapPage() {
         // Omitted (left undefined) if flood hasn't resolved yet — the flood
         // .then patches it in once it lands.
         ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
+        ...(wildfireForCache !== undefined ? { wildfireHazard: wildfireForCache } : {}),
       })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
@@ -3816,9 +3864,7 @@ function MapPage() {
       setWildfireLowZoom(false)
       setWildfireLoading(false)
     } else {
-      loadWildfireData(map)
-      map.on('moveend', handleWildfireMove)
-      map.on('zoomend', handleWildfireMove)
+      enableWildfireLayer()
     }
     setWildfireVisible(!wildfireVisible)
   }
@@ -3830,6 +3876,38 @@ function MapPage() {
     }, 300),
     [loadWildfireData],
   )
+
+  // Idempotently turn the USFS wildfire overlay on for the current map view.
+  // Shared by the manual layer toggle and the Recon Report auto-reveal below.
+  const enableWildfireLayer = useCallback(() => {
+    const map = mapRef.current
+    if (!map || wildfireVisible) return
+    map.on('moveend', handleWildfireMove)
+    map.on('zoomend', handleWildfireMove)
+    setWildfireVisible(true)
+    if (mapMovingRef.current) {
+      // A post-search flyTo is still animating; wait for the map to settle so
+      // we render the final viewport rather than an intermediate one.
+      map.once('moveend', () => loadWildfireData(map))
+    } else {
+      loadWildfireData(map)
+    }
+  }, [wildfireVisible, loadWildfireData, handleWildfireMove])
+
+  // When the Recon Report finds a High-or-higher wildfire hazard, reveal the
+  // USFS overlay on the map automatically — scoped to the visible viewport like
+  // the manual toggle. Fires once per result; a manual toggle-off stays off for
+  // that same result.
+  const wildfireAutoShownForRef = useRef<unknown>(null)
+  useEffect(() => {
+    if (analysisProgress.wildfire !== 'done' || analysisResults.wildfireError) return
+    const wf = analysisResults.wildfireHazard
+    if (!wf) return
+    if (wildfireSeverity(wf.value) !== 'danger') return
+    if (wildfireAutoShownForRef.current === wf) return
+    wildfireAutoShownForRef.current = wf
+    enableWildfireLayer()
+  }, [analysisProgress.wildfire, analysisResults.wildfireError, analysisResults.wildfireHazard, enableWildfireLayer])
 
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
@@ -5620,6 +5698,46 @@ function MapPage() {
             }
 
             {
+              const pWildfire = analysisProgress.wildfire !== 'done'
+              const wf = analysisResults.wildfireHazard
+              const severity = pWildfire
+                ? 'pending'
+                : analysisResults.wildfireError
+                  ? 'clear'
+                  : wf
+                    ? wildfireSeverity(wf.value)
+                    : 'clear'
+              const subtitle = pWildfire
+                ? 'Checking…'
+                : analysisResults.wildfireError
+                  ? 'Wildfire data unavailable'
+                  : wf
+                    ? `${wf.label} wildfire hazard`
+                    : 'Minimal wildfire hazard'
+              cards.push({ key: 'wildfire', severity, node: (
+                <div className={`analysis-card ${severity}`} key="wildfire">
+                  <div
+                    className={`analysis-item${pWildfire ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (pWildfire) return
+                      if (analysisDetail === 'wildfire') setAnalysisDetail(null)
+                      else setAnalysisDetail('wildfire')
+                    }}
+                    aria-busy={pWildfire || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'wildfire' ? ' expanded' : ''}${pWildfire ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🔥</div>
+                    <div className="analysis-detail">
+                      <strong>Wildfire Hazard</strong>
+                      <p>{subtitle}</p>
+                    </div>
+                    {pWildfire && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               // Broadband at this address — FCC BDC
               const bbLoading = analysisResults.broadbandLoading
               const bb = analysisResults.broadband
@@ -5797,6 +5915,7 @@ function MapPage() {
                analysisDetail === 'crowd' ? '🎟️ Crowd Magnets' :
                analysisDetail === 'broadband' ? '📶 Broadband at this Address' :
                analysisDetail === 'flood' ? '🌊 Flood Zone' :
+               analysisDetail === 'wildfire' ? '🔥 Wildfire Hazard' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -6474,6 +6593,60 @@ function MapPage() {
                     <p>
                       FEMA National Flood Hazard Layer via the{' '}
                       <a href="https://msc.fema.gov/portal/home" target="_blank" rel="noopener noreferrer">Flood Map Service Center</a>. Flag shown only for moderate risk or higher.
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
+
+            {analysisDetail === 'wildfire' && (() => {
+              const wf = analysisResults.wildfireHazard
+              const sev = analysisResults.wildfireError ? 'clear' : wf ? wildfireSeverity(wf.value) : 'clear'
+              if (analysisResults.wildfireError) {
+                return (
+                  <>
+                    <p className="analysis-expand-level clear">USFS wildfire hazard data couldn’t be loaded for this location.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Wildfire hazard affects insurance availability and premiums, defensible-space
+                        requirements, and personal safety. Try re-analyzing, or explore the{' '}
+                        <a href="https://wildfirerisk.org/" target="_blank" rel="noopener noreferrer">Wildfire Risk to Communities</a> tool.
+                      </p>
+                    </div>
+                  </>
+                )
+              }
+              return (
+                <>
+                  <p className={`analysis-expand-level ${sev}`}>
+                    {wf ? `${wf.label} wildfire hazard` : 'No mapped USFS wildfire hazard'}
+                  </p>
+                  <div className="analysis-expand-rec">
+                    <strong>Why this matters</strong>
+                    <p>
+                      {sev === 'danger'
+                        ? 'This address falls in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space and home-hardening obligations, and meaningful wildfire risk during fire season.'
+                        : sev === 'warning'
+                        ? 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.'
+                        : wf
+                        ? 'This address is in a Low / Very Low class, or a non-burnable (developed) or water area. Wildfire risk here is minimal, though no area is entirely risk-free.'
+                        : 'This address has no mapped USFS wildfire hazard class (e.g. outside the contiguous U.S. coverage). That is not a guarantee of zero risk.'}
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Hazard classes</strong>
+                    <p>
+                      <span className="analysis-band danger">High / Very high</span> concern · {' '}
+                      <span className="analysis-band warning">Moderate</span> caution · {' '}
+                      <span className="analysis-band good">Low / Very low</span> minimal
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Source</strong>
+                    <p>
+                      USFS Wildfire Hazard Potential (classified, 2023) via the{' '}
+                      <a href="https://www.firelab.org/project/wildfire-hazard-potential" target="_blank" rel="noopener noreferrer">USFS Fire Modeling Institute</a>. Auto-revealed on the map only for High risk or higher.
                     </p>
                   </div>
                 </>

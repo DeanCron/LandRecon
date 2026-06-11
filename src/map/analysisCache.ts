@@ -22,6 +22,8 @@ export interface CachedAnalysisPayload {
     // produced a determined result. Absent means "not determined" (errored or
     // never resolved) so a cache hit re-fetches instead of showing "no hazard".
     floodZone?: unknown
+    // Same contract as floodZone, for the USFS Wildfire Hazard Potential class.
+    wildfireHazard?: unknown
   }
 }
 
@@ -63,4 +65,12 @@ export function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unk
   const existing = readAnalysisCache(lat, lng)
   if (!existing) return
   writeAnalysisCache(lat, lng, { ...existing, floodZone })
+}
+
+// Wildfire resolves independently too; merge its determined result in the same
+// way as flood. No-op when there is no current cache entry.
+export function patchAnalysisCacheWildfire(lat: number, lng: number, wildfireHazard: unknown) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, wildfireHazard })
 }
