@@ -6565,7 +6565,7 @@ function MapPage() {
             const cards: CardDesc[] = []
 
             {
-              const pNoise = analysisProgress.noise !== 'done'
+              const pNoise = analysisProgress.noise !== 'done' || analysisResults.loading
               const severity = pNoise ? 'pending' : (analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear')
               cards.push({ key: 'noise', severity, node: (
                 <div className={`analysis-card ${severity}`} key="noise">
@@ -6591,7 +6591,7 @@ function MapPage() {
             }
 
             {
-              const pSF = analysisProgress.superfund !== 'done'
+              const pSF = analysisProgress.superfund !== 'done' || analysisResults.loading
               const severity = pSF ? 'pending' : superfundSeverity(analysisResults.superfunds)
               cards.push({ key: 'superfunds', severity, node: (
                 <div className={`analysis-card ${severity}`} key="superfunds">
@@ -6619,7 +6619,7 @@ function MapPage() {
             }
 
             {
-              const pER = analysisProgress.er !== 'done'
+              const pER = analysisProgress.er !== 'done' || analysisResults.loading
               const severity = pER ? 'pending' : (analysisResults.nearestER ? (erSeverity(analysisResults.nearestER.distanceMi) === 'clear' || erSeverity(analysisResults.nearestER.distanceMi) === 'good' ? 'clear' : erSeverity(analysisResults.nearestER.distanceMi)) : 'danger')
               cards.push({ key: 'er', severity, node: (
                 <div className={`analysis-card ${severity}`} key="er">
@@ -6647,7 +6647,7 @@ function MapPage() {
             }
 
             {
-              const pDC = analysisProgress.datacenters !== 'done'
+              const pDC = analysisProgress.datacenters !== 'done' || analysisResults.loading
               const severity = pDC ? 'pending' : dataCenterSeverity(analysisResults.dataCenters.length)
               cards.push({ key: 'datacenters', severity, node: (
                 <div className={`analysis-card ${severity}`} key="datacenters">
@@ -6675,7 +6675,7 @@ function MapPage() {
             }
 
             {
-              const pCrowd = analysisProgress.crowd !== 'done'
+              const pCrowd = analysisProgress.crowd !== 'done' || analysisResults.loading
               const severity = pCrowd ? 'pending' : crowdMagnetsSeverity(analysisResults.crowdMagnets.length)
               cards.push({ key: 'crowd', severity, node: (
                 <div className={`analysis-card ${severity}`} key="crowd">
