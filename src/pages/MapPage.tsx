@@ -4386,7 +4386,7 @@ function MapPage() {
         : bounds
       dbg('cameras', `[${source}] Added ${added} new (${flockAdded} Flock, ${added - flockAdded} other, ${withDirection} with direction); total known: ${known.size}`)
       if (known.size === 0) {
-        setCamerasStatus({ kind: 'empty', text: 'No mapped ALPR cameras in this area' })
+        setCamerasStatus({ kind: 'empty', text: 'No mapped surveillance cameras in this area' })
       } else {
         setCamerasStatus(null)
       }
@@ -6249,7 +6249,7 @@ function MapPage() {
                 disabled={status !== 'ready'}
               />
               <span className="layer-label">
-                ALPR Cameras
+                Surveillance Cameras
                 {camerasLoading && <span className="layer-loading"> ⏳</span>}
               </span>
             </label>
