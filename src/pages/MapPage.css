@@ -1809,6 +1809,14 @@
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
+  /* Two-column card grid so the report's height scales at roughly half the
+   * rate of the layer count. Mirrors the mobile layout (see media query).
+   * Card detail opens in the separate .analysis-popout flyout, so a narrow
+   * grid cell never has to host the expanded content. */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
 }
 
 .analysis-loading {
@@ -2000,7 +2008,6 @@
 /* Analysis cards — wrapper with severity coloring */
 .analysis-card {
   border-radius: 8px;
-  margin-bottom: 8px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   overflow: hidden;
@@ -2073,12 +2080,18 @@
   margin-bottom: 3px;
   font-size: 0.82rem;
   color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .analysis-detail p {
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .analysis-list {
