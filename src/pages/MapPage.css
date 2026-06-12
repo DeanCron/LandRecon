@@ -2803,6 +2803,8 @@
     padding: 8px;
     font-size: 0;        /* hide text */
     gap: 0;
+    min-width: 44px;     /* comfortable touch target */
+    min-height: 44px;
   }
   .map-home-button svg {
     width: 20px;
@@ -2988,8 +2990,8 @@
     position: absolute;
     top: 12px;
     right: 12px;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     border: none;
     background: var(--color-bg);
     border-radius: 50%;
@@ -3006,14 +3008,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     border: none;
     background: var(--color-bg);
     border-radius: 50%;
     font-size: 1.2rem;
     color: var(--color-text-muted);
     cursor: pointer;
+  }
+
+  /* Recon Report header icon buttons — roomier thumb targets. Kept at 40px
+   * (not 44) so the title + action row + close still fit on the narrowest
+   * phones (~344px) without wrapping. */
+  .analysis-action-btn {
+    width: 40px;
+    height: 40px;
   }
 
   /* Backdrop overlay */
@@ -3068,6 +3078,7 @@
   .layer-toggle {
     padding: 4px 0;
     font-size: 0.92rem;
+    min-height: 44px;    /* full-row tap target */
   }
 
   .layer-toggle input[type="checkbox"] {
