@@ -787,7 +787,7 @@ function MapPage() {
     if (analysisResults.loading || analysisResults.costcoLoading) return
     const grade = computeLocationGrade(analysisResults)
     const entry: SavedAnalysis = {
-      address: document.querySelector('.analysis-address-display')?.textContent ?? 'Unknown',
+      address: address || 'Unknown',
       date: new Date().toLocaleDateString(),
       grade: grade.letter,
       gradeColor: grade.color,
@@ -802,7 +802,7 @@ function MapPage() {
     const next = [entry, ...savedAnalyses].slice(0, 5)
     setSavedAnalyses(next)
     localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
-  }, [analysisResults, savedAnalyses])
+  }, [address, analysisResults, savedAnalyses])
 
   const removeSavedAnalysis = useCallback((idx: number) => {
     const next = savedAnalyses.filter((_, i) => i !== idx)
