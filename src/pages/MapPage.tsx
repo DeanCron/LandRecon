@@ -716,16 +716,16 @@ function MapPage() {
   // Voting districts — experimental layer set; each chamber loads lazily on
   // first toggle and is cached on the L.Map afterward.
   const districtLayerRefs = useRef<Record<DistrictLayerId, L.GeoJSON | null>>({
-    cd118: null, sldu: null, sldl: null,
+    cd118: null,
   })
   const [districtVisible, setDistrictVisible] = useState<Record<DistrictLayerId, boolean>>({
-    cd118: false, sldu: false, sldl: false,
+    cd118: false,
   })
   const [districtLoading, setDistrictLoading] = useState<Record<DistrictLayerId, boolean>>({
-    cd118: false, sldu: false, sldl: false,
+    cd118: false,
   })
   const [districtAvailable, setDistrictAvailable] = useState<Record<DistrictLayerId, boolean | null>>({
-    cd118: null, sldu: null, sldl: null,
+    cd118: null,
   })
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<{
@@ -5505,7 +5505,7 @@ function MapPage() {
           <details className="layer-group" open>
             <summary className="layer-group-heading">🗳️ Voting districts</summary>
             <div className="layer-group-body">
-              {(['cd118', 'sldu', 'sldl'] as DistrictLayerId[]).map((id) => (
+              {(['cd118'] as DistrictLayerId[]).map((id) => (
                 <label key={id} className="layer-toggle">
                   <input
                     type="checkbox"
@@ -5522,7 +5522,7 @@ function MapPage() {
                   </span>
                 </label>
               ))}
-              {(districtVisible.cd118 || districtVisible.sldu || districtVisible.sldl) && (
+              {districtVisible.cd118 && (
                 <div className="district-legend">
                   <div className="district-legend-bar">
                     {[-40, -25, -15, -5, 0, 5, 15, 25, 40].map((m) => (

@@ -1,12 +1,10 @@
 import L from 'leaflet'
 
-// One of the three district layers we ship boundary + (optional) results for.
-export type DistrictLayerId = 'cd118' | 'sldu' | 'sldl'
+// District layers we ship boundary + (optional) results for.
+export type DistrictLayerId = 'cd118'
 
 export const DISTRICT_LAYER_LABELS: Record<DistrictLayerId, string> = {
   cd118: 'Congressional districts',
-  sldu: 'State Senate districts',
-  sldl: 'State House districts',
 }
 
 const DATA_BASE = '/data/districts'
