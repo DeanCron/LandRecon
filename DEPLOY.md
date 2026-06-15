@@ -57,7 +57,9 @@ az containerapp env create \
   --resource-group LandRecon-RG \
   --location eastus
 
-# Container app — pure static server, no volume mounts needed
+# Container app — static SPA + sidecars. A volume mount is only needed if
+# you want a shared, durable Dev Todos store (see "Dev Todos store
+# persistence" below); the SPA itself is stateless.
 az containerapp create \
   --name landrecon \
   --resource-group LandRecon-RG \
@@ -112,6 +114,71 @@ az containerapp update \
   --name landrecon --resource-group LandRecon-RG \
   --set-env-vars DEV_TODOS_TOKEN=secretref:dev-todos-token
 ```
+
+### Dev Todos store persistence (`/var/lib/landrecon`)
+
+The Dev Todos sidecar persists a single JSON document to local disk at
+`/var/lib/landrecon/dev-todos.json` (overridable via `DEV_TODOS_DATA_PATH`).
+**Local disk on Container Apps is ephemeral and per-replica**, so with the
+default `--min-replicas 0 --max-replicas 3` the store is **not durable or
+shared**:
+
+- **Multiple replicas** don't share a filesystem — a `PUT` that lands on one
+  replica won't be visible to a `GET` routed to another, so edits appear to
+  "not save."
+- **Scale-to-zero** (`min-replicas 0`) recycles the container when idle, which
+  **wipes the file entirely.**
+
+For a shared, durable store, mount an **Azure Files** share at
+`/var/lib/landrecon` so every replica reads/writes the same file and it
+survives scale-to-zero and restarts. No code change is required — the sidecar
+already defaults to that path.
+
+```bash
+# 1. Storage account + file share
+az storage account create \
+  --name landrecondevtodos --resource-group LandRecon-RG \
+  --location eastus --sku Standard_LRS --kind StorageV2
+KEY=$(az storage account keys list \
+  --account-name landrecondevtodos --resource-group LandRecon-RG \
+  --query "[0].value" -o tsv)
+az storage share-rm create \
+  --name dev-todos --storage-account landrecondevtodos --quota 1
+
+# 2. Register the share with the Container Apps environment
+az containerapp env storage set \
+  --name landrecon-env --resource-group LandRecon-RG \
+  --storage-name devtodosstore \
+  --azure-file-account-name landrecondevtodos \
+  --azure-file-account-key "$KEY" \
+  --azure-file-share-name dev-todos \
+  --access-mode ReadWrite
+
+# 3. Mount it into the app at /var/lib/landrecon. Container Apps applies
+#    volume mounts via a YAML patch, so export the current template, add the
+#    volume + volumeMount, and re-apply:
+az containerapp show --name landrecon --resource-group LandRecon-RG \
+  --output yaml > app.yaml
+# Under properties.template, add:
+#   volumes:
+#     - name: dev-todos-vol
+#       storageType: AzureFile
+#       storageName: devtodosstore
+# and under the container entry add:
+#   volumeMounts:
+#     - volumeName: dev-todos-vol
+#       mountPath: /var/lib/landrecon
+az containerapp update --name landrecon --resource-group LandRecon-RG \
+  --yaml app.yaml
+```
+
+> Note: the `nginx` user inside the container must be able to write the mount.
+> `entrypoint.sh` already `chown`s `/var/lib/landrecon` to `nginx:nginx` on
+> start, which works with the default Azure Files `0777`/uid mapping.
+>
+> Alternatively, if you don't need history across restarts and just want
+> consistent reads within a session, pin `--min-replicas 1 --max-replicas 1`
+> — but the volume mount above is the durable fix.
 
 ---
 
@@ -171,6 +238,10 @@ Container Apps auto-scales based on HTTP traffic:
 - `min-replicas: 0` — scales to zero when idle (static-only workload, fast cold start)
 - `max-replicas: 3` — handles traffic spikes
 - 0.5 CPU / 1 GiB RAM is plenty for an nginx static server
+
+> ⚠️ These settings make the local-disk **Dev Todos store** non-durable and
+> per-replica. If you use the shared server store, mount an Azure Files volume
+> at `/var/lib/landrecon` (see "Dev Todos store persistence" above).
 
 ---
 

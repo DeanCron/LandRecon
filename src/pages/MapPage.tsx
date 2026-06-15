@@ -405,65 +405,6 @@ function facilityPopupHtml(opts: {
 
 const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
 
-type LayerStateSnapshot = {
-  noise: boolean
-  superfund: boolean
-  flood: boolean
-  wildfire: boolean
-  aqi: boolean
-  transit: boolean
-  traffic: boolean
-  costco: boolean
-  datacenters: boolean
-  power: boolean
-  ems: boolean
-  crowd: boolean
-  cameras: boolean
-  industrial: boolean
-  surge: boolean
-  slr: boolean
-}
-
-const LAYER_OFF: LayerStateSnapshot = {
-  noise: false, superfund: false, flood: false, wildfire: false, aqi: false, transit: false, traffic: false,
-  costco: false, datacenters: false, power: false, ems: false, crowd: false, cameras: false, industrial: false,
-  surge: false, slr: false,
-}
-
-interface LayerPreset {
-  id: 'family' | 'quiet' | 'commute' | 'clear'
-  label: string
-  desc: string
-  state: LayerStateSnapshot
-}
-
-const LAYER_PRESETS: readonly LayerPreset[] = [
-  {
-    id: 'family',
-    label: 'Family',
-    desc: 'Transit, emergency services, and Costco',
-    state: { ...LAYER_OFF, transit: true, ems: true, costco: true },
-  },
-  {
-    id: 'quiet',
-    label: 'Quiet',
-    desc: 'Airport noise, live traffic, and data centers (avoid noisy areas)',
-    state: { ...LAYER_OFF, noise: true, traffic: true, datacenters: true },
-  },
-  {
-    id: 'commute',
-    label: 'Commute',
-    desc: 'Public transit + live traffic',
-    state: { ...LAYER_OFF, transit: true, traffic: true },
-  },
-  {
-    id: 'clear',
-    label: 'Clear',
-    desc: 'Turn off every overlay',
-    state: { ...LAYER_OFF },
-  },
-] as const
-
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
 const COSTCO_ANALYSIS_RADIUS_MI = 100
@@ -1046,7 +987,6 @@ function MapPage() {
   const remainingDevTodos = devTodoItems.filter((t) => !devTodoChecks[t.id]).length
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
-  const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
   const [tourReplayKey, setTourReplayKey] = useState(0)
 
@@ -1148,7 +1088,7 @@ function MapPage() {
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
-  // handler and is robust to new toggle paths (presets, share-link replay).
+  // handler and is robust to new toggle paths (share-link replay).
   const prevLayerStateRef = useRef<Record<string, boolean>>({
     noise: noiseVisible,
     superfund: superfundVisible,
@@ -4327,70 +4267,6 @@ function MapPage() {
     setTrafficVisible(!trafficVisible)
   }
 
-  const currentLayerSnapshot: LayerStateSnapshot = {
-    noise: noiseVisible,
-    superfund: superfundVisible,
-    flood: floodVisible,
-    wildfire: wildfireVisible,
-    aqi: aqiVisible,
-    transit: transitVisible,
-    traffic: trafficVisible,
-    costco: costcoVisible,
-    datacenters: dataCenterVisible,
-    power: powerLineVisible,
-    ems: emsVisible,
-    crowd: crowdVisible,
-    cameras: camerasVisible,
-    industrial: industrialVisible,
-    surge: surgeVisible,
-    slr: slrVisible,
-  }
-
-  const activeLayerPresetId = LAYER_PRESETS.find((preset) => {
-    const s = preset.state
-    return s.noise === currentLayerSnapshot.noise
-      && s.superfund === currentLayerSnapshot.superfund
-      && s.flood === currentLayerSnapshot.flood
-      && s.wildfire === currentLayerSnapshot.wildfire
-      && s.aqi === currentLayerSnapshot.aqi
-      && s.transit === currentLayerSnapshot.transit
-      && s.traffic === currentLayerSnapshot.traffic
-      && s.costco === currentLayerSnapshot.costco
-      && s.datacenters === currentLayerSnapshot.datacenters
-      && s.power === currentLayerSnapshot.power
-      && s.ems === currentLayerSnapshot.ems
-      && s.crowd === currentLayerSnapshot.crowd
-      && s.cameras === currentLayerSnapshot.cameras
-      && s.industrial === currentLayerSnapshot.industrial
-      && s.surge === currentLayerSnapshot.surge
-      && s.slr === currentLayerSnapshot.slr
-  })?.id ?? null
-
-  const applyLayerPreset = (presetId: LayerPreset['id']) => {
-    const preset = LAYER_PRESETS.find((p) => p.id === presetId)
-    if (!preset) return
-    dbg('preset', `applying "${preset.label}"`)
-    const setLayer = (current: boolean, toggle: () => void, desired: boolean) => {
-      if (current !== desired) toggle()
-    }
-    setLayer(noiseVisible, toggleNoise, preset.state.noise)
-    setLayer(superfundVisible, toggleSuperfund, preset.state.superfund)
-    setLayer(floodVisible, toggleFlood, preset.state.flood)
-    setLayer(wildfireVisible, toggleWildfire, preset.state.wildfire)
-    setLayer(aqiVisible, toggleAqi, preset.state.aqi)
-    setLayer(transitVisible, toggleTransit, preset.state.transit)
-    setLayer(trafficVisible, toggleTraffic, preset.state.traffic)
-    setLayer(costcoVisible, toggleCostco, preset.state.costco)
-    setLayer(dataCenterVisible, toggleDataCenters, preset.state.datacenters)
-    setLayer(powerLineVisible, togglePowerLines, preset.state.power)
-    setLayer(emsVisible, toggleEms, preset.state.ems)
-    setLayer(crowdVisible, toggleCrowd, preset.state.crowd)
-    setLayer(camerasVisible, toggleCameras, preset.state.cameras)
-    setLayer(industrialVisible, toggleIndustrial, preset.state.industrial)
-    setLayer(surgeVisible, toggleSurge, preset.state.surge)
-    setLayer(slrVisible, toggleSlr, preset.state.slr)
-  }
-
   // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
   useEffect(() => {
     if (status !== 'ready') return
@@ -4785,10 +4661,6 @@ function MapPage() {
                 <input type="checkbox" checked={baseMapSwitcherEnabled} onChange={() => { toggleExpFlag('lr_exp_basemap', baseMapSwitcherEnabled, setBaseMapSwitcherEnabled) }} />
                 <span>Base Map Selector</span>
               </label>
-              <label className="exp-menu-item">
-                <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
-                <span>Layer Presets</span>
-              </label>
               <button type="button" className="exp-menu-action" onClick={replayTour}>
                 ▶ Replay guided tour
               </button>
@@ -5020,24 +4892,6 @@ function MapPage() {
         )}
 
         <h2 className={`panel-title${baseMapSwitcherEnabled ? ' overlay-title' : ''}`}>Map Layers</h2>
-
-        {presetsEnabled && (
-          <div className="layer-presets" role="group" aria-label="Layer presets">
-            {LAYER_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`layer-preset-btn${activeLayerPresetId === preset.id ? ' active' : ''}`}
-                onClick={() => applyLayerPreset(preset.id)}
-                disabled={status !== 'ready'}
-                title={preset.desc}
-                aria-pressed={activeLayerPresetId === preset.id}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* ── Getting around ── */}
         <details className="layer-group">
