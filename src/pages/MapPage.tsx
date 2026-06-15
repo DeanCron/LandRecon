@@ -4947,6 +4947,49 @@ function MapPage() {
         </button>
       )}
 
+      {/* Compare: map-level entry point + dedicated overlay (experimental) */}
+      {compareEnabled && savedAnalyses.length > 0 && !showCompare && (
+        <button
+          className="compare-fab"
+          onClick={() => setShowCompare(true)}
+          title={`Compare (${savedAnalyses.length} saved)`}
+          aria-label={`Compare ${savedAnalyses.length} saved location${savedAnalyses.length === 1 ? '' : 's'}`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+          <span className="fab-label">Compare</span>
+          <span className="compare-fab-badge">{savedAnalyses.length}</span>
+        </button>
+      )}
+      {compareEnabled && showCompare && savedAnalyses.length > 0 && (
+        <div className="compare-overlay" role="dialog" aria-modal="true" aria-label="Compare saved locations">
+          <div className="compare-overlay-backdrop" onClick={() => setShowCompare(false)} />
+          <div className="compare-overlay-panel">
+            <div className="compare-overlay-header">
+              <h2 className="compare-overlay-title">Compare Locations</h2>
+              <button className="compare-overlay-close" onClick={() => setShowCompare(false)} aria-label="Close comparison">×</button>
+            </div>
+            <div className="compare-overlay-body">
+              {savedAnalyses.map((sa, i) => (
+                <div className="compare-card" key={i}>
+                  <div className="compare-card-header">
+                    <span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span>
+                    <span className="compare-card-addr" title={sa.address}>{sa.address}</span>
+                    <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove" aria-label={`Remove ${sa.address} from comparison`}>×</button>
+                  </div>
+                  <div className="compare-card-stats">
+                    <span>✈️ {sa.noiseLevel != null ? `${sa.noiseLevel} dB` : 'None'}</span>
+                    <span>☢️ {sa.superfundCount === 0 ? 'None' : `${sa.superfundActive} active`}</span>
+                    <span>🛒 {sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
+                    <span>🏢 {sa.dataCenterCount} nearby</span>
+                  </div>
+                  <div className="compare-card-date">{sa.date}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mobile backdrop */}
       {(layerPanelOpen || analysisPanelOpen) && (
         <div className="mobile-panel-backdrop" onClick={() => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) }} />
@@ -5610,28 +5653,13 @@ function MapPage() {
                 onClick={saveCurrentAnalysis}
                 disabled={analysisResults.loading || analysisResults.costcoLoading}
                 title="Save for comparison"
-                aria-label="Save"
+                aria-label="Save for comparison"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
                   <polyline points="17 21 17 13 7 13 7 21" />
                   <polyline points="7 3 7 8 15 8" />
                 </svg>
-              </button>
-            )}
-            {compareEnabled && savedAnalyses.length > 0 && (
-              <button
-                className="analysis-action-btn"
-                onClick={() => setShowCompare(!showCompare)}
-                title={`Compare (${savedAnalyses.length} saved)`}
-                aria-label="Compare"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="20" x2="18" y2="10" />
-                  <line x1="12" y1="20" x2="12" y2="4" />
-                  <line x1="6" y1="20" x2="6" y2="14" />
-                </svg>
-                <span className="compare-badge">{savedAnalyses.length}</span>
               </button>
             )}
             <button
@@ -5661,27 +5689,6 @@ function MapPage() {
           <p>{address}</p>
           <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
         </div>
-        {compareEnabled && showCompare && savedAnalyses.length > 0 && (
-          <div className="analysis-compare">
-            <h3 className="compare-title">Saved Comparisons</h3>
-            {savedAnalyses.map((sa, i) => (
-              <div className="compare-card" key={i}>
-                <div className="compare-card-header">
-                  <span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span>
-                  <span className="compare-card-addr" title={sa.address}>{sa.address}</span>
-                  <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove" aria-label={`Remove ${sa.address} from comparison`}>×</button>
-                </div>
-                <div className="compare-card-stats">
-                  <span>✈️ {sa.noiseLevel != null ? `${sa.noiseLevel} dB` : 'None'}</span>
-                  <span>☢️ {sa.superfundCount === 0 ? 'None' : `${sa.superfundActive} active`}</span>
-                  <span>🛒 {sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
-                  <span>🏢 {sa.dataCenterCount} nearby</span>
-                </div>
-                <div className="compare-card-date">{sa.date}</div>
-              </div>
-            ))}
-          </div>
-        )}
         <div className="analysis-content">
           {(() => {
             type CardDesc = { key: string; severity: string; node: React.ReactNode }
