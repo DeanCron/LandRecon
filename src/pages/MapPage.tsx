@@ -1046,7 +1046,6 @@ function MapPage() {
   const remainingDevTodos = devTodoItems.filter((t) => !devTodoChecks[t.id]).length
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
-  const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
   const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
   const [tourReplayKey, setTourReplayKey] = useState(0)
@@ -4787,10 +4786,6 @@ function MapPage() {
                 <span>Base Map Selector</span>
               </label>
               <label className="exp-menu-item">
-                <input type="checkbox" checked={compareEnabled} onChange={() => { toggleExpFlag('lr_exp_compare', compareEnabled, setCompareEnabled) }} />
-                <span>Compare Locations</span>
-              </label>
-              <label className="exp-menu-item">
                 <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
                 <span>Layer Presets</span>
               </label>
@@ -4948,7 +4943,7 @@ function MapPage() {
       )}
 
       {/* Compare: map-level entry point + dedicated overlay (experimental) */}
-      {compareEnabled && savedAnalyses.length > 0 && !showCompare && (
+      {savedAnalyses.length > 0 && !showCompare && (
         <button
           className="compare-fab"
           onClick={() => setShowCompare(true)}
@@ -4960,7 +4955,7 @@ function MapPage() {
           <span className="compare-fab-badge">{savedAnalyses.length}</span>
         </button>
       )}
-      {compareEnabled && showCompare && savedAnalyses.length > 0 && (
+      {showCompare && savedAnalyses.length > 0 && (
         <div className="compare-overlay" role="dialog" aria-modal="true" aria-label="Compare saved locations">
           <div className="compare-overlay-backdrop" onClick={() => setShowCompare(false)} />
           <div className="compare-overlay-panel">
@@ -5647,21 +5642,19 @@ function MapPage() {
                 <rect x="6" y="14" width="12" height="8" />
               </svg>
             </button>
-            {compareEnabled && (
-              <button
-                className="analysis-action-btn"
-                onClick={saveCurrentAnalysis}
-                disabled={analysisResults.loading || analysisResults.costcoLoading}
-                title="Save for comparison"
-                aria-label="Save for comparison"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                  <polyline points="17 21 17 13 7 13 7 21" />
-                  <polyline points="7 3 7 8 15 8" />
-                </svg>
-              </button>
-            )}
+            <button
+              className="analysis-action-btn"
+              onClick={saveCurrentAnalysis}
+              disabled={analysisResults.loading || analysisResults.costcoLoading}
+              title="Save for comparison"
+              aria-label="Save for comparison"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+            </button>
             <button
               className="analysis-close"
               onClick={() => setAnalysisPanelOpen(false)}
