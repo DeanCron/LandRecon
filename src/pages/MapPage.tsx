@@ -1048,7 +1048,6 @@ function MapPage() {
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   const [compareEnabled, setCompareEnabled] = useState(() => getExpFlag('lr_exp_compare', false))
   const [presetsEnabled, setPresetsEnabled] = useState(() => getExpFlag('lr_exp_presets', false))
-  const [votingDistrictsEnabled, setVotingDistrictsEnabled] = useState(() => getExpFlag('lr_exp_districts', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
   const [tourReplayKey, setTourReplayKey] = useState(0)
 
@@ -4795,10 +4794,6 @@ function MapPage() {
                 <input type="checkbox" checked={presetsEnabled} onChange={() => { toggleExpFlag('lr_exp_presets', presetsEnabled, setPresetsEnabled) }} />
                 <span>Layer Presets</span>
               </label>
-              <label className="exp-menu-item">
-                <input type="checkbox" checked={votingDistrictsEnabled} onChange={() => { toggleExpFlag('lr_exp_districts', votingDistrictsEnabled, setVotingDistrictsEnabled) }} />
-                <span>Voting Districts</span>
-              </label>
               <button type="button" className="exp-menu-action" onClick={replayTour}>
                 ▶ Replay guided tour
               </button>
@@ -5497,54 +5492,45 @@ function MapPage() {
                 </div>
               </div>
             )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={districtVisible.cd118}
+                onChange={() => toggleDistrict('cd118')}
+                disabled={status !== 'ready' || districtLoading.cd118}
+              />
+              <span className="layer-label">
+                {DISTRICT_LAYER_LABELS.cd118}
+                {districtLoading.cd118 && <span className="layer-loading"> ⏳</span>}
+                {districtAvailable.cd118 === false && (
+                  <span className="layer-loading" title="Boundary loaded but no result data on file"> · outline only</span>
+                )}
+              </span>
+            </label>
+            {districtVisible.cd118 && (
+              <div className="district-legend">
+                <div className="district-legend-bar">
+                  {[-40, -25, -15, -5, 0, 5, 15, 25, 40].map((m) => (
+                    <div
+                      key={m}
+                      className="legend-segment"
+                      style={{ background: marginToColor(m) }}
+                    />
+                  ))}
+                </div>
+                <div className="legend-labels">
+                  <span>R +40</span>
+                  <span>D +40</span>
+                </div>
+                <div className="district-attribution">
+                  Data: MIT Election Lab · U.S. Census
+                </div>
+              </div>
+            )}
           </div>
         </details>
 
-        {/* ── Voting districts (experimental) ── */}
-        {votingDistrictsEnabled && (
-          <details className="layer-group" open>
-            <summary className="layer-group-heading">🗳️ Voting districts</summary>
-            <div className="layer-group-body">
-              {(['cd118'] as DistrictLayerId[]).map((id) => (
-                <label key={id} className="layer-toggle">
-                  <input
-                    type="checkbox"
-                    checked={districtVisible[id]}
-                    onChange={() => toggleDistrict(id)}
-                    disabled={status !== 'ready' || districtLoading[id]}
-                  />
-                  <span className="layer-label">
-                    {DISTRICT_LAYER_LABELS[id]}
-                    {districtLoading[id] && <span className="layer-loading"> ⏳</span>}
-                    {districtAvailable[id] === false && (
-                      <span className="layer-loading" title="Boundary loaded but no result data on file"> · outline only</span>
-                    )}
-                  </span>
-                </label>
-              ))}
-              {districtVisible.cd118 && (
-                <div className="district-legend">
-                  <div className="district-legend-bar">
-                    {[-40, -25, -15, -5, 0, 5, 15, 25, 40].map((m) => (
-                      <div
-                        key={m}
-                        className="legend-segment"
-                        style={{ background: marginToColor(m) }}
-                      />
-                    ))}
-                  </div>
-                  <div className="legend-labels">
-                    <span>R +40</span>
-                    <span>D +40</span>
-                  </div>
-                  <div className="district-attribution">
-                    Data: MIT Election Lab · U.S. Census
-                  </div>
-                </div>
-              )}
-            </div>
-          </details>
-        )}
       </aside>
 
       {/* Recon Report Panel */}
