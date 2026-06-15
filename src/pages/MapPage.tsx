@@ -725,7 +725,10 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (analysisResults.loading || analysisResults.costcoLoading) return
+    if (analysisResults.loading || analysisResults.costcoLoading) {
+      dbg('compare', 'Save skipped — analysis still loading')
+      return
+    }
     const grade = computeLocationGrade(analysisResults)
     const entry: SavedAnalysis = {
       address: address || 'Unknown',
@@ -741,12 +744,14 @@ function MapPage() {
       dataCenterCount: analysisResults.dataCenters.length,
     }
     const next = [entry, ...savedAnalyses].slice(0, 5)
+    dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
   }, [address, analysisResults, savedAnalyses])
 
   const removeSavedAnalysis = useCallback((idx: number) => {
     const next = savedAnalyses.filter((_, i) => i !== idx)
+    dbg('compare', `Removed saved entry #${idx}; ${next.length} remaining`)
     setSavedAnalyses(next)
     localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
   }, [savedAnalyses])
@@ -925,7 +930,9 @@ function MapPage() {
     if (devTodoSaveTimer.current != null) window.clearTimeout(devTodoSaveTimer.current)
     devTodoSaveTimer.current = window.setTimeout(async () => {
       setDevTodoSync('saving')
+      dbg('devtodos', `Saving to server: ${items.length} item(s)…`)
       const ok = await saveDevTodosToServer({ items, checks })
+      dbg('devtodos', ok ? 'Server save OK' : 'Server save failed — falling back to localStorage-only')
       setDevTodoSync(ok ? 'idle' : 'offline')
     }, 400)
   }, [])
@@ -937,15 +944,18 @@ function MapPage() {
     if (!devTodosOpen) return
     let cancelled = false
     setDevTodoSync('loading')
+    dbg('devtodos', 'Modal opened — fetching from server…')
     fetchDevTodosFromServer().then((data) => {
       if (cancelled) return
       if (data) {
+        dbg('devtodos', `Server returned ${data.items.length} item(s); using server as source of truth`)
         setDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
         setDevTodoChecks(data.checks)
         writeDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
         writeDevTodoChecks(data.checks)
         setDevTodoSync('idle')
       } else {
+        dbg('devtodos', 'Server unreachable or no token — staying in localStorage-only mode')
         setDevTodoSync('offline')
       }
     })
@@ -953,6 +963,7 @@ function MapPage() {
   }, [devTodosOpen])
 
   const toggleDevTodo = (id: string) => {
+    dbg('devtodos', `Toggle "${id}"`)
     setDevTodoChecks((prev) => {
       const next = { ...prev, [id]: !prev[id] }
       writeDevTodoChecks(next)
@@ -964,6 +975,7 @@ function MapPage() {
     const label = newDevTodoText.trim()
     if (!label) return
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    dbg('devtodos', `Add "${label}" (${id})`)
     setDevTodoItems((prev) => {
       const next = [...prev, { id, label }]
       writeDevTodoItems(next)
@@ -973,6 +985,7 @@ function MapPage() {
     setNewDevTodoText('')
   }
   const deleteDevTodo = (id: string) => {
+    dbg('devtodos', `Delete "${id}"`)
     const nextChecks = { ...devTodoChecks }
     delete nextChecks[id]
     setDevTodoItems((prev) => {
@@ -4814,11 +4827,11 @@ function MapPage() {
         </button>
       )}
 
-      {/* Compare: map-level entry point + dedicated overlay (experimental) */}
+      {/* Compare: map-level entry point + dedicated overlay */}
       {savedAnalyses.length > 0 && !showCompare && (
         <button
           className="compare-fab"
-          onClick={() => setShowCompare(true)}
+          onClick={() => { dbg('compare', `Overlay opened (${savedAnalyses.length} saved)`); setShowCompare(true) }}
           title={`Compare (${savedAnalyses.length} saved)`}
           aria-label={`Compare ${savedAnalyses.length} saved location${savedAnalyses.length === 1 ? '' : 's'}`}
         >
@@ -4829,11 +4842,11 @@ function MapPage() {
       )}
       {showCompare && savedAnalyses.length > 0 && (
         <div className="compare-overlay" role="dialog" aria-modal="true" aria-label="Compare saved locations">
-          <div className="compare-overlay-backdrop" onClick={() => setShowCompare(false)} />
+          <div className="compare-overlay-backdrop" onClick={() => { dbg('compare', 'Overlay closed (backdrop)'); setShowCompare(false) }} />
           <div className="compare-overlay-panel">
             <div className="compare-overlay-header">
               <h2 className="compare-overlay-title">Compare Locations</h2>
-              <button className="compare-overlay-close" onClick={() => setShowCompare(false)} aria-label="Close comparison">×</button>
+              <button className="compare-overlay-close" onClick={() => { dbg('compare', 'Overlay closed'); setShowCompare(false) }} aria-label="Close comparison">×</button>
             </div>
             <div className="compare-overlay-body">
               {savedAnalyses.map((sa, i) => (
