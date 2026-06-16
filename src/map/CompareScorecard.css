@@ -265,3 +265,11 @@
   color: var(--color-text-muted);
   font-style: italic;
 }
+
+/* Narrower columns on phones so more than one card peeks into view. */
+@media (max-width: 560px) {
+  .compare-rank-card {
+    flex-basis: 180px;
+    width: 180px;
+  }
+}
