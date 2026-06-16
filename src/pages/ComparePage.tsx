@@ -9,8 +9,8 @@ import {
 import { dbg } from '../utils/debug'
 import './ComparePage.css'
 
-// Canonical factor order + tier grouping for the comparison matrix. Mirrors
-// the breakdown produced by computeLocationGrade() so rows read top-to-bottom
+// Tier grouping + canonical factor order for the expandable breakdown. Mirrors
+// the breakdown produced by computeLocationGrade() so factors read top-to-bottom
 // the same way the Recon Report does.
 const TIER_ORDER: Array<{ tier: SavedFactor['tier']; label: string }> = [
   { tier: 'safety', label: 'Safety' },
@@ -31,24 +31,39 @@ const FACTOR_ORDER = [
   'Nearest Costco',
 ]
 
-type FactorRow = {
-  label: string
-  icon: string
-  tier: SavedFactor['tier']
-  max: number
+// Colour from a 0..1 *goodness* ratio (1 = clear / no penalty): green → amber
+// → red. Breakdown scores are penalties (higher = worse), so callers pass
+// goodness = 1 − score/max.
+function goodnessColor(g: number): string {
+  if (g >= 0.9) return '#4caf50'
+  if (g >= 0.5) return '#ffb300'
+  return '#ef5350'
 }
 
-// Severity colour from a 0..1 *goodness* ratio (1 = clear/no penalty) —
-// green (good) → amber → red. Note breakdown scores are penalties (higher =
-// worse), so callers pass goodness = 1 − score/max.
-function ratioColor(ratio: number): string {
-  if (ratio >= 0.9) return '#4caf50'
-  if (ratio >= 0.5) return '#ffb300'
-  return '#ef5350'
+// Per-tier goodness for one location: 1 − (sum of penalties / sum of maxes)
+// across that tier's factors. Returns null when the tier has no scored factors.
+function tierGoodness(breakdown: SavedFactor[] | undefined, tier: SavedFactor['tier']): number | null {
+  if (!breakdown) return null
+  const items = breakdown.filter((f) => f.tier === tier)
+  const max = items.reduce((a, b) => a + b.max, 0)
+  if (max <= 0) return null
+  const score = items.reduce((a, b) => a + b.score, 0)
+  return 1 - score / max
+}
+
+function orderedBreakdown(breakdown: SavedFactor[]): SavedFactor[] {
+  return [...breakdown].sort(
+    (a, b) => FACTOR_ORDER.indexOf(a.label) - FACTOR_ORDER.indexOf(b.label),
+  )
+}
+
+function keyOf(sa: SavedAnalysis): string {
+  return `${sa.address}|${sa.date}`
 }
 
 function ComparePage() {
   const [saved, setSaved] = useState<SavedAnalysis[]>(() => loadSavedAnalyses())
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     document.title = 'Compare Locations · LandRecon'
@@ -67,38 +82,22 @@ function ComparePage() {
     writeSavedAnalyses([])
   }
 
-  // Build the union of factors present across all saved locations, ordered
-  // canonically and grouped by tier.
-  const rows = useMemo<FactorRow[]>(() => {
-    const byLabel = new Map<string, FactorRow>()
-    for (const sa of saved) {
-      for (const f of sa.breakdown ?? []) {
-        if (!byLabel.has(f.label)) {
-          byLabel.set(f.label, { label: f.label, icon: f.icon, tier: f.tier, max: f.max })
-        }
-      }
-    }
-    return Array.from(byLabel.values()).sort(
-      (a, b) => FACTOR_ORDER.indexOf(a.label) - FACTOR_ORDER.indexOf(b.label),
-    )
-  }, [saved])
+  const toggle = (k: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
 
-  // For a given factor row, the best (highest) *goodness* across locations,
-  // used to highlight the strongest option — but only when there's variation.
-  // Scores are penalties, so goodness = 1 − score/max (lowest hazard wins).
-  const bestRatioByLabel = useMemo<Record<string, number | null>>(() => {
-    const out: Record<string, number | null> = {}
-    for (const row of rows) {
-      const ratios: number[] = []
-      for (const sa of saved) {
-        const f = sa.breakdown?.find((b) => b.label === row.label)
-        if (f && f.max > 0) ratios.push(1 - f.score / f.max)
-      }
-      const allEqual = ratios.length > 1 && ratios.every((r) => r === ratios[0])
-      out[row.label] = ratios.length > 1 && !allEqual ? Math.max(...ratios) : null
-    }
-    return out
-  }, [rows, saved])
+  // Rank locations best → worst by overall score, keeping each entry's original
+  // index so remove still targets the right localStorage slot.
+  const ranked = useMemo(
+    () => saved.map((sa, idx) => ({ sa, idx })).sort((a, b) => b.sa.pct - a.sa.pct),
+    [saved],
+  )
+  const topPct = ranked.length > 0 ? ranked[0].sa.pct : 0
 
   if (saved.length === 0) {
     return (
@@ -133,88 +132,126 @@ function ComparePage() {
           </div>
         </header>
 
-        <div className="compare-matrix-scroll">
-          <div
-            className="compare-matrix"
-            style={{ gridTemplateColumns: `minmax(140px, 1.2fr) repeat(${saved.length}, minmax(150px, 1fr))` }}
-          >
-            {/* Header row: location columns */}
-            <div className="compare-cell compare-corner">Factor</div>
-            {saved.map((sa, i) => (
-              <div className="compare-cell compare-loc-head" key={`head-${i}`}>
-                <div className="compare-loc-top">
-                  <span className="compare-grade-badge" style={{ background: sa.gradeColor }}>{sa.grade}</span>
-                  <span className="compare-loc-pct">{Math.round(sa.pct * 100)}%</span>
-                  <button
-                    className="compare-loc-remove"
-                    onClick={() => removeAt(i)}
-                    title="Remove"
-                    aria-label={`Remove ${sa.address}`}
-                  >×</button>
-                </div>
-                <div className="compare-loc-addr" title={sa.address}>{sa.address}</div>
-                <div className="compare-loc-meta">
-                  <span className="compare-loc-date">{sa.date}</span>
-                  <Link className="compare-loc-reanalyze" to={`/map?address=${encodeURIComponent(sa.address)}`}>
-                    Re-analyze
-                  </Link>
-                </div>
-                {!sa.breakdown && (
-                  <div className="compare-loc-legacy">Saved before detailed scoring — re-analyze for full breakdown.</div>
-                )}
-              </div>
-            ))}
+        <p className="compare-rank-hint">Ranked best to worst by overall Recon score.</p>
 
-            {/* Tier-grouped factor rows — flat grid so columns stay aligned */}
-            {TIER_ORDER.map(({ tier, label }) => {
-              const tierRows = rows.filter((r) => r.tier === tier)
-              if (tierRows.length === 0) return null
-              return (
-                <Fragment key={tier}>
-                  <div className="compare-tier-head">{label}</div>
-                  {tierRows.map((row) => (
-                    <Row key={row.label} row={row} saved={saved} best={bestRatioByLabel[row.label]} />
-                  ))}
-                </Fragment>
-              )
-            })}
-          </div>
-        </div>
+        <ol className="compare-rank-list">
+          {ranked.map(({ sa, idx }, rank) => {
+            const k = keyOf(sa)
+            const isOpen = expanded.has(k)
+            const isWinner = ranked.length > 1 && rank === 0
+            const deltaPts = Math.round((sa.pct - topPct) * 100)
+            return (
+              <li
+                className={`compare-rank-card${isWinner ? ' is-winner' : ''}`}
+                key={k}
+              >
+                <div className="compare-rank-main">
+                  <div className="compare-rank-badge" aria-label={`Rank ${rank + 1}`}>
+                    {isWinner ? '🏆' : `#${rank + 1}`}
+                  </div>
+                  <span className="compare-grade-badge" style={{ background: sa.gradeColor }}>{sa.grade}</span>
+                  <div className="compare-rank-body">
+                    <div className="compare-rank-addr" title={sa.address}>{sa.address}</div>
+                    <div className="compare-rank-sub">
+                      <span className="compare-loc-date">{sa.date}</span>
+                      {isWinner && <span className="compare-best-tag">Best match</span>}
+                      {!isWinner && deltaPts < 0 && (
+                        <span className="compare-delta">{deltaPts} pts vs. #1</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="compare-rank-score">
+                    <span className="compare-rank-pct">{Math.round(sa.pct * 100)}%</span>
+                    <div className="compare-bar-track compare-rank-bar">
+                      <div
+                        className="compare-bar-fill"
+                        style={{ width: `${Math.round(sa.pct * 100)}%`, background: goodnessColor(sa.pct) }}
+                      />
+                    </div>
+                  </div>
+                  <div className="compare-rank-actions">
+                    <Link className="compare-loc-reanalyze" to={`/map?address=${encodeURIComponent(sa.address)}`}>
+                      Re-analyze
+                    </Link>
+                    <button
+                      className="compare-loc-remove"
+                      onClick={() => removeAt(idx)}
+                      title="Remove"
+                      aria-label={`Remove ${sa.address}`}
+                    >×</button>
+                  </div>
+                </div>
+
+                {/* Tier sub-scores — a quick visual even before expanding */}
+                {sa.breakdown ? (
+                  <>
+                    <div className="compare-tier-strip">
+                      {TIER_ORDER.map(({ tier, label }) => {
+                        const g = tierGoodness(sa.breakdown, tier)
+                        if (g === null) return null
+                        return (
+                          <div className="compare-tier-mini" key={tier}>
+                            <span className="compare-tier-mini-label">{label}</span>
+                            <div className="compare-bar-track">
+                              <div
+                                className="compare-bar-fill"
+                                style={{ width: `${Math.round(g * 100)}%`, background: goodnessColor(g) }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <button
+                      className="compare-expand-toggle"
+                      onClick={() => toggle(k)}
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? '▾ Hide factor breakdown' : '▸ Show factor breakdown'}
+                    </button>
+
+                    {isOpen && (
+                      <div className="compare-factors">
+                        {TIER_ORDER.map(({ tier, label }) => {
+                          const items = orderedBreakdown(sa.breakdown!.filter((f) => f.tier === tier))
+                          if (items.length === 0) return null
+                          return (
+                            <Fragment key={tier}>
+                              <div className="compare-factor-tier">{label}</div>
+                              {items.map((f) => {
+                                const g = f.max > 0 ? 1 - f.score / f.max : 1
+                                return (
+                                  <div className="compare-factor-row" key={f.label}>
+                                    <span className="compare-factor-icon" aria-hidden="true">{f.icon}</span>
+                                    <span className="compare-factor-name">{f.label}</span>
+                                    <div className="compare-bar-track compare-factor-bar">
+                                      <div
+                                        className="compare-bar-fill"
+                                        style={{ width: `${Math.round(g * 100)}%`, background: goodnessColor(g) }}
+                                      />
+                                    </div>
+                                    <span className="compare-factor-detail">{f.detail}</span>
+                                  </div>
+                                )
+                              })}
+                            </Fragment>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="compare-loc-legacy">
+                    Saved before detailed scoring — re-analyze for the full factor breakdown.
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ol>
       </div>
     </div>
-  )
-}
-
-function Row({ row, saved, best }: { row: FactorRow; saved: SavedAnalysis[]; best: number | null }) {
-  return (
-    <>
-      <div className="compare-cell compare-factor-label">
-        <span className="compare-factor-icon" aria-hidden="true">{row.icon}</span>
-        <span>{row.label}</span>
-      </div>
-      {saved.map((sa, i) => {
-        const f = sa.breakdown?.find((b) => b.label === row.label)
-        if (!f) {
-          return <div className="compare-cell compare-value compare-na" key={`${row.label}-${i}`}>—</div>
-        }
-        const goodness = f.max > 0 ? 1 - f.score / f.max : 1
-        const isBest = best != null && goodness === best
-        return (
-          <div className={`compare-cell compare-value${isBest ? ' is-best' : ''}`} key={`${row.label}-${i}`}>
-            <div className="compare-bar-track">
-              <div
-                className="compare-bar-fill"
-                style={{ width: `${Math.round(goodness * 100)}%`, background: ratioColor(goodness) }}
-              />
-            </div>
-            <div className="compare-value-row">
-              <span className="compare-value-detail">{f.detail}</span>
-              <span className="compare-value-score">{f.score}/{f.max}</span>
-            </div>
-          </div>
-        )
-      })}
-    </>
   )
 }
 
