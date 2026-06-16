@@ -106,22 +106,20 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                   {isWinner ? '🏆' : `#${rank + 1}`}
                 </div>
                 <span className="compare-grade-badge" style={{ background: sa.gradeColor }}>{sa.grade}</span>
-                <div className="compare-rank-body">
-                  <div className="compare-rank-addr" title={sa.address}>{sa.address}</div>
-                  <div className="compare-rank-sub">
-                    <span className="compare-loc-date">{sa.date}</span>
-                    {isWinner && <span className="compare-best-tag">Best match</span>}
-                    {!isWinner && deltaPts < 0 && (
-                      <span className="compare-delta">{deltaPts} pts vs. #1</span>
-                    )}
-                  </div>
-                </div>
                 <button
                   className="compare-loc-remove"
                   onClick={() => onRemove(idx)}
                   title="Remove"
                   aria-label={`Remove ${sa.address}`}
                 >×</button>
+              </div>
+              <div className="compare-rank-addr" title={sa.address}>{sa.address}</div>
+              <div className="compare-rank-sub">
+                <span className="compare-loc-date">{sa.date}</span>
+                {isWinner && <span className="compare-best-tag">Best match</span>}
+                {!isWinner && deltaPts < 0 && (
+                  <span className="compare-delta">{deltaPts} pts vs. #1</span>
+                )}
               </div>
 
               <div className="compare-rank-scorerow">
