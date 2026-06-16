@@ -47,6 +47,12 @@ import {
   patchAnalysisCacheWildfire,
 } from '../map/analysisCache'
 import {
+  type SavedAnalysis,
+  MAX_SAVED_ANALYSES,
+  loadSavedAnalyses,
+  writeSavedAnalyses,
+} from '../map/savedAnalyses'
+import {
   type DevTodo,
   DEV_TODOS,
   readDevTodoItems,
@@ -703,24 +709,8 @@ function MapPage() {
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
 
-  // Saved analyses for comparison
-  type SavedAnalysis = {
-    address: string
-    date: string
-    grade: string
-    gradeColor: string
-    pct: number
-    noiseLevel: number | null
-    noiseAirport: string | null
-    superfundCount: number
-    superfundActive: number
-    costcoMi: number | null
-    dataCenterCount: number
-  }
-  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => {
-    try { return JSON.parse(localStorage.getItem('lr_saved_analyses') ?? '[]') } catch { return [] }
-  })
-  const [showCompare, setShowCompare] = useState(false)
+  // Saved analyses for comparison (shared store, read by the /compare page)
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => loadSavedAnalyses())
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
   const [showClearLayers, setShowClearLayers] = useState(false)
 
@@ -742,19 +732,15 @@ function MapPage() {
       superfundActive: analysisResults.superfunds.filter(s => s.status !== 'Deleted').length,
       costcoMi: analysisResults.costco?.distanceMi ?? null,
       dataCenterCount: analysisResults.dataCenters.length,
+      breakdown: grade.breakdown,
     }
-    const next = [entry, ...savedAnalyses].slice(0, 5)
+    // De-dupe by address so re-saving the same location refreshes it in place.
+    const withoutDupe = savedAnalyses.filter((s) => s.address !== entry.address)
+    const next = [entry, ...withoutDupe].slice(0, MAX_SAVED_ANALYSES)
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
-    localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
+    writeSavedAnalyses(next)
   }, [address, analysisResults, savedAnalyses])
-
-  const removeSavedAnalysis = useCallback((idx: number) => {
-    const next = savedAnalyses.filter((_, i) => i !== idx)
-    dbg('compare', `Removed saved entry #${idx}; ${next.length} remaining`)
-    setSavedAnalyses(next)
-    localStorage.setItem('lr_saved_analyses', JSON.stringify(next))
-  }, [savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -4843,11 +4829,11 @@ function MapPage() {
         </button>
       )}
 
-      {/* Compare: map-level entry point + dedicated overlay */}
-      {savedAnalyses.length > 0 && !showCompare && (
+      {/* Compare: map-level entry point → dedicated /compare page */}
+      {savedAnalyses.length > 0 && (
         <button
           className="compare-fab"
-          onClick={() => { dbg('compare', `Overlay opened (${savedAnalyses.length} saved)`); setShowCompare(true) }}
+          onClick={() => { dbg('compare', `Navigating to /compare (${savedAnalyses.length} saved)`); navigate('/compare') }}
           title={`Compare (${savedAnalyses.length} saved)`}
           aria-label={`Compare ${savedAnalyses.length} saved location${savedAnalyses.length === 1 ? '' : 's'}`}
         >
@@ -4855,35 +4841,6 @@ function MapPage() {
           <span className="fab-label">Compare</span>
           <span className="compare-fab-badge">{savedAnalyses.length}</span>
         </button>
-      )}
-      {showCompare && savedAnalyses.length > 0 && (
-        <div className="compare-overlay" role="dialog" aria-modal="true" aria-label="Compare saved locations">
-          <div className="compare-overlay-backdrop" onClick={() => { dbg('compare', 'Overlay closed (backdrop)'); setShowCompare(false) }} />
-          <div className="compare-overlay-panel">
-            <div className="compare-overlay-header">
-              <h2 className="compare-overlay-title">Compare Locations</h2>
-              <button className="compare-overlay-close" onClick={() => { dbg('compare', 'Overlay closed'); setShowCompare(false) }} aria-label="Close comparison">×</button>
-            </div>
-            <div className="compare-overlay-body">
-              {savedAnalyses.map((sa, i) => (
-                <div className="compare-card" key={i}>
-                  <div className="compare-card-header">
-                    <span className="compare-grade" style={{ background: sa.gradeColor }}>{sa.grade}</span>
-                    <span className="compare-card-addr" title={sa.address}>{sa.address}</span>
-                    <button className="compare-del" onClick={() => removeSavedAnalysis(i)} title="Remove" aria-label={`Remove ${sa.address} from comparison`}>×</button>
-                  </div>
-                  <div className="compare-card-stats">
-                    <span>✈️ {sa.noiseLevel != null ? `${sa.noiseLevel} dB` : 'None'}</span>
-                    <span>☢️ {sa.superfundCount === 0 ? 'None' : `${sa.superfundActive} active`}</span>
-                    <span>🛒 {sa.costcoMi != null ? `${sa.costcoMi.toFixed(1)} mi` : '—'}</span>
-                    <span>🏢 {sa.dataCenterCount} nearby</span>
-                  </div>
-                  <div className="compare-card-date">{sa.date}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Mobile backdrop */}

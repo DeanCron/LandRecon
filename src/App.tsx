@@ -5,6 +5,7 @@ import MapPageSkeleton from './components/MapPageSkeleton'
 import { trackPageView } from './utils/analytics'
 
 const MapPage = lazy(() => import('./pages/MapPage'))
+const ComparePage = lazy(() => import('./pages/ComparePage'))
 
 // Fires a GA4 page_view on every React Router navigation. We strip query
 // params because address strings can be PII; the path alone (e.g. `/map`)
@@ -29,6 +30,14 @@ function App() {
           element={
             <Suspense fallback={<MapPageSkeleton />}>
               <MapPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/compare"
+          element={
+            <Suspense fallback={null}>
+              <ComparePage />
             </Suspense>
           }
         />
