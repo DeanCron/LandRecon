@@ -4085,6 +4085,28 @@ function MapPage() {
   // pre-cached XYZ tile service (standard Web Mercator), so a plain
   // L.tileLayer renders it and Leaflet handles pan/zoom tile loading — no
   // per-viewport rebuild needed. We just add/remove the layer on toggle.
+  const enableSeismicLayer = useCallback(() => {
+    const map = mapRef.current
+    if (!map || seismicLayerRef.current) return
+    const layer = L.tileLayer(SEISMIC_TILE_URL, {
+      opacity: 0.5,
+      maxNativeZoom: SEISMIC_TILE_MAX_NATIVE_ZOOM,
+      attribution: SEISMIC_TILE_ATTRIBUTION,
+      className: 'seismic-overlay',
+      crossOrigin: 'anonymous',
+    })
+    setSeismicLayerLoading(true)
+    layer.on('loading', () => setSeismicLayerLoading(true))
+    layer.on('load', () => setSeismicLayerLoading(false))
+    layer.on('tileerror', () => {
+      dbg('seismic', 'Tile load failed')
+      notifyLayerErrorRef.current('seismic hazard')
+    })
+    layer.addTo(map)
+    seismicLayerRef.current = layer
+    setSeismicVisible(true)
+  }, [])
+
   const toggleSeismicLayer = () => {
     const map = mapRef.current
     if (!map) return
@@ -4096,26 +4118,25 @@ function MapPage() {
         seismicLayerRef.current = null
       }
       setSeismicLayerLoading(false)
+      setSeismicVisible(false)
     } else {
-      const layer = L.tileLayer(SEISMIC_TILE_URL, {
-        opacity: 0.5,
-        maxNativeZoom: SEISMIC_TILE_MAX_NATIVE_ZOOM,
-        attribution: SEISMIC_TILE_ATTRIBUTION,
-        className: 'seismic-overlay',
-        crossOrigin: 'anonymous',
-      })
-      setSeismicLayerLoading(true)
-      layer.on('loading', () => setSeismicLayerLoading(true))
-      layer.on('load', () => setSeismicLayerLoading(false))
-      layer.on('tileerror', () => {
-        dbg('seismic', 'Tile load failed')
-        notifyLayerErrorRef.current('seismic hazard')
-      })
-      layer.addTo(map)
-      seismicLayerRef.current = layer
+      enableSeismicLayer()
     }
-    setSeismicVisible(!seismicVisible)
   }
+
+  // When the Recon Report finds a High-or-higher seismic hazard, reveal the
+  // USGS overlay automatically — same pattern as wildfire. Fires once per
+  // result; a manual toggle-off stays off for that same result.
+  const seismicAutoShownForRef = useRef<unknown>(null)
+  useEffect(() => {
+    if (analysisProgress.seismic !== 'done' || analysisResults.seismicError) return
+    const sq = analysisResults.seismicHazard
+    if (!sq) return
+    if (seismicSeverity(sq.value) !== 'danger') return
+    if (seismicAutoShownForRef.current === sq) return
+    seismicAutoShownForRef.current = sq
+    enableSeismicLayer()
+  }, [analysisProgress.seismic, analysisResults.seismicError, analysisResults.seismicHazard, enableSeismicLayer])
 
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
