@@ -8,6 +8,10 @@ import {
   type WildfirePointResult,
 } from '../map/wildfire'
 import {
+  seismicSeverity,
+  type SeismicPointResult,
+} from '../map/seismic'
+import {
   type BroadbandResponse,
   broadbandSeverity,
   formatBroadbandSpeed,
@@ -77,6 +81,9 @@ export function computeLocationGrade(results: {
   wildfireHazard?: WildfirePointResult | null
   wildfireError?: boolean
   wildfireLoading?: boolean
+  seismicHazard?: SeismicPointResult | null
+  seismicError?: boolean
+  seismicLoading?: boolean
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
@@ -85,7 +92,7 @@ export function computeLocationGrade(results: {
   // Wildfire) refines its tier's sub-score rather than inflating that tier's
   // overall influence. Within a tier, items split the weight in proportion to
   // their per-item `max` (Safety items are equal at 3, Lifestyle at 2, etc.).
-  //   Safety 60%  — Noise, Superfund, ER, Flood, Wildfire
+  //   Safety 60%  — Noise, Superfund, ER, Flood, Wildfire, Seismic
   //   Lifestyle 30% — Data Centers, Crowd, Broadband
   //   Convenience 10% — Costco
   // A tier whose items are all still loading drops out and its weight is
@@ -144,6 +151,22 @@ export function computeLocationGrade(results: {
         ? `${results.wildfireHazard.label} wildfire hazard`
         : 'No mapped USFS hazard'
     breakdown.push({ label: 'Wildfire Hazard', icon: '🔥', score: wfScore, max: 3, detail: wfDetail, tier: 'safety' })
+  }
+
+  // Seismic: clear=0, moderate (band 3)=2, danger=3 (high / very high). Mirrors
+  // wildfire — only High+ surfaces as a report flag (seismicSeverity returns
+  // 'clear' for Moderate), but Moderate still carries a grade penalty here.
+  // Same loading/error contract — skipped while loading, neutral 0 on error so
+  // a flaky USGS lookup doesn't penalize the grade.
+  if (!results.seismicLoading) {
+    const sq = results.seismicHazard
+    const sqScore = sq ? (seismicSeverity(sq.value) === 'danger' ? 3 : sq.value === 3 ? 2 : 0) : 0
+    const sqDetail = results.seismicError
+      ? 'Seismic data unavailable'
+      : results.seismicHazard
+        ? `${results.seismicHazard.label} seismic hazard`
+        : 'No mapped seismic hazard'
+    breakdown.push({ label: 'Seismic Hazard', icon: '🌎', score: sqScore, max: 3, detail: sqDetail, tier: 'safety' })
   }
 
   // --- LIFESTYLE (max 2) ---

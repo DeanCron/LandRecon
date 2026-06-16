@@ -24,6 +24,7 @@ const FACTOR_ORDER = [
   'Emergency Room',
   'Flood Zone',
   'Wildfire Hazard',
+  'Seismic Hazard',
   'Data Centers',
   'Crowd Magnets',
   'Broadband',
@@ -37,7 +38,9 @@ type FactorRow = {
   max: number
 }
 
-// Severity colour from a 0..1 score ratio — green (good) → amber → red.
+// Severity colour from a 0..1 *goodness* ratio (1 = clear/no penalty) —
+// green (good) → amber → red. Note breakdown scores are penalties (higher =
+// worse), so callers pass goodness = 1 − score/max.
 function ratioColor(ratio: number): string {
   if (ratio >= 0.9) return '#4caf50'
   if (ratio >= 0.5) return '#ffb300'
@@ -80,15 +83,16 @@ function ComparePage() {
     )
   }, [saved])
 
-  // For a given factor row, the best (highest) score ratio across locations,
+  // For a given factor row, the best (highest) *goodness* across locations,
   // used to highlight the strongest option — but only when there's variation.
+  // Scores are penalties, so goodness = 1 − score/max (lowest hazard wins).
   const bestRatioByLabel = useMemo<Record<string, number | null>>(() => {
     const out: Record<string, number | null> = {}
     for (const row of rows) {
       const ratios: number[] = []
       for (const sa of saved) {
         const f = sa.breakdown?.find((b) => b.label === row.label)
-        if (f && f.max > 0) ratios.push(f.score / f.max)
+        if (f && f.max > 0) ratios.push(1 - f.score / f.max)
       }
       const allEqual = ratios.length > 1 && ratios.every((r) => r === ratios[0])
       out[row.label] = ratios.length > 1 && !allEqual ? Math.max(...ratios) : null
@@ -193,14 +197,14 @@ function Row({ row, saved, best }: { row: FactorRow; saved: SavedAnalysis[]; bes
         if (!f) {
           return <div className="compare-cell compare-value compare-na" key={`${row.label}-${i}`}>—</div>
         }
-        const ratio = f.max > 0 ? f.score / f.max : 0
-        const isBest = best != null && ratio === best
+        const goodness = f.max > 0 ? 1 - f.score / f.max : 1
+        const isBest = best != null && goodness === best
         return (
           <div className={`compare-cell compare-value${isBest ? ' is-best' : ''}`} key={`${row.label}-${i}`}>
             <div className="compare-bar-track">
               <div
                 className="compare-bar-fill"
-                style={{ width: `${Math.round(ratio * 100)}%`, background: ratioColor(ratio) }}
+                style={{ width: `${Math.round(goodness * 100)}%`, background: ratioColor(goodness) }}
               />
             </div>
             <div className="compare-value-row">

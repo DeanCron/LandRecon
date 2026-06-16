@@ -28,6 +28,8 @@ export interface CachedAnalysisPayload {
     floodZone?: unknown
     // Same contract as floodZone, for the USFS Wildfire Hazard Potential class.
     wildfireHazard?: unknown
+    // Same contract as floodZone, for the USGS ASCE 7-16 seismic PGA band.
+    seismicHazard?: unknown
   }
 }
 
@@ -107,4 +109,12 @@ export function patchAnalysisCacheWildfire(lat: number, lng: number, wildfireHaz
   const existing = readAnalysisCache(lat, lng)
   if (!existing) return
   writeAnalysisCache(lat, lng, { ...existing, wildfireHazard })
+}
+
+// Seismic resolves independently too; merge its determined result the same way
+// as wildfire. No-op when there is no current cache entry.
+export function patchAnalysisCacheSeismic(lat: number, lng: number, seismicHazard: unknown) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, seismicHazard })
 }

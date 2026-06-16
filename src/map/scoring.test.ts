@@ -67,6 +67,9 @@ function clearResults() {
     wildfireHazard: null,
     wildfireError: false,
     wildfireLoading: false,
+    seismicHazard: null,
+    seismicError: false,
+    seismicLoading: false,
   }
 }
 
@@ -82,9 +85,9 @@ describe('computeLocationGrade (tier-normalized)', () => {
       ...clearResults(),
       floodZone: { bucket: 'high', zone: 'AE', label: 'High risk' },
     })
-    // 1 of 5 safety items maxed → safety fraction 0.2 → 0.6 * 0.2 = 0.12 penalty
-    expect(g.pct).toBeCloseTo(0.88, 5)
-    expect(g.letter).toBe('B')
+    // 1 of 6 safety items maxed → safety fraction 1/6 → 0.6 * 0.1667 = 0.1 penalty
+    expect(g.pct).toBeCloseTo(0.9, 5)
+    expect(g.letter).toBe('A')
   })
 
   it('a single missing Costco only costs the 10% convenience weight', () => {

@@ -45,6 +45,7 @@ import {
   writeAnalysisCache,
   patchAnalysisCacheFlood,
   patchAnalysisCacheWildfire,
+  patchAnalysisCacheSeismic,
 } from '../map/analysisCache'
 import {
   type SavedAnalysis,
@@ -85,6 +86,11 @@ import {
   fetchWildfireAtPoint,
   type WildfirePointResult,
 } from '../map/wildfire'
+import {
+  seismicSeverity,
+  fetchSeismicAtPoint,
+  type SeismicPointResult,
+} from '../map/seismic'
 import {
   AQI_MIN_ZOOM,
   AQI_CATEGORY_COLORS,
@@ -698,9 +704,12 @@ function MapPage() {
     wildfireHazard: WildfirePointResult | null
     wildfireError: boolean
     wildfireLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true })
+    seismicHazard: SeismicPointResult | null
+    seismicError: boolean
+    seismicLoading: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -1933,6 +1942,8 @@ function MapPage() {
       allDone['flood'] = floodIsCached ? 'done' : 'pending'
       const wildfireIsCached = cached.wildfireHazard !== undefined
       allDone['wildfire'] = wildfireIsCached ? 'done' : 'pending'
+      const seismicIsCached = cached.seismicHazard !== undefined
+      allDone['seismic'] = seismicIsCached ? 'done' : 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -1966,6 +1977,10 @@ function MapPage() {
         wildfireHazard: wildfireIsCached ? (cached.wildfireHazard as any) : null,
         wildfireError: false,
         wildfireLoading: !wildfireIsCached,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        seismicHazard: seismicIsCached ? (cached.seismicHazard as any) : null,
+        seismicError: false,
+        seismicLoading: !seismicIsCached,
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
@@ -2015,12 +2030,26 @@ function MapPage() {
           setAnalysisProgress((prev) => ({ ...prev, wildfire: 'done' }))
         })
       }
+      if (!seismicIsCached) {
+        fetchSeismicAtPoint(lat, lng).then((sq) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Seismic result (cache-hit path):', sq ? `${sq.label} (PGA ${sq.pga}g)` : 'no mapped hazard')
+          setAnalysisResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, seismic: 'done' }))
+          patchAnalysisCacheSeismic(lat, lng, sq)
+        }).catch((err) => {
+          dbg('analysis', 'Seismic failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, seismic: 'done' }))
+        })
+      }
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire', 'seismic'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -2444,6 +2473,26 @@ function MapPage() {
       markDone('wildfire')
     })
 
+    // USGS ASCE 7-16 design PGA (seismic hazard) for the exact point — same
+    // fire-and-forget + cache-patch pattern as flood/wildfire.
+    let seismicForCache: unknown
+    fetchSeismicAtPoint(lat, lng).then((sq) => {
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Seismic result')
+        return
+      }
+      dbg('analysis', 'Seismic result:', sq ? `${sq.label} (PGA ${sq.pga}g)` : 'no mapped hazard')
+      setAnalysisResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
+      seismicForCache = sq
+      patchAnalysisCacheSeismic(lat, lng, sq)
+      markDone('seismic')
+    }).catch((err) => {
+      dbg('analysis', 'Seismic failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
+      markDone('seismic')
+    })
+
     costcoPromise.then((data) => {
       dbg('analysis', 'Costco result:', data.nearest ? `${data.nearest.distanceMi.toFixed(1)} mi` : 'none')
       if (!isLatestRun()) {
@@ -2472,6 +2521,7 @@ function MapPage() {
         // .then patches it in once it lands.
         ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
         ...(wildfireForCache !== undefined ? { wildfireHazard: wildfireForCache } : {}),
+        ...(seismicForCache !== undefined ? { seismicHazard: seismicForCache } : {}),
       })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
@@ -5746,6 +5796,46 @@ function MapPage() {
             }
 
             {
+              const pSeismic = analysisProgress.seismic !== 'done'
+              const sq = analysisResults.seismicHazard
+              const severity = pSeismic
+                ? 'pending'
+                : analysisResults.seismicError
+                  ? 'clear'
+                  : sq
+                    ? seismicSeverity(sq.value)
+                    : 'clear'
+              const subtitle = pSeismic
+                ? 'Checking…'
+                : analysisResults.seismicError
+                  ? 'Seismic data unavailable'
+                  : sq
+                    ? `${sq.label} seismic hazard`
+                    : 'Minimal seismic hazard'
+              cards.push({ key: 'seismic', severity, node: (
+                <div className={`analysis-card ${severity}`} key="seismic">
+                  <div
+                    className={`analysis-item${pSeismic ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (pSeismic) return
+                      if (analysisDetail === 'seismic') setAnalysisDetail(null)
+                      else setAnalysisDetail('seismic')
+                    }}
+                    aria-busy={pSeismic || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'seismic' ? ' expanded' : ''}${pSeismic ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🌎</div>
+                    <div className="analysis-detail">
+                      <strong>Seismic Hazard</strong>
+                      <p>{subtitle}</p>
+                    </div>
+                    {pSeismic && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               // Broadband at this address — FCC BDC
               const bbLoading = analysisResults.broadbandLoading
               const bb = analysisResults.broadband
@@ -5924,6 +6014,7 @@ function MapPage() {
                analysisDetail === 'broadband' ? '📶 Broadband at this Address' :
                analysisDetail === 'flood' ? '🌊 Flood Zone' :
                analysisDetail === 'wildfire' ? '🔥 Wildfire Hazard' :
+               analysisDetail === 'seismic' ? '🌎 Seismic Hazard' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -6660,6 +6751,61 @@ function MapPage() {
                     <p>
                       USFS Wildfire Hazard Potential (classified, 2023) via the{' '}
                       <a href="https://www.firelab.org/project/wildfire-hazard-potential" target="_blank" rel="noopener noreferrer">USFS Fire Modeling Institute</a>. Auto-revealed on the map only for High risk or higher.
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
+
+            {analysisDetail === 'seismic' && (() => {
+              const sq = analysisResults.seismicHazard
+              const sev = analysisResults.seismicError ? 'clear' : sq ? seismicSeverity(sq.value) : 'clear'
+              if (analysisResults.seismicError) {
+                return (
+                  <>
+                    <p className="analysis-expand-level clear">USGS seismic design data couldn’t be loaded for this location (coverage is limited to the U.S.).</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Seismic hazard affects building codes, retrofit requirements, and earthquake
+                        insurance costs. Try re-analyzing, or explore the{' '}
+                        <a href="https://earthquake.usgs.gov/hazards/" target="_blank" rel="noopener noreferrer">USGS Earthquake Hazards</a> program.
+                      </p>
+                    </div>
+                  </>
+                )
+              }
+              return (
+                <>
+                  <p className={`analysis-expand-level ${sev}`}>
+                    {sq ? `${sq.label} seismic hazard${typeof sq.pga === 'number' ? ` · PGA ${sq.pga} g` : ''}` : 'No mapped seismic hazard'}
+                  </p>
+                  <div className="analysis-expand-rec">
+                    <strong>Why this matters</strong>
+                    <p>
+                      {sev === 'danger'
+                        ? 'This address falls in a High or Very High seismic hazard band. Expect stricter seismic building codes, potential retrofit obligations on older structures, and higher earthquake-insurance premiums.'
+                        : sq && sq.value === 3
+                        ? 'This address is in a Moderate seismic hazard band — not flagged in the report, but real shaking risk exists. Seismic-aware construction and earthquake insurance are still worth considering.'
+                        : sq
+                        ? 'This address is in a Low / Very Low seismic hazard band. Earthquake risk here is minimal, though no area is entirely risk-free.'
+                        : 'This address has no mapped seismic design value (e.g. outside U.S. coverage). That is not a guarantee of zero risk.'}
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Hazard bands (design PGA, g)</strong>
+                    <p>
+                      <span className="analysis-band danger">High / Very high (≥0.30)</span> flagged · {' '}
+                      <span className="analysis-band good">Moderate (0.15–0.30)</span> noted, not flagged · {' '}
+                      <span className="analysis-band good">Low / Very low (&lt;0.15)</span> minimal
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Source</strong>
+                    <p>
+                      USGS Design Maps (ASCE 7-16, Risk Category II, Site Class D) — design peak
+                      ground acceleration via the{' '}
+                      <a href="https://earthquake.usgs.gov/ws/designmaps/" target="_blank" rel="noopener noreferrer">USGS Seismic Design web service</a>. No dedicated map overlay (point hazard only).
                     </p>
                   </div>
                 </>
