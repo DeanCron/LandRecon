@@ -5691,7 +5691,7 @@ function MapPage() {
               </svg>
             </button>
             <button
-              className="analysis-action-btn"
+              className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
               disabled={analysisResults.loading || analysisResults.costcoLoading}
               title="Save for comparison"
@@ -7092,7 +7092,7 @@ function MapPage() {
             {
               selector: '.layer-panel',
               title: '🗺️ Map Layers',
-              content: 'Toggle map layers on and off — airport noise contours, Superfund sites, Costco locations, data centers, traffic, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
+              content: 'Toggle map layers on and off — now organized into collapsible groups: Natural hazards (wildfire, seismic), Water & flooding, Contamination, plus getting around, day-to-day, livability, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
               position: 'right',
               beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
             },
@@ -7114,6 +7114,13 @@ function MapPage() {
               selector: '.analysis-card',
               title: '🔍 Category Details',
               content: 'Click any category card to open a detailed flyout to the left with findings, recommendations, and links. The chevron indicates it\'s expandable.',
+              position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
+            },
+            {
+              selector: '.analysis-save-btn',
+              title: '⭐ Save & Compare',
+              content: 'Save this location to stack it up against others. Saved spots show up in a Compare pill at the bottom of the map — open it to see every location ranked side-by-side, best match first.',
               position: 'left',
               beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
             },
