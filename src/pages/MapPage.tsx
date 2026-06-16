@@ -90,6 +90,10 @@ import {
 import {
   seismicSeverity,
   fetchSeismicAtPoint,
+  SEISMIC_TILE_URL,
+  SEISMIC_TILE_MAX_NATIVE_ZOOM,
+  SEISMIC_TILE_ATTRIBUTION,
+  SEISMIC_HAZARD_LEGEND,
   type SeismicPointResult,
 } from '../map/seismic'
 import {
@@ -416,7 +420,7 @@ function facilityPopupHtml(opts: {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'seismic', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
 
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
@@ -545,6 +549,7 @@ function MapPage() {
   const slrLayerRef = useRef<L.TileLayer | null>(null)
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const seismicLayerRef = useRef<L.TileLayer | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram' | 'bus', L.LayerGroup> | null>(null)
   const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -640,6 +645,8 @@ function MapPage() {
   const [wildfireVisible, setWildfireVisible] = useState(false)
   const [wildfireLoading, setWildfireLoading] = useState(false)
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
+  const [seismicVisible, setSeismicVisible] = useState(false)
+  const [seismicLayerLoading, setSeismicLayerLoading] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
   const [transitStatus, setTransitStatus] = useState<{ kind: 'loading' | 'error'; text: string } | null>(null)
@@ -1091,6 +1098,7 @@ function MapPage() {
     if (superfundVisible) active.push('superfund')
     if (floodVisible) active.push('flood')
     if (wildfireVisible) active.push('wildfire')
+    if (seismicVisible) active.push('seismic')
     if (aqiVisible) active.push('aqi')
     if (transitVisible) active.push('transit')
     if (trafficVisible) active.push('traffic')
@@ -1106,7 +1114,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1117,9 +1125,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1129,6 +1137,7 @@ function MapPage() {
     superfund: superfundVisible,
     flood: floodVisible,
     wildfire: wildfireVisible,
+    seismic: seismicVisible,
     aqi: aqiVisible,
     transit: transitVisible,
     traffic: trafficVisible,
@@ -1148,6 +1157,7 @@ function MapPage() {
       superfund: superfundVisible,
       flood: floodVisible,
       wildfire: wildfireVisible,
+      seismic: seismicVisible,
       aqi: aqiVisible,
       transit: transitVisible,
       traffic: trafficVisible,
@@ -1168,7 +1178,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -3003,6 +3013,7 @@ function MapPage() {
       superfundLoadedBoundsRef.current = null
       floodLayerRef.current = null
       floodLoadedBoundsRef.current = null
+      seismicLayerRef.current = null
       aqiLayerRef.current = null
       aqiLoadedBoundsRef.current = null
       powerLineLayerRef.current = null
@@ -4070,6 +4081,42 @@ function MapPage() {
     enableWildfireLayer()
   }, [analysisProgress.wildfire, analysisResults.wildfireError, analysisResults.wildfireHazard, enableWildfireLayer])
 
+  // USGS National Seismic Hazard Map overlay. Unlike wildfire this is a
+  // pre-cached XYZ tile service (standard Web Mercator), so a plain
+  // L.tileLayer renders it and Leaflet handles pan/zoom tile loading — no
+  // per-viewport rebuild needed. We just add/remove the layer on toggle.
+  const toggleSeismicLayer = () => {
+    const map = mapRef.current
+    if (!map) return
+    dbg('toggle', `seismic → ${seismicVisible ? 'OFF' : 'ON'}`)
+
+    if (seismicVisible) {
+      if (seismicLayerRef.current) {
+        map.removeLayer(seismicLayerRef.current)
+        seismicLayerRef.current = null
+      }
+      setSeismicLayerLoading(false)
+    } else {
+      const layer = L.tileLayer(SEISMIC_TILE_URL, {
+        opacity: 0.5,
+        maxNativeZoom: SEISMIC_TILE_MAX_NATIVE_ZOOM,
+        attribution: SEISMIC_TILE_ATTRIBUTION,
+        className: 'seismic-overlay',
+        crossOrigin: 'anonymous',
+      })
+      setSeismicLayerLoading(true)
+      layer.on('loading', () => setSeismicLayerLoading(true))
+      layer.on('load', () => setSeismicLayerLoading(false))
+      layer.on('tileerror', () => {
+        dbg('seismic', 'Tile load failed')
+        notifyLayerErrorRef.current('seismic hazard')
+      })
+      layer.addTo(map)
+      seismicLayerRef.current = layer
+    }
+    setSeismicVisible(!seismicVisible)
+  }
+
   // Fetch rail / subway / tram polylines from Overpass for the current
   // viewport (capped if the viewport is huge) and render them into the
   // per-type LayerGroups. Re-fetches incrementally as the user pans/zooms.
@@ -4379,6 +4426,7 @@ function MapPage() {
     if (requested.has('superfund')) toggleSuperfund()
     if (requested.has('flood')) toggleFlood()
     if (requested.has('wildfire')) toggleWildfire()
+    if (requested.has('seismic')) toggleSeismicLayer()
     if (requested.has('aqi')) toggleAqi()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('traffic')) toggleTraffic()
@@ -5145,6 +5193,34 @@ function MapPage() {
                 )}
                 <p className="flood-legend-hint">USFS Wildfire Hazard Potential (2023). Non-burnable covers developed/agricultural land; hazard reflects the surrounding wildland.</p>
                 {WHP_CLASS_COLORS.map((cls) => (
+                  <div key={cls.label} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{ background: cls.color, borderColor: cls.color }}
+                      aria-hidden="true"
+                    />
+                    <span>{cls.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={seismicVisible}
+                onChange={toggleSeismicLayer}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Seismic Hazard
+                {seismicLayerLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {seismicVisible && (
+              <div className="flood-legend">
+                <p className="flood-legend-hint">USGS National Seismic Hazard Model (2022). Peak ground acceleration (PGA, in g) with a 2% chance of being exceeded in 50 years, firm rock. Conterminous U.S. only.</p>
+                {SEISMIC_HAZARD_LEGEND.map((cls) => (
                   <div key={cls.label} className="legend-swatch-row">
                     <span
                       className="legend-swatch flood"

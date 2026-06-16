@@ -62,3 +62,32 @@ export async function fetchSeismicAtPoint(lat: number, lng: number): Promise<Sei
   const value = seismicBand(pga)
   return { value, label: seismicClassLabel(value), pga }
 }
+
+// ── Map overlay: USGS National Seismic Hazard Map tile service ───────────
+// Unlike the point lookup, the visual overlay is a pre-symbolized XYZ tile
+// cache (ASCE 7-22 / 2022 NSHM, PGA with 2% probability of exceedance in 50
+// years on firm rock). It's a standard Web Mercator (EPSG:3857) fused cache,
+// so Leaflet's L.tileLayer renders it directly. Tiles are cached through
+// zoom ~10; beyond that Leaflet upsamples (maxNativeZoom). Coverage is the
+// conterminous U.S., so tiles are simply absent (transparent) elsewhere.
+export const SEISMIC_TILE_URL =
+  'https://gis.asce.org/arcgis/rest/services/ASCE722/eq2022_Tile/MapServer/tile/{z}/{y}/{x}'
+
+export const SEISMIC_TILE_MAX_NATIVE_ZOOM = 10
+
+export const SEISMIC_TILE_ATTRIBUTION = 'Seismic hazard: USGS NSHM 2022 / ASCE'
+
+// Legend for the tile overlay's baked color ramp (9 PGA classes, in g),
+// extracted from the service's own legend symbology. Low hazard (greenish)
+// → very high (purple/blue).
+export const SEISMIC_HAZARD_LEGEND: Array<{ label: string; color: string }> = [
+  { label: '0.003 – 0.19 g', color: '#f2f1a2' },
+  { label: '0.19 – 0.37 g',  color: '#fcfa62' },
+  { label: '0.37 – 0.59 g',  color: '#ffff00' },
+  { label: '0.59 – 0.84 g',  color: '#ff9500' },
+  { label: '0.84 – 1.13 g',  color: '#ff0000' },
+  { label: '1.14 – 1.46 g',  color: '#f505bd' },
+  { label: '1.47 – 1.86 g',  color: '#b007ed' },
+  { label: '1.87 – 2.36 g',  color: '#6318cc' },
+  { label: '2.37 – 3.45 g',  color: '#071dad' },
+]
