@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -2876,6 +2876,10 @@ function MapPage() {
     return () => {
       abortController.abort()
     }
+    // Intentionally re-run only on address/navigate change. Pulling in
+    // runLocationAnalysis, loadIndustrialData, or industrialVisible would
+    // re-init the entire map on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, navigate])
 
   // Tear the map down only on actual unmount, not on every address change.
@@ -2907,6 +2911,18 @@ function MapPage() {
     vv?.addEventListener('resize', scheduleInvalidate)
     vv?.addEventListener('scroll', scheduleInvalidate)
 
+    // Capture the stable known-id Sets so the cleanup closure references
+    // locals rather than ref.current. These refs are created once and only
+    // mutated (add/clear), never reassigned, so this is equivalent.
+    const airportKnownIds = airportKnownIdsRef.current
+    const transitLinesKnownIds = transitLinesKnownIdsRef.current
+    const busLinesKnownIds = busLinesKnownIdsRef.current
+    const transitStopsKnownIds = transitStopsKnownIdsRef.current
+    const costcoKnownIds = costcoKnownIdsRef.current
+    const emsKnownIds = emsKnownIdsRef.current
+    const crowdKnownIds = crowdKnownIdsRef.current
+    const camerasKnownIds = camerasKnownIdsRef.current
+
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
       ro?.disconnect()
@@ -2919,7 +2935,7 @@ function MapPage() {
       noiseLayerRef.current = null
       airportLayerRef.current = null
       airportLoadedBoundsRef.current = null
-      airportKnownIdsRef.current.clear()
+      airportKnownIds.clear()
       superfundLayerRef.current = null
       superfundLoadedBoundsRef.current = null
       floodLayerRef.current = null
@@ -2937,16 +2953,16 @@ function MapPage() {
       transitLayerRef.current = null
       transitLineLayersRef.current = null
       transitLinesLoadedBoundsRef.current = null
-      transitLinesKnownIdsRef.current.clear()
+      transitLinesKnownIds.clear()
       busLinesLoadedBoundsRef.current = null
-      busLinesKnownIdsRef.current.clear()
+      busLinesKnownIds.clear()
       transitSubLayersRef.current = null
       transitLoadedBoundsRef.current = null
       transitBusStopsLoadedBoundsRef.current = null
-      transitStopsKnownIdsRef.current.clear()
+      transitStopsKnownIds.clear()
       costcoLayerRef.current = null
       costcoLoadedBoundsRef.current = null
-      costcoKnownIdsRef.current.clear()
+      costcoKnownIds.clear()
       trafficLayerRef.current = null
       dataCenterLayerRef.current = null
       dataCenterSubLayersRef.current = null
@@ -2954,14 +2970,14 @@ function MapPage() {
       emsLayerRef.current = null
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
-      emsKnownIdsRef.current.clear()
+      emsKnownIds.clear()
       crowdLayerRef.current = null
       crowdSubLayersRef.current = null
       crowdLoadedBoundsRef.current = null
-      crowdKnownIdsRef.current.clear()
+      crowdKnownIds.clear()
       camerasLayerRef.current = null
       camerasLoadedBoundsRef.current = null
-      camerasKnownIdsRef.current.clear()
+      camerasKnownIds.clear()
       superfundAnalysisLayerRef.current = null
       costcoAnalysisLayerRef.current = null
       dataCenterAnalysisLayerRef.current = null
@@ -3041,8 +3057,8 @@ function MapPage() {
     setNoiseVisible(!noiseVisible)
   }
 
-  const handleAirportMove = useCallback(
-    debounce(() => {
+  const handleAirportMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = airportLayerRef.current
       if (map && layer) {
@@ -3052,8 +3068,8 @@ function MapPage() {
     [loadAirportLabels],
   )
 
-  const handleCostcoMove = useCallback(
-    debounce(() => {
+  const handleCostcoMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = costcoLayerRef.current
       if (map && layer) {
@@ -3159,8 +3175,8 @@ function MapPage() {
     }
   }, [])
 
-  const handleDataCenterMove = useCallback(
-    debounce(() => {
+  const handleDataCenterMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = dataCenterLayerRef.current
       if (map && layer) loadDataCenters(map, layer)
@@ -3312,8 +3328,8 @@ function MapPage() {
     }
   }, [])
 
-  const handleEmsMove = useCallback(
-    debounce(() => {
+  const handleEmsMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = emsLayerRef.current
       if (map && layer) loadEmsData(map, layer)
@@ -3452,8 +3468,8 @@ function MapPage() {
     return ok
   }, [])
 
-  const handleCamerasMove = useCallback(
-    debounce(() => {
+  const handleCamerasMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = camerasLayerRef.current
       if (map && layer) loadCamerasData(map, layer)
@@ -3573,8 +3589,8 @@ function MapPage() {
     }
   }, [])
 
-  const handleCrowdMove = useCallback(
-    debounce(() => {
+  const handleCrowdMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = crowdLayerRef.current
       if (map && layer) loadCrowdData(map, layer)
@@ -3675,8 +3691,8 @@ function MapPage() {
     setSuperfundVisible(!superfundVisible)
   }
 
-  const handleSuperfundMove = useCallback(
-    debounce(() => {
+  const handleSuperfundMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = superfundLayerRef.current
       if (map && layer) {
@@ -3703,8 +3719,8 @@ function MapPage() {
     }
   }
 
-  const handleFloodMove = useCallback(
-    debounce(() => {
+  const handleFloodMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = floodLayerRef.current
       if (map && layer) {
@@ -3776,8 +3792,8 @@ function MapPage() {
     setAqiVisible(!aqiVisible)
   }
 
-  const handleAqiMove = useCallback(
-    debounce(() => {
+  const handleAqiMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = aqiLayerRef.current
       if (map && layer) {
@@ -3808,8 +3824,8 @@ function MapPage() {
     setPowerLineVisible(!powerLineVisible)
   }
 
-  const handlePowerLineMove = useCallback(
-    debounce(() => {
+  const handlePowerLineMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = powerLineLayerRef.current
       if (map && layer) {
@@ -3951,8 +3967,8 @@ function MapPage() {
     setWildfireVisible(!wildfireVisible)
   }
 
-  const handleWildfireMove = useCallback(
-    debounce(() => {
+  const handleWildfireMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       if (map) loadWildfireData(map)
     }, 300),
@@ -4253,8 +4269,8 @@ function MapPage() {
     }
   }
 
-  const handleTransitMove = useCallback(
-    debounce(() => {
+  const handleTransitMove = useMemo(
+    () => debounce(() => {
       const map = mapRef.current
       const layer = transitLayerRef.current
       if (map && layer) {
@@ -6677,8 +6693,8 @@ function MapPage() {
                   <div className="analysis-expand-rec">
                     <strong>Hazard classes</strong>
                     <p>
-                      <span className="analysis-band danger">High / Very high</span> concern · {' '}
-                      <span className="analysis-band warning">Moderate</span> caution · {' '}
+                      <span className="analysis-band danger">High / Very high</span> flagged · {' '}
+                      <span className="analysis-band good">Moderate</span> noted, not flagged · {' '}
                       <span className="analysis-band good">Low / Very low</span> minimal
                     </p>
                   </div>
