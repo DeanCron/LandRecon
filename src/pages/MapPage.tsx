@@ -46,6 +46,7 @@ import {
   patchAnalysisCacheFlood,
   patchAnalysisCacheWildfire,
   patchAnalysisCacheSeismic,
+  patchAnalysisCacheTornado,
 } from '../map/analysisCache'
 import {
   type SavedAnalysis,
@@ -96,6 +97,17 @@ import {
   SEISMIC_HAZARD_LEGEND,
   type SeismicPointResult,
 } from '../map/seismic'
+import {
+  tornadoSeverity,
+  fetchTornadoAtPoint,
+  fetchTornadoFeatures,
+  tornadoRatingColor,
+  tornadoFeatureLabel,
+  TORNADO_MIN_ZOOM,
+  TORNADO_BAND_COLORS,
+  TORNADO_NO_RATING_COLOR,
+  type TornadoPointResult,
+} from '../map/tornado'
 import {
   AQI_MIN_ZOOM,
   AQI_CATEGORY_COLORS,
@@ -420,7 +432,7 @@ function facilityPopupHtml(opts: {
 
 
 
-const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'seismic', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
+const SHARE_LAYER_IDS = ['noise', 'superfund', 'flood', 'wildfire', 'seismic', 'tornado', 'aqi', 'transit', 'traffic', 'costco', 'datacenters', 'power', 'ems', 'crowd', 'cameras', 'industrial', 'surge', 'slr'] as const
 
 type ShareLayerId = typeof SHARE_LAYER_IDS[number]
 
@@ -550,6 +562,8 @@ function MapPage() {
   const wildfireLayerRef = useRef<L.ImageOverlay | null>(null)
   const wildfireRenderedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const seismicLayerRef = useRef<L.TileLayer | null>(null)
+  const tornadoLayerRef = useRef<L.GeoJSON | null>(null)
+  const tornadoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram' | 'bus', L.LayerGroup> | null>(null)
   const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -614,6 +628,7 @@ function MapPage() {
   // (and cache the wrong bbox). Mirrors transitStopsLoadingRef / camerasLoadingRef.
   const superfundLoadingRef = useRef(false)
   const floodLoadingRef = useRef(false)
+  const tornadoLoadingRef = useRef(false)
   const aqiLoadingRef = useRef(false)
   const powerLineLoadingRef = useRef(false)
   const initialUrlStateAppliedRef = useRef(false)
@@ -647,6 +662,9 @@ function MapPage() {
   const [wildfireLowZoom, setWildfireLowZoom] = useState(false)
   const [seismicVisible, setSeismicVisible] = useState(false)
   const [seismicLayerLoading, setSeismicLayerLoading] = useState(false)
+  const [tornadoVisible, setTornadoVisible] = useState(false)
+  const [tornadoLoading, setTornadoLoading] = useState(false)
+  const [tornadoLowZoom, setTornadoLowZoom] = useState(false)
   const [transitVisible, setTransitVisible] = useState(false)
   const [transitLoading, setTransitLoading] = useState(false)
   const [transitStatus, setTransitStatus] = useState<{ kind: 'loading' | 'error'; text: string } | null>(null)
@@ -715,9 +733,12 @@ function MapPage() {
     seismicHazard: SeismicPointResult | null
     seismicError: boolean
     seismicLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true })
+    tornadoHazard: TornadoPointResult | null
+    tornadoError: boolean
+    tornadoLoading: boolean
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -1099,6 +1120,7 @@ function MapPage() {
     if (floodVisible) active.push('flood')
     if (wildfireVisible) active.push('wildfire')
     if (seismicVisible) active.push('seismic')
+    if (tornadoVisible) active.push('tornado')
     if (aqiVisible) active.push('aqi')
     if (transitVisible) active.push('transit')
     if (trafficVisible) active.push('traffic')
@@ -1114,7 +1136,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
+  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1125,9 +1147,9 @@ function MapPage() {
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
-      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
+      layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
     })
-  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
+  }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1138,6 +1160,7 @@ function MapPage() {
     flood: floodVisible,
     wildfire: wildfireVisible,
     seismic: seismicVisible,
+    tornado: tornadoVisible,
     aqi: aqiVisible,
     transit: transitVisible,
     traffic: trafficVisible,
@@ -1158,6 +1181,7 @@ function MapPage() {
       flood: floodVisible,
       wildfire: wildfireVisible,
       seismic: seismicVisible,
+      tornado: tornadoVisible,
       aqi: aqiVisible,
       transit: transitVisible,
       traffic: trafficVisible,
@@ -1178,7 +1202,7 @@ function MapPage() {
       }
     }
     prevLayerStateRef.current = next
-  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
+  }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   const handleCopyShare = useCallback(async () => {
     const value = shareUrl || shareLongUrl
@@ -1631,6 +1655,45 @@ function MapPage() {
     }
   }, [])
 
+  // FEMA National Risk Index tornado tracts. Like flood, only fetched past
+  // TORNADO_MIN_ZOOM and cached against a padded bbox so panning within the
+  // cached extent skips re-fetch.
+  const loadTornadoData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+    if (map.getZoom() < TORNADO_MIN_ZOOM) {
+      dbg('tornado', `Skipping — zoom ${map.getZoom()} < ${TORNADO_MIN_ZOOM}`)
+      setTornadoLowZoom(true)
+      layer.clearLayers()
+      tornadoLoadedBoundsRef.current = null
+      return
+    }
+    setTornadoLowZoom(false)
+    const bounds = map.getBounds()
+    const loaded = tornadoLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('tornado', 'Skipping — bounds already loaded'); return }
+    if (tornadoLoadingRef.current) { dbg('tornado', 'Skipping — load already in flight'); return }
+    dbg('tornado', 'Loading FEMA NRI tornado tracts…')
+
+    setTornadoLoading(true)
+    tornadoLoadingRef.current = true
+    try {
+      const padded = bounds.pad(0.25)
+      let painted = false
+      const geojson = await fetchTornadoFeatures(padded, (chunk) => {
+        if (!painted) { layer.clearLayers(); painted = true }
+        layer.addData({ type: 'FeatureCollection', features: chunk } as GeoJSON.FeatureCollection)
+      })
+      dbg('tornado', `Got ${geojson.features?.length || 0} features`)
+      if (!painted) layer.clearLayers()
+      tornadoLoadedBoundsRef.current = padded
+    } catch (err) {
+      console.error('Failed to load FEMA NRI tornado tracts:', err)
+      notifyLayerErrorRef.current('tornado risk')
+    } finally {
+      setTornadoLoading(false)
+      tornadoLoadingRef.current = false
+    }
+  }, [])
+
   // EPA AirNow contour polygons (combined Ozone + PM2.5). Coarse hourly
   // contours that look great even at low zoom — useful for regional smoke
   // / dust events. Cached against a padded bbox so panning within the
@@ -1981,6 +2044,8 @@ function MapPage() {
       allDone['wildfire'] = wildfireIsCached ? 'done' : 'pending'
       const seismicIsCached = cached.seismicHazard !== undefined
       allDone['seismic'] = seismicIsCached ? 'done' : 'pending'
+      const tornadoIsCached = cached.tornadoHazard !== undefined
+      allDone['tornado'] = tornadoIsCached ? 'done' : 'pending'
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
@@ -2018,6 +2083,10 @@ function MapPage() {
         seismicHazard: seismicIsCached ? (cached.seismicHazard as any) : null,
         seismicError: false,
         seismicLoading: !seismicIsCached,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tornadoHazard: tornadoIsCached ? (cached.tornadoHazard as any) : null,
+        tornadoError: false,
+        tornadoLoading: !tornadoIsCached,
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
@@ -2081,12 +2150,26 @@ function MapPage() {
           setAnalysisProgress((prev) => ({ ...prev, seismic: 'done' }))
         })
       }
+      if (!tornadoIsCached) {
+        fetchTornadoAtPoint(lat, lng).then((tn) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Tornado result (cache-hit path):', tn ? `${tn.label} (${tn.rating})` : 'no mapped risk')
+          setAnalysisResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, tornado: 'done' }))
+          patchAnalysisCacheTornado(lat, lng, tn)
+        }).catch((err) => {
+          dbg('analysis', 'Tornado failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
+          setAnalysisProgress((prev) => ({ ...prev, tornado: 'done' }))
+        })
+      }
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire', 'seismic'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -2530,6 +2613,26 @@ function MapPage() {
       markDone('seismic')
     })
 
+    // FEMA National Risk Index tornado risk rating for the exact point — same
+    // fire-and-forget + cache-patch pattern as seismic.
+    let tornadoForCache: unknown
+    fetchTornadoAtPoint(lat, lng).then((tn) => {
+      if (!isLatestRun()) {
+        dbg('analysis', 'Stale run — discarding Tornado result')
+        return
+      }
+      dbg('analysis', 'Tornado result:', tn ? `${tn.label} (${tn.rating})` : 'no mapped risk')
+      setAnalysisResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
+      tornadoForCache = tn
+      patchAnalysisCacheTornado(lat, lng, tn)
+      markDone('tornado')
+    }).catch((err) => {
+      dbg('analysis', 'Tornado failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
+      markDone('tornado')
+    })
+
     costcoPromise.then((data) => {
       dbg('analysis', 'Costco result:', data.nearest ? `${data.nearest.distanceMi.toFixed(1)} mi` : 'none')
       if (!isLatestRun()) {
@@ -2559,6 +2662,7 @@ function MapPage() {
         ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
         ...(wildfireForCache !== undefined ? { wildfireHazard: wildfireForCache } : {}),
         ...(seismicForCache !== undefined ? { seismicHazard: seismicForCache } : {}),
+        ...(tornadoForCache !== undefined ? { tornadoHazard: tornadoForCache } : {}),
       })
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
@@ -2843,6 +2947,25 @@ function MapPage() {
           },
         })
 
+        // Create FEMA NRI tornado-risk layer (census-tract polygons; not added until toggled on)
+        tornadoLayerRef.current = L.geoJSON(undefined, {
+          style: (feature) => {
+            const rating = String((feature?.properties as Record<string, unknown> | undefined)?.TRND_RISKR ?? '').trim()
+            const color = tornadoRatingColor(rating)
+            return {
+              color,
+              weight: 1,
+              opacity: 0.7,
+              fillColor: color,
+              fillOpacity: 0.35,
+            }
+          },
+          onEachFeature: (feature, layer) => {
+            const props = (feature as GeoJSON.Feature).properties || {}
+            layer.bindTooltip(`<strong>${tornadoFeatureLabel(props)}</strong>`, { direction: 'top', sticky: true })
+          },
+        })
+
         // Create HIFLD transmission-line layer (polylines; not added to map until toggled on)
         powerLineLayerRef.current = L.geoJSON(undefined, {
           style: (feature) => {
@@ -3014,6 +3137,8 @@ function MapPage() {
       floodLayerRef.current = null
       floodLoadedBoundsRef.current = null
       seismicLayerRef.current = null
+      tornadoLayerRef.current = null
+      tornadoLoadedBoundsRef.current = null
       aqiLayerRef.current = null
       aqiLoadedBoundsRef.current = null
       powerLineLayerRef.current = null
@@ -3845,6 +3970,70 @@ function MapPage() {
     enableFloodLayer()
   }, [analysisProgress.flood, analysisResults.floodError, analysisResults.floodZone, enableFloodLayer])
 
+  const toggleTornado = () => {
+    const map = mapRef.current
+    const layer = tornadoLayerRef.current
+    if (!map || !layer) return
+    dbg('toggle', `tornado → ${tornadoVisible ? 'OFF' : 'ON'}`)
+
+    if (tornadoVisible) {
+      map.removeLayer(layer)
+      map.off('moveend', handleTornadoMove)
+      map.off('zoomend', handleTornadoMove)
+      setTornadoLowZoom(false)
+      setTornadoVisible(false)
+    } else {
+      enableTornadoLayer()
+    }
+  }
+
+  const handleTornadoMove = useMemo(
+    () => debounce(() => {
+      const map = mapRef.current
+      const layer = tornadoLayerRef.current
+      if (map && layer) {
+        loadTornadoData(map, layer)
+      }
+    }, 250),
+    [loadTornadoData],
+  )
+
+  // Idempotently turn the FEMA NRI tornado overlay on for the current map view.
+  // Shared by the manual layer toggle and the Recon Report auto-reveal below.
+  const enableTornadoLayer = useCallback(() => {
+    const map = mapRef.current
+    const layer = tornadoLayerRef.current
+    if (!map || !layer || tornadoVisible) return
+    layer.addTo(map)
+    tornadoLoadedBoundsRef.current = null
+    map.on('moveend', handleTornadoMove)
+    map.on('zoomend', handleTornadoMove)
+    setTornadoVisible(true)
+    if (mapMovingRef.current) {
+      map.once('moveend', () => {
+        tornadoLoadedBoundsRef.current = null
+        loadTornadoData(map, layer)
+      })
+    } else {
+      loadTornadoData(map, layer)
+    }
+  }, [tornadoVisible, loadTornadoData, handleTornadoMove])
+
+  // When the Recon Report finds a High-or-higher tornado risk, reveal the NRI
+  // tornado tracts on the map automatically — scoped to the visible viewport
+  // like the manual toggle. Fires once per result; the user can still toggle
+  // the layer off and it won't re-enable for that same result.
+  const tornadoAutoShownForRef = useRef<unknown>(null)
+  useEffect(() => {
+    if (analysisProgress.tornado !== 'done' || analysisResults.tornadoError) return
+    const tn = analysisResults.tornadoHazard
+    if (!tn) return
+    if (tornadoSeverity(tn.value) !== 'danger') return
+    if (tornadoAutoShownForRef.current === tn) return
+    tornadoAutoShownForRef.current = tn
+    enableTornadoLayer()
+  }, [analysisProgress.tornado, analysisResults.tornadoError, analysisResults.tornadoHazard, enableTornadoLayer])
+
   const toggleAqi = () => {
     const map = mapRef.current
     const layer = aqiLayerRef.current
@@ -4448,6 +4637,7 @@ function MapPage() {
     if (requested.has('flood')) toggleFlood()
     if (requested.has('wildfire')) toggleWildfire()
     if (requested.has('seismic')) toggleSeismicLayer()
+    if (requested.has('tornado')) toggleTornado()
     if (requested.has('aqi')) toggleAqi()
     if (requested.has('transit')) toggleTransit()
     if (requested.has('traffic')) toggleTraffic()
@@ -5217,6 +5407,45 @@ function MapPage() {
                     <span>{cls.label}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={tornadoVisible}
+                onChange={toggleTornado}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                Tornado Risk
+                {tornadoLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {tornadoVisible && (
+              <div className="flood-legend">
+                {tornadoLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see tornado risk.</p>
+                )}
+                <p className="flood-legend-hint">FEMA National Risk Index — composite tornado risk rating by census tract. U.S. only.</p>
+                {TORNADO_BAND_COLORS.map((cls) => (
+                  <div key={cls.label} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{ background: cls.color, borderColor: cls.color }}
+                      aria-hidden="true"
+                    />
+                    <span>{cls.label}</span>
+                  </div>
+                ))}
+                <div className="legend-swatch-row">
+                  <span
+                    className="legend-swatch flood"
+                    style={{ background: TORNADO_NO_RATING_COLOR, borderColor: TORNADO_NO_RATING_COLOR }}
+                    aria-hidden="true"
+                  />
+                  <span>No rating / insufficient data</span>
+                </div>
               </div>
             )}
           </div>
@@ -5994,6 +6223,46 @@ function MapPage() {
             }
 
             {
+              const pTornado = analysisProgress.tornado !== 'done'
+              const tn = analysisResults.tornadoHazard
+              const severity = pTornado
+                ? 'pending'
+                : analysisResults.tornadoError
+                  ? 'clear'
+                  : tn
+                    ? tornadoSeverity(tn.value)
+                    : 'clear'
+              const subtitle = pTornado
+                ? 'Checking…'
+                : analysisResults.tornadoError
+                  ? 'Tornado data unavailable'
+                  : tn
+                    ? `${tn.label} tornado risk`
+                    : 'Minimal tornado risk'
+              cards.push({ key: 'tornado', severity, node: (
+                <div className={`analysis-card ${severity}`} key="tornado">
+                  <div
+                    className={`analysis-item${pTornado ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (pTornado) return
+                      if (analysisDetail === 'tornado') setAnalysisDetail(null)
+                      else setAnalysisDetail('tornado')
+                    }}
+                    aria-busy={pTornado || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'tornado' ? ' expanded' : ''}${pTornado ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🌪️</div>
+                    <div className="analysis-detail">
+                      <strong>Tornado Risk</strong>
+                      <p>{subtitle}</p>
+                    </div>
+                    {pTornado && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               // Broadband at this address — FCC BDC
               const bbLoading = analysisResults.broadbandLoading
               const bb = analysisResults.broadband
@@ -6173,6 +6442,7 @@ function MapPage() {
                analysisDetail === 'flood' ? '🌊 Flood Zone' :
                analysisDetail === 'wildfire' ? '🔥 Wildfire Hazard' :
                analysisDetail === 'seismic' ? '🌎 Seismic Hazard' :
+               analysisDetail === 'tornado' ? '🌪️ Tornado Risk' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -6969,6 +7239,60 @@ function MapPage() {
                 </>
               )
             })()}
+            {analysisDetail === 'tornado' && (() => {
+              const tn = analysisResults.tornadoHazard
+              const sev = analysisResults.tornadoError ? 'clear' : tn ? tornadoSeverity(tn.value) : 'clear'
+              if (analysisResults.tornadoError) {
+                return (
+                  <>
+                    <p className="analysis-expand-level clear">FEMA National Risk Index tornado data couldn’t be loaded for this location (coverage is limited to the U.S.).</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        Tornado risk affects insurance costs, building resilience, and the value of
+                        storm shelters or safe rooms. Try re-analyzing, or explore the{' '}
+                        <a href="https://hazards.fema.gov/nri/tornado" target="_blank" rel="noopener noreferrer">FEMA NRI Tornado</a> data.
+                      </p>
+                    </div>
+                  </>
+                )
+              }
+              return (
+                <>
+                  <p className={`analysis-expand-level ${sev}`}>
+                    {tn ? `${tn.rating} tornado risk${typeof tn.score === 'number' ? ` · NRI score ${tn.score.toFixed(1)}` : ''}` : 'No mapped tornado risk'}
+                  </p>
+                  <div className="analysis-expand-rec">
+                    <strong>Why this matters</strong>
+                    <p>
+                      {sev === 'danger'
+                        ? 'This census tract carries a Relatively High or Very High tornado risk rating. Expect higher wind/storm insurance premiums, and consider a safe room or storm shelter and wind-rated construction.'
+                        : tn && tn.value === 3
+                        ? 'This tract is in a Relatively Moderate tornado risk band — not flagged in the report, but meaningful storm risk exists. A storm plan and adequate coverage are still worth considering.'
+                        : tn
+                        ? 'This tract is in a Relatively Low / Very Low tornado risk band. Tornado risk here is minimal, though no area is entirely risk-free.'
+                        : 'This address has no mapped tornado risk rating (e.g. outside U.S. coverage). That is not a guarantee of zero risk.'}
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Risk ratings</strong>
+                    <p>
+                      <span className="analysis-band danger">Relatively / Very High</span> flagged · {' '}
+                      <span className="analysis-band good">Relatively Moderate</span> noted, not flagged · {' '}
+                      <span className="analysis-band good">Relatively / Very Low</span> minimal
+                    </p>
+                  </div>
+                  <div className="analysis-expand-rec">
+                    <strong>Source</strong>
+                    <p>
+                      FEMA National Risk Index — composite tornado risk rating by census tract,
+                      via the{' '}
+                      <a href="https://hazards.fema.gov/nri/" target="_blank" rel="noopener noreferrer">FEMA National Risk Index</a>. Toggle the Tornado Risk overlay to see nearby tracts.
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </aside>
       )}
@@ -7092,7 +7416,7 @@ function MapPage() {
             {
               selector: '.layer-panel',
               title: '🗺️ Map Layers',
-              content: 'Toggle map layers on and off — now organized into collapsible groups: Natural hazards (wildfire, seismic), Water & flooding, Contamination, plus getting around, day-to-day, livability, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
+              content: 'Toggle map layers on and off — now organized into collapsible groups: Natural hazards (wildfire, seismic, tornado), Water & flooding, Contamination, plus getting around, day-to-day, livability, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
               position: 'right',
               beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
             },

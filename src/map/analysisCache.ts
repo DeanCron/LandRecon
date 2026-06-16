@@ -30,6 +30,8 @@ export interface CachedAnalysisPayload {
     wildfireHazard?: unknown
     // Same contract as floodZone, for the USGS ASCE 7-16 seismic PGA band.
     seismicHazard?: unknown
+    // Same contract as floodZone, for the FEMA NRI tornado risk rating.
+    tornadoHazard?: unknown
   }
 }
 
@@ -117,4 +119,12 @@ export function patchAnalysisCacheSeismic(lat: number, lng: number, seismicHazar
   const existing = readAnalysisCache(lat, lng)
   if (!existing) return
   writeAnalysisCache(lat, lng, { ...existing, seismicHazard })
+}
+
+// Tornado resolves independently too; merge its determined result the same way
+// as seismic. No-op when there is no current cache entry.
+export function patchAnalysisCacheTornado(lat: number, lng: number, tornadoHazard: unknown) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, tornadoHazard })
 }

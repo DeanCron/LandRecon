@@ -70,6 +70,9 @@ function clearResults() {
     seismicHazard: null,
     seismicError: false,
     seismicLoading: false,
+    tornadoHazard: null,
+    tornadoError: false,
+    tornadoLoading: false,
   }
 }
 
@@ -85,8 +88,8 @@ describe('computeLocationGrade (tier-normalized)', () => {
       ...clearResults(),
       floodZone: { bucket: 'high', zone: 'AE', label: 'High risk' },
     })
-    // 1 of 6 safety items maxed → safety fraction 1/6 → 0.6 * 0.1667 = 0.1 penalty
-    expect(g.pct).toBeCloseTo(0.9, 5)
+    // 1 of 7 safety items maxed → safety fraction 1/7 → 0.6 * 0.1429 = 0.0857 penalty
+    expect(g.pct).toBeCloseTo(0.914286, 5)
     expect(g.letter).toBe('A')
   })
 

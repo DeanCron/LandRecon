@@ -21,6 +21,7 @@ const FACTOR_ORDER = [
   'Flood Zone',
   'Wildfire Hazard',
   'Seismic Hazard',
+  'Tornado Risk',
   'Data Centers',
   'Crowd Magnets',
   'Broadband',
