@@ -101,7 +101,7 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
           const deltaPts = Math.round((sa.pct - topPct) * 100)
           return (
             <li className={`compare-rank-card${isWinner ? ' is-winner' : ''}`} key={k}>
-              <div className="compare-rank-main">
+              <div className="compare-rank-top">
                 <div className="compare-rank-badge" aria-label={`Rank ${rank + 1}`}>
                   {isWinner ? '🏆' : `#${rank + 1}`}
                 </div>
@@ -116,28 +116,21 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     )}
                   </div>
                 </div>
-                <div className="compare-rank-score">
-                  <span className="compare-rank-pct">{Math.round(sa.pct * 100)}%</span>
-                  <div className="compare-bar-track compare-rank-bar">
-                    <div
-                      className="compare-bar-fill"
-                      style={{ width: `${Math.round(sa.pct * 100)}%`, background: goodnessColor(sa.pct) }}
-                    />
-                  </div>
-                </div>
-                <div className="compare-rank-actions">
-                  <button
-                    className="compare-loc-reanalyze"
-                    onClick={() => onReanalyze(sa.address)}
-                  >
-                    Re-analyze
-                  </button>
-                  <button
-                    className="compare-loc-remove"
-                    onClick={() => onRemove(idx)}
-                    title="Remove"
-                    aria-label={`Remove ${sa.address}`}
-                  >×</button>
+                <button
+                  className="compare-loc-remove"
+                  onClick={() => onRemove(idx)}
+                  title="Remove"
+                  aria-label={`Remove ${sa.address}`}
+                >×</button>
+              </div>
+
+              <div className="compare-rank-scorerow">
+                <span className="compare-rank-pct">{Math.round(sa.pct * 100)}%</span>
+                <div className="compare-bar-track compare-rank-bar">
+                  <div
+                    className="compare-bar-fill"
+                    style={{ width: `${Math.round(sa.pct * 100)}%`, background: goodnessColor(sa.pct) }}
+                  />
                 </div>
               </div>
 
@@ -162,13 +155,21 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     })}
                   </div>
 
-                  <button
-                    className="compare-expand-toggle"
-                    onClick={() => toggle(k)}
-                    aria-expanded={isOpen}
-                  >
-                    {isOpen ? '▾ Hide factor breakdown' : '▸ Show factor breakdown'}
-                  </button>
+                  <div className="compare-rank-footer">
+                    <button
+                      className="compare-expand-toggle"
+                      onClick={() => toggle(k)}
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? '▾ Hide factor breakdown' : '▸ Show factor breakdown'}
+                    </button>
+                    <button
+                      className="compare-loc-reanalyze"
+                      onClick={() => onReanalyze(sa.address)}
+                    >
+                      Re-analyze
+                    </button>
+                  </div>
 
                   {isOpen && (
                     <div className="compare-factors">
@@ -201,6 +202,16 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                   )}
                 </>
               ) : (
+                <div className="compare-rank-footer">
+                  <button
+                    className="compare-loc-reanalyze"
+                    onClick={() => onReanalyze(sa.address)}
+                  >
+                    Re-analyze
+                  </button>
+                </div>
+              )}
+              {!sa.breakdown && (
                 <div className="compare-loc-legacy">
                   Saved before detailed scoring — re-analyze for the full factor breakdown.
                 </div>

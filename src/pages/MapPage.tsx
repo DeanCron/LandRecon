@@ -4910,7 +4910,7 @@ function MapPage() {
       {savedAnalyses.length > 0 && (
         <button
           className="compare-fab"
-          onClick={() => { dbg('compare', `Opening Compare panel (${savedAnalyses.length} saved)`); setCompareOpen(true) }}
+          onClick={() => { setCompareOpen((o) => { dbg('compare', `${o ? 'Closing' : 'Opening'} Compare popover (${savedAnalyses.length} saved)`); return !o }) }}
           title={`Compare (${savedAnalyses.length} saved)`}
           aria-label={`Compare ${savedAnalyses.length} saved location${savedAnalyses.length === 1 ? '' : 's'}`}
         >

@@ -3179,7 +3179,7 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  z-index: 1000;
+  z-index: 1300;
 }
 .compare-fab:hover {
   background: #005a8d;
@@ -3199,31 +3199,50 @@
   font-weight: 700;
 }
 
-/* ── Compare slide-in panel ────────────────────────────────────── */
+/* ── Compare popover (rises from the Compare pill) ─────────────── */
 .compare-panel-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.25);
   z-index: 1200;
-  display: flex;
-  justify-content: flex-end;
 }
 
 .compare-panel {
-  width: 420px;
-  max-width: 100%;
-  height: 100%;
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 160px);
   background: var(--color-surface);
-  border-left: 1px solid var(--color-border);
-  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
-  animation: comparePanelSlide 0.2s ease;
+  transform-origin: bottom center;
+  animation: comparePop 0.18s ease;
 }
 
-@keyframes comparePanelSlide {
-  from { transform: translateX(24px); opacity: 0; }
-  to   { transform: translateX(0); opacity: 1; }
+/* Little caret pointing down toward the pill */
+.compare-panel::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 14px;
+  height: 14px;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  border-bottom-right-radius: 3px;
+}
+
+@keyframes comparePop {
+  from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 .compare-panel-header {
@@ -3231,12 +3250,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 13px 15px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 .compare-panel-header strong {
-  font-size: 0.98rem;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 .compare-panel-actions {
@@ -3278,12 +3297,14 @@
 .compare-panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 13px 15px;
 }
 
 @media (max-width: 560px) {
   .compare-panel {
-    width: 100%;
+    width: calc(100vw - 16px);
+    bottom: 68px;
+    max-height: calc(100vh - 120px);
   }
 }
 

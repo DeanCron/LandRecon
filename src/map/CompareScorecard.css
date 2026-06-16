@@ -25,29 +25,29 @@
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 12px 13px;
+  padding: 11px 12px;
 }
 .compare-rank-card.is-winner {
   border-color: #4caf50;
   box-shadow: 0 0 0 1px #4caf50, 0 4px 14px rgba(76, 175, 80, 0.16);
 }
 
-.compare-rank-main {
+.compare-rank-top {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
 }
 
 .compare-rank-badge {
   flex-shrink: 0;
-  min-width: 26px;
+  min-width: 24px;
   text-align: center;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 800;
   color: var(--color-text-muted);
 }
 .is-winner .compare-rank-badge {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
 }
 
 .compare-grade-badge {
@@ -101,41 +101,32 @@
   color: #ef5350;
 }
 
-.compare-rank-score {
-  flex-shrink: 0;
-  width: 84px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-.compare-rank-pct {
-  font-size: 1rem;
-  font-weight: 800;
-}
-.compare-rank-bar {
-  width: 100%;
-}
-
-.compare-rank-actions {
-  flex-shrink: 0;
+/* Overall score: % + full-width bar on its own row */
+.compare-rank-scorerow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
-.compare-loc-reanalyze {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--color-primary);
-  white-space: nowrap;
+.compare-rank-pct {
+  flex-shrink: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  min-width: 42px;
 }
-.compare-loc-reanalyze:hover {
-  text-decoration: underline;
+.compare-rank-bar {
+  flex: 1;
 }
+
+/* Footer: expand toggle (left) + re-analyze (right) */
+.compare-rank-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 11px;
+}
+
 .compare-loc-remove {
   background: none;
   border: none;
@@ -144,9 +135,23 @@
   font-size: 1.15rem;
   line-height: 1;
   padding: 0 2px;
+  flex-shrink: 0;
 }
 .compare-loc-remove:hover {
   color: #e74c3c;
+}
+.compare-loc-reanalyze {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+.compare-loc-reanalyze:hover {
+  text-decoration: underline;
 }
 
 /* Shared score bars */
@@ -183,7 +188,6 @@
 
 /* Expand toggle + factor breakdown */
 .compare-expand-toggle {
-  margin-top: 11px;
   background: none;
   border: none;
   padding: 4px 0;
