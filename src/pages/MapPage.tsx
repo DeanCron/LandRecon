@@ -5157,44 +5157,10 @@ function MapPage() {
           </div>
         </details>
 
-        {/* ── Hazards & risk ── */}
+        {/* ── Natural hazards ── */}
         <details className="layer-group">
-          <summary className="layer-group-heading">⚠️ Hazards & risk</summary>
+          <summary className="layer-group-heading">🌐 Natural hazards</summary>
           <div className="layer-group-body">
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={floodVisible}
-                onChange={toggleFlood}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">
-                FEMA Flood Zones
-                {floodLoading && <span className="layer-loading"> ⏳</span>}
-              </span>
-            </label>
-            {floodVisible && (
-              <div className="flood-legend">
-                {floodLowZoom && (
-                  <p className="flood-legend-hint">Zoom in to see flood zones.</p>
-                )}
-                {(['high', 'coastal', 'moderate', 'minimal', 'undetermined', 'water'] as const).map((bucket) => (
-                  <div key={bucket} className="legend-swatch-row">
-                    <span
-                      className="legend-swatch flood"
-                      style={{
-                        background: FLOOD_ZONE_COLORS[bucket],
-                        borderColor: FLOOD_ZONE_COLORS[bucket],
-                        opacity: bucket === 'minimal' ? 0.6 : 1,
-                      }}
-                      aria-hidden="true"
-                    />
-                    <span>{FLOOD_ZONE_LABELS[bucket]}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -5253,7 +5219,110 @@ function MapPage() {
                 ))}
               </div>
             )}
+          </div>
+        </details>
 
+        {/* ── Water & flooding ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">🌊 Water &amp; flooding</summary>
+          <div className="layer-group-body">
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={floodVisible}
+                onChange={toggleFlood}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">
+                FEMA Flood Zones
+                {floodLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+            {floodVisible && (
+              <div className="flood-legend">
+                {floodLowZoom && (
+                  <p className="flood-legend-hint">Zoom in to see flood zones.</p>
+                )}
+                {(['high', 'coastal', 'moderate', 'minimal', 'undetermined', 'water'] as const).map((bucket) => (
+                  <div key={bucket} className="legend-swatch-row">
+                    <span
+                      className="legend-swatch flood"
+                      style={{
+                        background: FLOOD_ZONE_COLORS[bucket],
+                        borderColor: FLOOD_ZONE_COLORS[bucket],
+                        opacity: bucket === 'minimal' ? 0.6 : 1,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span>{FLOOD_ZONE_LABELS[bucket]}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={surgeVisible}
+                onChange={toggleSurge}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Hurricane Storm Surge</span>
+            </label>
+            {surgeVisible && (
+              <div className="flood-legend">
+                <p className="flood-legend-hint">Max water depth from a Saffir-Simpson category storm (NOAA SLOSH model). Coastal US, PR, USVI only.</p>
+                <div className="surge-cat-row">
+                  {SURGE_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`surge-cat-btn${surgeCategory === cat ? ' active' : ''}`}
+                      onClick={() => changeSurgeCategory(cat)}
+                      aria-pressed={surgeCategory === cat}
+                      title={`Category ${cat} hurricane storm surge`}
+                    >
+                      Cat {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
+                checked={slrVisible}
+                onChange={toggleSlr}
+                disabled={status !== 'ready'}
+              />
+              <span className="layer-label">Sea-Level Rise</span>
+            </label>
+            {slrVisible && (
+              <div className="flood-legend">
+                <p className="flood-legend-hint">Land permanently inundated at the selected feet of sea-level rise. Coastal US only.</p>
+                <div className="slr-level-row">
+                  <input
+                    type="range"
+                    min={SLR_LEVELS[0]}
+                    max={SLR_LEVELS[SLR_LEVELS.length - 1]}
+                    step={1}
+                    value={slrLevel}
+                    onChange={(e) => changeSlrLevel(Number(e.target.value) as SlrLevel)}
+                    className="slr-slider"
+                    aria-label="Sea-level rise in feet"
+                  />
+                  <span className="slr-level-label">{slrLevel} ft</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </details>
+
+        {/* ── Contamination ── */}
+        <details className="layer-group">
+          <summary className="layer-group-heading">☣️ Contamination</summary>
+          <div className="layer-group-body">
             <label className="layer-toggle">
               <input
                 type="checkbox"
@@ -5379,69 +5448,6 @@ function MapPage() {
                     Updated {new Date(aqiTimestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} · EPA AirNow
                   </p>
                 )}
-              </div>
-            )}
-          </div>
-        </details>
-
-        {/* ── Coastal hazards ── */}
-        <details className="layer-group">
-          <summary className="layer-group-heading">🌊 Coastal hazards</summary>
-          <div className="layer-group-body">
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={surgeVisible}
-                onChange={toggleSurge}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">Hurricane Storm Surge</span>
-            </label>
-            {surgeVisible && (
-              <div className="flood-legend">
-                <p className="flood-legend-hint">Max water depth from a Saffir-Simpson category storm (NOAA SLOSH model). Coastal US, PR, USVI only.</p>
-                <div className="surge-cat-row">
-                  {SURGE_CATEGORIES.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={`surge-cat-btn${surgeCategory === cat ? ' active' : ''}`}
-                      onClick={() => changeSurgeCategory(cat)}
-                      aria-pressed={surgeCategory === cat}
-                      title={`Category ${cat} hurricane storm surge`}
-                    >
-                      Cat {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <label className="layer-toggle">
-              <input
-                type="checkbox"
-                checked={slrVisible}
-                onChange={toggleSlr}
-                disabled={status !== 'ready'}
-              />
-              <span className="layer-label">Sea-Level Rise</span>
-            </label>
-            {slrVisible && (
-              <div className="flood-legend">
-                <p className="flood-legend-hint">Land permanently inundated at the selected feet of sea-level rise. Coastal US only.</p>
-                <div className="slr-level-row">
-                  <input
-                    type="range"
-                    min={SLR_LEVELS[0]}
-                    max={SLR_LEVELS[SLR_LEVELS.length - 1]}
-                    step={1}
-                    value={slrLevel}
-                    onChange={(e) => changeSlrLevel(Number(e.target.value) as SlrLevel)}
-                    className="slr-slider"
-                    aria-label="Sea-level rise in feet"
-                  />
-                  <span className="slr-level-label">{slrLevel} ft</span>
-                </div>
               </div>
             )}
           </div>
