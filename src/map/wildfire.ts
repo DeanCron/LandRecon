@@ -63,12 +63,12 @@ const WHP_IDENTIFY =
 
 export type WildfirePointResult = { value: number; label: string }
 
-// Recon Report severity. Auto-reveal and the red flag are reserved for High
-// (4) and Very high (5); Moderate (3) is an amber warning; Low/Very low and
-// the non-burnable/water classes are clear.
-export function wildfireSeverity(value: number): 'danger' | 'warning' | 'clear' {
+// Recon Report severity. Only High (4) and Very high (5) trigger in the
+// report — they surface a red flag, auto-reveal the overlay, and count under
+// "Needs attention". Moderate (3), Low/Very low, and the non-burnable/water
+// classes are all treated as clear so they don't trigger a report flag.
+export function wildfireSeverity(value: number): 'danger' | 'clear' {
   if (value === 4 || value === 5) return 'danger'
-  if (value === 3) return 'warning'
   return 'clear'
 }
 

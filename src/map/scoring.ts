@@ -130,12 +130,14 @@ export function computeLocationGrade(results: {
     breakdown.push({ label: 'Flood Zone', icon: '🌊', score: floodScore, max: 3, detail: floodDetail, tier: 'safety' })
   }
 
-  // Wildfire: clear=0, warning=2 (moderate), danger=3 (high / very high).
-  // Same loading/error contract as flood — skipped while loading, neutral 0 on
+  // Wildfire: clear=0, moderate (class 3)=2, danger=3 (high / very high).
+  // Moderate no longer surfaces as a report flag (wildfireSeverity returns
+  // 'clear' for it), but it still carries a grade penalty here. Same
+  // loading/error contract as flood — skipped while loading, neutral 0 on
   // error so a flaky USFS lookup doesn't penalize the grade.
   if (!results.wildfireLoading) {
-    const wfSev = results.wildfireHazard ? wildfireSeverity(results.wildfireHazard.value) : 'clear'
-    const wfScore = wfSev === 'danger' ? 3 : wfSev === 'warning' ? 2 : 0
+    const wf = results.wildfireHazard
+    const wfScore = wf ? (wildfireSeverity(wf.value) === 'danger' ? 3 : wf.value === 3 ? 2 : 0) : 0
     const wfDetail = results.wildfireError
       ? 'Wildfire data unavailable'
       : results.wildfireHazard

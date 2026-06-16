@@ -6667,8 +6667,8 @@ function MapPage() {
                     <p>
                       {sev === 'danger'
                         ? 'This address falls in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space and home-hardening obligations, and meaningful wildfire risk during fire season.'
-                        : sev === 'warning'
-                        ? 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.'
+                        : wf && wf.value === 3
+                        ? 'This address is in a Moderate wildfire hazard class — not flagged in the report, but risk is real. Defensible space and ember-resistant home hardening are still worthwhile precautions.'
                         : wf
                         ? 'This address is in a Low / Very Low class, or a non-burnable (developed) or water area. Wildfire risk here is minimal, though no area is entirely risk-free.'
                         : 'This address has no mapped USFS wildfire hazard class (e.g. outside the contiguous U.S. coverage). That is not a guarantee of zero risk.'}

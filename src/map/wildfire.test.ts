@@ -7,8 +7,8 @@ describe('wildfireSeverity', () => {
     expect(wildfireSeverity(5)).toBe('danger')
   })
 
-  it('flags Moderate (3) as warning', () => {
-    expect(wildfireSeverity(3)).toBe('warning')
+  it('treats Moderate (3) as clear so it does not trigger a report flag', () => {
+    expect(wildfireSeverity(3)).toBe('clear')
   })
 
   it('treats Low/Very low and non-burnable/water as clear', () => {
