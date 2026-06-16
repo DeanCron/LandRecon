@@ -53,6 +53,7 @@ import {
   loadSavedAnalyses,
   writeSavedAnalyses,
 } from '../map/savedAnalyses'
+import CompareScorecard from '../map/CompareScorecard'
 import {
   type DevTodo,
   DEV_TODOS,
@@ -718,8 +719,34 @@ function MapPage() {
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
 
-  // Saved analyses for comparison (shared store, read by the /compare page)
+  // Saved analyses for comparison (shared store, surfaced in the Compare panel)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => loadSavedAnalyses())
+  const [compareOpen, setCompareOpen] = useState(false)
+
+  const removeSavedAt = useCallback((idx: number) => {
+    setSavedAnalyses((prev) => {
+      const next = prev.filter((_, i) => i !== idx)
+      dbg('compare', `Removed entry #${idx} from Compare; ${next.length} remaining`)
+      writeSavedAnalyses(next)
+      if (next.length === 0) setCompareOpen(false)
+      return next
+    })
+  }, [])
+
+  const clearAllSaved = useCallback(() => {
+    dbg('compare', 'Cleared all saved locations from Compare')
+    setSavedAnalyses([])
+    writeSavedAnalyses([])
+    setCompareOpen(false)
+  }, [])
+
+  const reanalyzeSaved = useCallback((addr: string) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('address', addr)
+    dbg('compare', `Re-analyzing "${addr}" from Compare panel`)
+    setCompareOpen(false)
+    navigate(`/map?${params.toString()}`)
+  }, [searchParams, navigate])
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
   const [showClearLayers, setShowClearLayers] = useState(false)
 
@@ -4879,11 +4906,11 @@ function MapPage() {
         </button>
       )}
 
-      {/* Compare: map-level entry point → dedicated /compare page */}
+      {/* Compare: map-level entry point → in-map slide-in panel */}
       {savedAnalyses.length > 0 && (
         <button
           className="compare-fab"
-          onClick={() => { dbg('compare', `Navigating to /compare (${savedAnalyses.length} saved)`); navigate('/compare') }}
+          onClick={() => { dbg('compare', `Opening Compare panel (${savedAnalyses.length} saved)`); setCompareOpen(true) }}
           title={`Compare (${savedAnalyses.length} saved)`}
           aria-label={`Compare ${savedAnalyses.length} saved location${savedAnalyses.length === 1 ? '' : 's'}`}
         >
@@ -4891,6 +4918,34 @@ function MapPage() {
           <span className="fab-label">Compare</span>
           <span className="compare-fab-badge">{savedAnalyses.length}</span>
         </button>
+      )}
+
+      {compareOpen && savedAnalyses.length > 0 && (
+        <div className="compare-panel-overlay" onClick={() => setCompareOpen(false)}>
+          <aside
+            className="compare-panel"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Compare saved locations"
+          >
+            <div className="compare-panel-header">
+              <strong>⚖ Compare Locations</strong>
+              <div className="compare-panel-actions">
+                <span className="compare-count">{savedAnalyses.length} saved</span>
+                <button className="compare-clear-all" onClick={clearAllSaved}>Clear all</button>
+                <button className="compare-panel-close" onClick={() => setCompareOpen(false)} aria-label="Close">×</button>
+              </div>
+            </div>
+            <div className="compare-panel-body">
+              <CompareScorecard
+                saved={savedAnalyses}
+                onRemove={removeSavedAt}
+                onReanalyze={reanalyzeSaved}
+              />
+            </div>
+          </aside>
+        </div>
       )}
 
       {/* Mobile backdrop */}

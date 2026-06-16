@@ -1,6 +1,6 @@
 // Shared store for "saved analyses" — the locations a user pins from the
-// Recon Report to compare later. Both the map (save + quick overlay/FAB) and
-// the dedicated /compare page read and write this single localStorage list.
+// Recon Report to compare later. Both the map's Save button and the map's
+// Compare slide-in panel read and write this single localStorage list.
 
 export const SAVED_ANALYSES_KEY = 'lr_saved_analyses'
 
