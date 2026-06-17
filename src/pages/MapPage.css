@@ -754,6 +754,45 @@
   font-style: italic;
 }
 
+/* Collapsible legend ramp — keeps long colour scales (e.g. the 9-band
+   seismic PGA ramp) tucked away by default so the layer panel stays compact. */
+.legend-ramp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.legend-ramp-summary {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.legend-ramp-summary::-webkit-details-marker {
+  display: none;
+}
+
+.legend-ramp-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  transition: transform 0.15s;
+}
+
+.legend-ramp[open] > .legend-ramp-summary::before {
+  transform: rotate(90deg);
+}
+
+.legend-ramp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .legend-swatch.flood {
   background: var(--color-text-muted);
   border-color: var(--color-text-muted);

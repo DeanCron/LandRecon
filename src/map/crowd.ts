@@ -43,11 +43,17 @@ export interface CrowdMagnet {
 
 const SCHOOL_NAME_RE = /\b(elementary|middle school|high school|junior high|preparatory|prep school|academy|charter|catholic school|christian school|christian academy|day school|public schools?)\b/i
 const COMMUNITY_NAME_RE = /\b(community (center|centre|park)|recreation (center|centre)|rec center|rec centre|ymca|ywca|civic center|civic centre)\b/i
+// State/regional/local parks are routinely mis-tagged boundary=national_park in
+// OSM. They draw far smaller crowds than true national parks, so we exclude
+// them from the "National Parks" crowd magnets by name or protection metadata.
+const STATE_LOCAL_PARK_NAME_RE = /\b(state (park|recreation|beach|forest|natural area|historic|wildlife)|regional park|county park|city park|metropolitan park|metro park|municipal park|provincial park|local park)\b/i
 
 function isSchoolVenue(tags: Record<string, string>, name: string): boolean {
   if (SCHOOL_NAME_RE.test(name)) return true
   if (tags.school) return true
   if (tags.amenity === 'school') return true
+  if (tags.building === 'school') return true
+  if ((tags['operator:type'] || '').toLowerCase() === 'education') return true
   const op = (tags.operator || '').toLowerCase()
   if (op.includes('school') || op.includes('academy') || op.includes('isd')) return true
   return false
@@ -56,6 +62,17 @@ function isSchoolVenue(tags: Record<string, string>, name: string): boolean {
 function isCommunityVenue(tags: Record<string, string>, name: string): boolean {
   if (COMMUNITY_NAME_RE.test(name)) return true
   if (tags.amenity === 'community_centre') return true
+  return false
+}
+
+// State/regional/local park mis-tagged as a national park. Trusts explicit
+// protection metadata first (protection_title / protect_class), then falls back
+// to the name. protect_class 2 is the IUCN "National Park" class, so anything
+// explicitly higher/other is treated as sub-national.
+function isStateOrLocalPark(tags: Record<string, string>, name: string): boolean {
+  const title = (tags.protection_title || '').toLowerCase()
+  if (/\b(state|regional|county|city|municipal|local|provincial|metropolitan)\b/.test(title)) return true
+  if (STATE_LOCAL_PARK_NAME_RE.test(name)) return true
   return false
 }
 
@@ -70,6 +87,16 @@ export function classifyCrowdElement(tags: Record<string, string>): CrowdType | 
     if (/motor|drag|karting|horse_racing/.test(sport)) return 'raceway'
   }
   return null
+}
+
+// Whether a classified element actually qualifies as a crowd magnet. Filters
+// out neighborhood-scale venues that pollute the count: school/community
+// stadiums & amphitheatres, and state/regional parks mis-tagged as national
+// parks. Pure + exported so the rules are unit-tested independently of Overpass.
+export function shouldIncludeCrowdMagnet(type: CrowdType, tags: Record<string, string>, name: string): boolean {
+  if ((type === 'stadium' || type === 'concert') && (isSchoolVenue(tags, name) || isCommunityVenue(tags, name))) return false
+  if (type === 'park' && isStateOrLocalPark(tags, name)) return false
+  return true
 }
 
 export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): Promise<CrowdMagnet[]> {
@@ -99,10 +126,10 @@ export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSi
     if (!type) continue
     const rawName = tags.name || tags['name:en'] || tags.short_name
     if (!rawName) continue
-    // Skip school stadiums/fields and community/rec centers — too many in
-    // residential areas, and they don't really qualify as crowd magnets
-    // compared to pro/college venues.
-    if ((type === 'stadium' || type === 'concert') && (isSchoolVenue(tags, rawName) || isCommunityVenue(tags, rawName))) continue
+    // Skip school/community stadiums & amphitheatres and state/regional parks
+    // mis-tagged as national parks — too many in residential areas, and they
+    // don't qualify as crowd magnets next to pro/college/national venues.
+    if (!shouldIncludeCrowdMagnet(type, tags, rawName)) continue
     const id = `${el.type}-${el.id}`
     if (seen.has(id)) continue
     seen.add(id)

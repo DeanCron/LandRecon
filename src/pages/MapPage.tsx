@@ -5397,16 +5397,21 @@ function MapPage() {
             {seismicVisible && (
               <div className="flood-legend">
                 <p className="flood-legend-hint">USGS National Seismic Hazard Model (2022). Peak ground acceleration (PGA, in g) with a 2% chance of being exceeded in 50 years, firm rock. Conterminous U.S. only.</p>
-                {SEISMIC_HAZARD_LEGEND.map((cls) => (
-                  <div key={cls.label} className="legend-swatch-row">
-                    <span
-                      className="legend-swatch flood"
-                      style={{ background: cls.color, borderColor: cls.color }}
-                      aria-hidden="true"
-                    />
-                    <span>{cls.label}</span>
+                <details className="legend-ramp">
+                  <summary className="legend-ramp-summary">{SEISMIC_HAZARD_LEGEND.length} PGA bands (g)</summary>
+                  <div className="legend-ramp-body">
+                    {SEISMIC_HAZARD_LEGEND.map((cls) => (
+                      <div key={cls.label} className="legend-swatch-row">
+                        <span
+                          className="legend-swatch flood"
+                          style={{ background: cls.color, borderColor: cls.color }}
+                          aria-hidden="true"
+                        />
+                        <span>{cls.label}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </details>
               </div>
             )}
 

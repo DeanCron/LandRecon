@@ -125,4 +125,21 @@ describe('computeLocationGrade (tier-normalized)', () => {
     expect(g.pct).toBeLessThan(0.75)
     expect(['C', 'D', 'F']).toContain(g.letter)
   })
+
+  it('emits a Seismic Hazard factor so it shows in the Compare breakdown', () => {
+    const clear = computeLocationGrade(clearResults())
+    const seismic = clear.breakdown.find((b) => b.label === 'Seismic Hazard')
+    expect(seismic).toBeDefined()
+    expect(seismic!.tier).toBe('safety')
+    expect(seismic!.score).toBe(0)
+
+    // A High seismic band carries a safety-tier penalty.
+    const high = computeLocationGrade({
+      ...clearResults(),
+      seismicHazard: { value: 4, label: 'High', pga: 0.4 },
+    })
+    const highSeismic = high.breakdown.find((b) => b.label === 'Seismic Hazard')
+    expect(highSeismic!.score).toBe(3)
+    expect(high.pct).toBeLessThan(clear.pct)
+  })
 })
