@@ -1569,9 +1569,8 @@
   top: 140px;
   right: 16px;
   width: 380px;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-height: calc(100vh - 156px);
+  overflow: hidden;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -1665,15 +1664,20 @@
 }
 
 .analysis-grade {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--grade-color, var(--color-primary));
+  background: radial-gradient(circle at 30% 25%,
+    color-mix(in srgb, var(--grade-color, var(--color-primary)) 22%, transparent), transparent 70%);
+  border: 3px solid var(--grade-color, var(--color-primary));
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--grade-color, var(--color-primary)) 12%, transparent);
   flex-shrink: 0;
 }
 
@@ -1681,6 +1685,8 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 1;
+  min-width: 0;
 }
 
 .analysis-score-label strong {
@@ -1693,6 +1699,21 @@
   color: var(--color-text-muted);
 }
 
+.analysis-score-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-border);
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.analysis-score-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff7043, #ffb300, #4caf50);
+}
+
 /* Score breakdown (rendered inside analysis-popout) */
 .score-breakdown-grade-summary {
   display: flex;
@@ -1702,15 +1723,20 @@
 }
 
 .score-breakdown-grade-badge {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.65rem;
   font-weight: 800;
-  color: #fff;
+  line-height: 1;
+  color: var(--grade-color, var(--color-primary));
+  background: radial-gradient(circle at 30% 25%,
+    color-mix(in srgb, var(--grade-color, var(--color-primary)) 22%, transparent), transparent 70%);
+  border: 3px solid var(--grade-color, var(--color-primary));
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--grade-color, var(--color-primary)) 12%, transparent);
   flex-shrink: 0;
 }
 
@@ -1801,6 +1827,7 @@
 
 .analysis-content {
   flex: 1;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   display: flex;
@@ -1995,6 +2022,10 @@
 }
 
 /* Analysis cards — wrapper with severity coloring */
+.analysis-content > * {
+  flex-shrink: 0;
+}
+
 .analysis-card {
   border-radius: 8px;
   border: 1px solid var(--color-border);

@@ -5950,10 +5950,13 @@ function MapPage() {
             <>
               <div className="analysis-score-bar" onClick={() => { if (!showScoreBreakdown) trackEvent('score_breakdown_open', { grade: grade.letter }); setShowScoreBreakdown(!showScoreBreakdown); setAnalysisDetail(showScoreBreakdown ? null : 'score') }} style={{ cursor: 'pointer' }} title="Click for score breakdown">
                 <div className={`analysis-chevron${showScoreBreakdown ? ' expanded' : ''}`}>‹</div>
-                <div className="analysis-grade" style={{ background: grade.color }}>{grade.letter}</div>
+                <div className="analysis-grade" style={{ '--grade-color': grade.color } as React.CSSProperties}>{grade.letter}</div>
                 <div className="analysis-score-label">
                   <strong>Location Score</strong>
                   <span>{grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'} — {Math.round(grade.pct * 100)}%</span>
+                  <div className="analysis-score-track" aria-hidden="true">
+                    <span style={{ width: `${Math.round(grade.pct * 100)}%` }} />
+                  </div>
                 </div>
               </div>
             </>
@@ -6469,7 +6472,7 @@ function MapPage() {
               return (
                 <>
                   <div className="score-breakdown-grade-summary">
-                    <div className="score-breakdown-grade-badge" style={{ background: grade.color }}>{grade.letter}</div>
+                    <div className="score-breakdown-grade-badge" style={{ '--grade-color': grade.color } as React.CSSProperties}>{grade.letter}</div>
                     <div className="score-breakdown-grade-info">
                       <strong>{Math.round(grade.pct * 100)}% — {grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'}</strong>
                       <p>{gradeDescriptions[grade.letter]}</p>

@@ -61,9 +61,14 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  color: #fff;
-  font-weight: 700;
+  color: var(--grade-color, var(--color-primary));
+  background: radial-gradient(circle at 30% 25%,
+    color-mix(in srgb, var(--grade-color, var(--color-primary)) 22%, transparent), transparent 70%);
+  border: 2px solid var(--grade-color, var(--color-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--grade-color, var(--color-primary)) 12%, transparent);
+  font-weight: 800;
   font-size: 0.82rem;
+  line-height: 1;
   flex-shrink: 0;
 }
 
@@ -186,7 +191,8 @@
 }
 .compare-tier-mini-label {
   flex-shrink: 0;
-  width: 64px;
+  width: 82px;
+  white-space: nowrap;
   font-size: 0.64rem;
   font-weight: 700;
   text-transform: uppercase;

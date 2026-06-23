@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type CSSProperties } from 'react'
 import {
   type SavedAnalysis,
   type SavedFactor,
@@ -106,7 +106,7 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                 <div className="compare-rank-badge" aria-label={`Rank ${rank + 1}`}>
                   {isWinner ? '🏆' : `#${rank + 1}`}
                 </div>
-                <span className="compare-grade-badge" style={{ background: sa.gradeColor }}>{sa.grade}</span>
+                <span className="compare-grade-badge" style={{ '--grade-color': sa.gradeColor } as CSSProperties}>{sa.grade}</span>
                 <button
                   className="compare-loc-remove"
                   onClick={() => onRemove(idx)}
