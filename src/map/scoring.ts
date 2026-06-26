@@ -21,6 +21,7 @@ import {
   formatBroadbandSpeed,
 } from '../map/broadband'
 import { CROWD_ANALYSIS_RADIUS_MI } from '../map/crowd'
+import { RAILROAD_ANALYSIS_RADIUS_MI, railroadSeverity, type NearestRailroad } from '../map/railroad'
 
 const COSTCO_GREEN_RADIUS_MI = 30
 const SUPERFUND_ANALYSIS_RADIUS_MI = 3
@@ -91,6 +92,7 @@ export function computeLocationGrade(results: {
   tornadoHazard?: TornadoPointResult | null
   tornadoError?: boolean
   tornadoLoading?: boolean
+  nearestRailroad?: NearestRailroad | null
 }): { letter: string; color: string; severity: SeverityLevel; pct: number; breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] } {
   const breakdown: { label: string; icon: string; score: number; max: number; detail: string; tier: 'safety' | 'lifestyle' | 'convenience' }[] = []
 
@@ -99,7 +101,7 @@ export function computeLocationGrade(results: {
   // Wildfire) refines its tier's sub-score rather than inflating that tier's
   // overall influence. Within a tier, items split the weight in proportion to
   // their per-item `max` (Safety items are equal at 3, Lifestyle at 2, etc.).
-  //   Safety 60%  — Noise, Superfund, ER, Flood, Wildfire, Seismic, Tornado
+  //   Safety 60%  — Noise, Superfund, ER, Flood, Wildfire, Seismic, Tornado, Railroad
   //   Lifestyle 30% — Data Centers, Crowd, Broadband
   //   Convenience 10% — Costco
   // A tier whose items are all still loading drops out and its weight is
@@ -191,6 +193,17 @@ export function computeLocationGrade(results: {
         : 'No mapped tornado risk'
     breakdown.push({ label: 'Tornado Risk', icon: '🌪️', score: tnScore, max: 3, detail: tnDetail, tier: 'safety' })
   }
+
+  // Railroad: clear=0, advisory warning=2. A track within a quarter mile is a
+  // horn-noise / vibration nuisance worth investigating in person — flagged as
+  // a moderate (2) safety penalty rather than a hard danger, since how
+  // disruptive it is depends on traffic frequency and time of day.
+  const rr = results.nearestRailroad ?? null
+  const rrScore = railroadSeverity(rr?.distanceMi ?? null) === 'warning' ? 2 : 0
+  const rrDetail = rr
+    ? `Track ${rr.distanceMi} mi away`
+    : `None within ${RAILROAD_ANALYSIS_RADIUS_MI} mi`
+  breakdown.push({ label: 'Railroad', icon: '🚂', score: rrScore, max: 3, detail: rrDetail, tier: 'safety' })
 
   // --- LIFESTYLE (max 2) ---
 

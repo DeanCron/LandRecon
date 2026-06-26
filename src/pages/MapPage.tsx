@@ -80,6 +80,12 @@ import {
   fetchIndustrialFacilities,
 } from '../map/industrial'
 import {
+  RAILROAD_ANALYSIS_RADIUS_MI,
+  railroadSeverity,
+  fetchNearestRailroad,
+  type NearestRailroad,
+} from '../map/railroad'
+import {
   WHP_MIN_ZOOM,
   WHP_MAX_USEFUL_ZOOM,
   WHP_CLASS_COLORS,
@@ -722,6 +728,7 @@ function MapPage() {
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
     crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
+    nearestRailroad: NearestRailroad | null
     broadband: BroadbandResponse | null
     broadbandLoading: boolean
     floodZone: { bucket: string; zone: string; label: string } | null
@@ -736,9 +743,9 @@ function MapPage() {
     tornadoHazard: TornadoPointResult | null
     tornadoError: boolean
     tornadoLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'railroad' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -2032,7 +2039,7 @@ function MapPage() {
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
-      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd']) allDone[c] = 'done'
+      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad']) allDone[c] = 'done'
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
@@ -2069,6 +2076,8 @@ function MapPage() {
         erError: cached.erError,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         crowdMagnets: (cached.crowdMagnets ?? []) as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        nearestRailroad: (cached.nearestRailroad ?? null) as any,
         broadband: null,
         broadbandLoading: true,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2167,9 +2176,9 @@ function MapPage() {
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
+    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of checks) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
@@ -2462,6 +2471,17 @@ function MapPage() {
         }
       })()
 
+    // Nearest active railroad track within a quarter mile (OSM Overpass).
+    // Advisory only — flags horn-noise / vibration nuisance worth checking in
+    // person. Resolves to null when no track is in range.
+    const railroadP = (async () => {
+        try {
+          return await fetchNearestRailroad(location, AbortSignal.timeout(TIMEOUT))
+        } catch {
+          return null
+        }
+      })()
+
     // Commit each check's result and mark it done together, the moment it
     // resolves, so each report tile's progress flag and its data stay in sync.
     noiseP.then((r) => {
@@ -2505,8 +2525,13 @@ function MapPage() {
       setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r }))
       markDone('crowd')
     })
+    railroadP.then((r) => {
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: r }))
+      markDone('railroad')
+    })
 
-    const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult] = await Promise.allSettled([noiseP, superfundP, dataCenterP, erP, crowdP])
+    const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult, railroadResult] = await Promise.allSettled([noiseP, superfundP, dataCenterP, erP, crowdP, railroadP])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
     const noiseLevel = noiseData?.level ?? null
@@ -2517,6 +2542,7 @@ function MapPage() {
     const nearestER = erResult.status === 'fulfilled' ? erResult.value : null
     const erError = erResult.status === 'rejected'
     const crowdMagnets = crowdResult.status === 'fulfilled' ? crowdResult.value : []
+    const nearestRailroad = railroadResult.status === 'fulfilled' ? railroadResult.value : null
 
     dbg('analysis', 'Primary results in (Costco still in-flight):', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
@@ -2657,6 +2683,7 @@ function MapPage() {
         dataCenters,
         nearestER, erError,
         crowdMagnets,
+        nearestRailroad,
         // Omitted (left undefined) if flood hasn't resolved yet — the flood
         // .then patches it in once it lands.
         ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
@@ -6111,6 +6138,35 @@ function MapPage() {
             }
 
             {
+              const pRailroad = analysisProgress.railroad !== 'done'
+              const rr = analysisResults.nearestRailroad
+              const severity = pRailroad ? 'pending' : railroadSeverity(rr?.distanceMi ?? null)
+              cards.push({ key: 'railroad', severity, node: (
+                <div className={`analysis-card ${severity}`} key="railroad">
+                  <div
+                    className={`analysis-item${pRailroad ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (pRailroad) return
+                      if (analysisDetail === 'railroad') setAnalysisDetail(null)
+                      else setAnalysisDetail('railroad')
+                    }}
+                    aria-busy={pRailroad || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'railroad' ? ' expanded' : ''}${pRailroad ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🚂</div>
+                    <div className="analysis-detail">
+                      <strong>Railroad</strong>
+                      <p>{pRailroad ? 'Checking…' : (rr
+                        ? `Track ${rr.distanceMi} mi away`
+                        : `No track within ${RAILROAD_ANALYSIS_RADIUS_MI} mi`)}</p>
+                    </div>
+                    {pRailroad && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               const pFlood = analysisProgress.flood !== 'done'
               const fz = analysisResults.floodZone
               const severity = pFlood
@@ -6446,6 +6502,7 @@ function MapPage() {
                analysisDetail === 'costco' ? '🛒 Nearest Costco' :
                analysisDetail === 'er' ? '🏥 Emergency Room' :
                analysisDetail === 'crowd' ? '🎟️ Crowd Magnets' :
+               analysisDetail === 'railroad' ? '🚂 Railroad Proximity' :
                analysisDetail === 'broadband' ? '📶 Broadband at this Address' :
                analysisDetail === 'flood' ? '🌊 Flood Zone' :
                analysisDetail === 'wildfire' ? '🔥 Wildfire Hazard' :
@@ -6534,6 +6591,11 @@ function MapPage() {
                         clear: 'This address is in a Low / Very Low USFS wildfire hazard class (or a non-burnable developed/water area). Wildfire risk here is minimal, though no area is entirely risk-free.',
                         warning: 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.',
                         danger: 'This address is in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space obligations, and meaningful wildfire risk in fire season.'
+                      },
+                      'Railroad': {
+                        clear: 'No active railroad track was found within a quarter mile. Train-horn noise and vibration are unlikely to be a concern at this location.',
+                        warning: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.',
+                        danger: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.'
                       }
                     }
                     return (
@@ -6922,6 +6984,54 @@ function MapPage() {
                 )}
               </>
             )}
+
+            {analysisDetail === 'railroad' && (() => {
+              const rr = analysisResults.nearestRailroad
+              return (
+                <>
+                  {rr ? (
+                    <>
+                      <p className="analysis-expand-level warning">Active railroad track ~{rr.distanceMi} mi away</p>
+                      <div className="analysis-expand-rec">
+                        <strong>Why this matters</strong>
+                        <p>
+                          A railroad track within a quarter mile can bring train-horn noise
+                          (federal rules require sounding the horn at public crossings),
+                          ground vibration, and overnight freight movements. How disruptive
+                          this is depends heavily on how often trains run and at what hours.
+                        </p>
+                        <p>
+                          <strong>Recommendation:</strong> visit the property multiple times —
+                          including evenings and overnight — to hear the trains firsthand and
+                          make sure the noise isn&apos;t a dealbreaker before committing.
+                        </p>
+                      </div>
+                      <ul className="analysis-expand-list">
+                        <li className="dc-analysis-item">
+                          <div className="dc-analysis-header">
+                            <span className="dc-status-dot" style={{ background: '#8d6e63' }} />
+                            <strong>🚂 {rr.name}</strong>
+                            <span className="dc-distance">{rr.distanceMi} mi</span>
+                          </div>
+                        </li>
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="analysis-expand-level clear">No railroad track within {RAILROAD_ANALYSIS_RADIUS_MI} miles.</p>
+                      <div className="analysis-expand-rec">
+                        <strong>Why this matters</strong>
+                        <p>
+                          Railroad tracks close to a home bring train-horn noise, vibration,
+                          and overnight freight movements. No track within a quarter mile is a
+                          positive indicator for this location.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </>
+              )
+            })()}
 
             {analysisDetail === 'broadband' && (() => {
               const bb = analysisResults.broadband

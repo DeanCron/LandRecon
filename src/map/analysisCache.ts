@@ -1,6 +1,6 @@
 import { quantizeCoord } from '../utils/perf'
 
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v4:'
+const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v5:'
 // Persisted in localStorage so a recently-analyzed address is instant on a
 // return visit (even after closing the tab). The underlying data is mostly
 // static infrastructure (flood zones, Superfund sites, data centers, nearest
@@ -22,6 +22,7 @@ export interface CachedAnalysisPayload {
     nearestER: unknown
     erError: boolean
     crowdMagnets: unknown[]
+    nearestRailroad: unknown
     // Optional: present (object or null) once the FEMA point query has
     // produced a determined result. Absent means "not determined" (errored or
     // never resolved) so a cache hit re-fetches instead of showing "no hazard".

@@ -73,6 +73,7 @@ function clearResults() {
     tornadoHazard: null,
     tornadoError: false,
     tornadoLoading: false,
+    nearestRailroad: null,
   }
 }
 
@@ -88,8 +89,8 @@ describe('computeLocationGrade (tier-normalized)', () => {
       ...clearResults(),
       floodZone: { bucket: 'high', zone: 'AE', label: 'High risk' },
     })
-    // 1 of 7 safety items maxed → safety fraction 1/7 → 0.6 * 0.1429 = 0.0857 penalty
-    expect(g.pct).toBeCloseTo(0.914286, 5)
+    // 1 of 8 safety items maxed → safety fraction 1/8 → 0.6 * 0.125 = 0.075 penalty
+    expect(g.pct).toBeCloseTo(0.925, 5)
     expect(g.letter).toBe('A')
   })
 
@@ -121,6 +122,7 @@ describe('computeLocationGrade (tier-normalized)', () => {
       noiseLevel: 70,
       floodZone: { bucket: 'coastal', zone: 'VE', label: 'Coastal' },
       wildfireHazard: { value: 5, label: 'Very high' },
+      nearestRailroad: { name: 'CSX Main', distanceMi: 0.05, lat: 40, lng: -75 },
     })
     expect(g.pct).toBeLessThan(0.75)
     expect(['C', 'D', 'F']).toContain(g.letter)
@@ -141,5 +143,22 @@ describe('computeLocationGrade (tier-normalized)', () => {
     const highSeismic = high.breakdown.find((b) => b.label === 'Seismic Hazard')
     expect(highSeismic!.score).toBe(3)
     expect(high.pct).toBeLessThan(clear.pct)
+  })
+
+  it('flags a railroad within a quarter mile as a safety warning', () => {
+    const clear = computeLocationGrade(clearResults())
+    const rail = clear.breakdown.find((b) => b.label === 'Railroad')
+    expect(rail).toBeDefined()
+    expect(rail!.tier).toBe('safety')
+    expect(rail!.score).toBe(0)
+
+    // A track 0.1 mi away carries a moderate (2/3) safety-tier penalty.
+    const near = computeLocationGrade({
+      ...clearResults(),
+      nearestRailroad: { name: 'CSX Main', distanceMi: 0.1, lat: 40, lng: -75 },
+    })
+    const nearRail = near.breakdown.find((b) => b.label === 'Railroad')
+    expect(nearRail!.score).toBe(2)
+    expect(near.pct).toBeLessThan(clear.pct)
   })
 })

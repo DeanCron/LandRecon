@@ -22,6 +22,7 @@ const FACTOR_ORDER = [
   'Wildfire Hazard',
   'Seismic Hazard',
   'Tornado Risk',
+  'Railroad',
   'Data Centers',
   'Crowd Magnets',
   'Broadband',

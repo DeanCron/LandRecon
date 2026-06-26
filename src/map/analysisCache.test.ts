@@ -24,6 +24,7 @@ function sampleData(): CachedAnalysisPayload['data'] {
     nearestER: null,
     erError: false,
     crowdMagnets: [],
+    nearestRailroad: null,
   }
 }
 
@@ -46,7 +47,7 @@ describe('analysisCache', () => {
     const stale = JSON.stringify({ ts: Date.now() - 25 * 60 * 60 * 1000, data: sampleData() })
     // Mirror the key scheme by writing through the public API then overwriting.
     writeAnalysisCache(LAT, LNG, sampleData())
-    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v4:'))!
+    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v5:'))!
     localStorage.setItem(key, stale)
     expect(readAnalysisCache(LAT, LNG)).toBeNull()
   })
