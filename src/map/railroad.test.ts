@@ -99,4 +99,33 @@ describe('nearestRailroadFromElements', () => {
     ]
     expect(nearestRailroadFromElements(center, els)!.name).toBe('Unnamed railroad track')
   })
+
+  it('returns clipped track geometry for highlighting', () => {
+    // A densely-noded straight track running east–west ~55 m north of the
+    // address, extending well past the clip window on both sides.
+    const lngs: number[] = []
+    for (let lng = -75.05; lng <= -74.95 + 1e-9; lng += 0.002) {
+      lngs.push(Math.round(lng * 1000) / 1000)
+    }
+    const els: OverpassElement[] = [
+      {
+        type: 'way',
+        id: 4,
+        tags: { railway: 'rail', name: 'Main Line' },
+        geometry: lngs.map((lng) => ({ lat: 40.0005, lon: lng })),
+      },
+    ]
+    const hit = nearestRailroadFromElements(center, els)
+    expect(hit).not.toBeNull()
+    expect(hit!.tracks).toHaveLength(1)
+    expect(hit!.tracks[0].name).toBe('Main Line')
+    const pts = hit!.tracks[0].lines.flat()
+    // The far reaches of the alignment are dropped — only the stretch near the
+    // address survives the clip window.
+    expect(pts.length).toBeGreaterThan(1)
+    expect(pts.length).toBeLessThan(lngs.length)
+    for (const [, lng] of pts) {
+      expect(Math.abs(lng - center.lng)).toBeLessThan(0.02)
+    }
+  })
 })

@@ -2250,6 +2250,14 @@
   color: var(--color-text-muted);
 }
 
+.analysis-expand-hint {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 .analysis-expand-list {
   list-style: none;
   padding: 0;

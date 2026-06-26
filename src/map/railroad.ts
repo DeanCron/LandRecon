@@ -9,7 +9,19 @@ import { fetchOverpass, type OverpassElement } from './overpass'
 // at different times of day before committing, since how disruptive it is
 // depends heavily on traffic frequency and time of day.
 export const RAILROAD_ANALYSIS_RADIUS_MI = 0.25
+// Track geometry is clipped to this window around the address before being
+// returned, so a highlight never draws an entire cross-country alignment — just
+// the stretch of track in the immediate vicinity of the property.
+export const RAILROAD_CLIP_RADIUS_MI = 0.6
 const MILES_TO_METERS = 1609.34
+
+// A single nearby railroad, with its geometry clipped to the window around the
+// address. `lines` is one or more polylines (each a list of [lat, lng] points)
+// so a track that briefly leaves and re-enters the window stays disjoint.
+export interface RailroadTrack {
+  name: string
+  lines: [number, number][][]
+}
 
 export interface NearestRailroad {
   // Display name (track/line name, ref number, or operator). Never empty.
@@ -19,6 +31,8 @@ export interface NearestRailroad {
   // The closest point on the track itself (useful for marker placement).
   lat: number
   lng: number
+  // Nearby track geometry to highlight on the map, clipped to the window.
+  tracks: RailroadTrack[]
 }
 
 // Advisory severity. There is a single threshold: a track within a quarter
@@ -81,11 +95,17 @@ export function nearestRailroadFromElements(
   center: { lat: number; lng: number },
   elements: OverpassElement[],
 ): NearestRailroad | null {
-  let best: NearestRailroad | null = null
+  const clipM = RAILROAD_CLIP_RADIUS_MI * MILES_TO_METERS
+  let best: { name: string; distanceMi: number; lat: number; lng: number } | null = null
+  const tracks: RailroadTrack[] = []
   for (const el of elements) {
     const geom = el.geometry
     if (!geom || geom.length < 2) continue
     const name = railName(el.tags || {})
+    // Single pass: track the globally-nearest point AND build the clipped
+    // polylines (maximal runs of consecutive segments within the clip window).
+    const lines: [number, number][][] = []
+    let current: [number, number][] = []
     for (let i = 0; i < geom.length - 1; i++) {
       const a = { lat: geom[i].lat, lng: geom[i].lon }
       const b = { lat: geom[i + 1].lat, lng: geom[i + 1].lon }
@@ -94,12 +114,29 @@ export function nearestRailroadFromElements(
       if (!best || distanceMi < best.distanceMi) {
         best = { name, distanceMi, lat, lng }
       }
+      if (distM <= clipM) {
+        if (current.length === 0) current.push([a.lat, a.lng])
+        current.push([b.lat, b.lng])
+      } else if (current.length >= 2) {
+        lines.push(current)
+        current = []
+      } else {
+        current = []
+      }
     }
+    if (current.length >= 2) lines.push(current)
+    if (lines.length > 0) tracks.push({ name, lines })
   }
   if (!best) return null
   // Round for stable display without losing the "is it inside the radius"
   // decision (kept at hundredths of a mile ≈ 50 ft).
-  return { ...best, distanceMi: Math.round(best.distanceMi * 100) / 100 }
+  return {
+    name: best.name,
+    distanceMi: Math.round(best.distanceMi * 100) / 100,
+    lat: best.lat,
+    lng: best.lng,
+    tracks,
+  }
 }
 
 // Fetch the nearest active railroad track within RADIUS of the address via

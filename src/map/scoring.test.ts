@@ -122,7 +122,7 @@ describe('computeLocationGrade (tier-normalized)', () => {
       noiseLevel: 70,
       floodZone: { bucket: 'coastal', zone: 'VE', label: 'Coastal' },
       wildfireHazard: { value: 5, label: 'Very high' },
-      nearestRailroad: { name: 'CSX Main', distanceMi: 0.05, lat: 40, lng: -75 },
+      nearestRailroad: { name: 'CSX Main', distanceMi: 0.05, lat: 40, lng: -75, tracks: [] },
     })
     expect(g.pct).toBeLessThan(0.75)
     expect(['C', 'D', 'F']).toContain(g.letter)
@@ -155,7 +155,7 @@ describe('computeLocationGrade (tier-normalized)', () => {
     // A track 0.1 mi away carries a moderate (2/3) safety-tier penalty.
     const near = computeLocationGrade({
       ...clearResults(),
-      nearestRailroad: { name: 'CSX Main', distanceMi: 0.1, lat: 40, lng: -75 },
+      nearestRailroad: { name: 'CSX Main', distanceMi: 0.1, lat: 40, lng: -75, tracks: [] },
     })
     const nearRail = near.breakdown.find((b) => b.label === 'Railroad')
     expect(nearRail!.score).toBe(2)

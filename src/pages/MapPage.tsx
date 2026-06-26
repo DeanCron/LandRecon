@@ -557,6 +557,9 @@ function MapPage() {
   const powerLineLayerRef = useRef<L.GeoJSON | null>(null)
   const powerLineLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const industrialLayerRef = useRef<L.LayerGroup | null>(null)
+  // Highlights the nearest railroad track + the quarter-mile boundary when the
+  // Recon Report flags a track in range. Populated by an effect, not toggled.
+  const railroadHighlightLayerRef = useRef<L.LayerGroup | null>(null)
   // Tracks the L.LatLng we last fetched facilities for. When the searched
   // address changes (or the user re-enables the layer for a new target)
   // this ref is reset so loadIndustrialData refetches.
@@ -3018,6 +3021,10 @@ function MapPage() {
         // EPA FRS industrial-facility layer (circle markers; not added to map until toggled on)
         industrialLayerRef.current = L.layerGroup()
 
+        // Railroad highlight layer — populated by the Recon Report when a track
+        // is found within the quarter-mile boundary (added to the map on demand).
+        railroadHighlightLayerRef.current = L.layerGroup()
+
         // Create AirNow AQI layer (polygon contours; not added to map until toggled on)
         aqiLayerRef.current = L.geoJSON(undefined, {
           style: (feature) => {
@@ -3172,6 +3179,7 @@ function MapPage() {
       powerLineLoadedBoundsRef.current = null
       industrialLayerRef.current = null
       industrialFetchedKeyRef.current = null
+      railroadHighlightLayerRef.current = null
       surgeLayerRef.current = null
       slrLayerRef.current = null
       wildfireLayerRef.current = null
@@ -3996,6 +4004,75 @@ function MapPage() {
     floodAutoShownForRef.current = fz
     enableFloodLayer()
   }, [analysisProgress.flood, analysisResults.floodError, analysisResults.floodZone, enableFloodLayer])
+
+  // Highlight the nearest railroad track on the map whenever the Recon Report
+  // finds one within the quarter-mile boundary. Draws the boundary circle, the
+  // clipped track geometry (white casing + colored line), and a marker at the
+  // closest point. Re-runs whenever the railroad result changes; clears and
+  // detaches the layer when no track is in range (or on a new search).
+  useEffect(() => {
+    const map = mapRef.current
+    const layer = railroadHighlightLayerRef.current
+    if (!map || !layer) return
+    layer.clearLayers()
+    const rr = analysisResults.nearestRailroad
+    const target = targetLocationRef.current
+    const show =
+      analysisProgress.railroad === 'done' &&
+      !!rr &&
+      !!target &&
+      railroadSeverity(rr.distanceMi) === 'warning'
+    if (!show || !rr || !target) {
+      if (map.hasLayer(layer)) map.removeLayer(layer)
+      return
+    }
+    // Quarter-mile boundary around the searched address.
+    L.circle([target.lat, target.lng], {
+      radius: RAILROAD_ANALYSIS_RADIUS_MI * 1609.34,
+      color: '#8d6e63',
+      weight: 1,
+      opacity: 0.6,
+      fillColor: '#8d6e63',
+      fillOpacity: 0.05,
+      dashArray: '4 4',
+      interactive: false,
+    }).addTo(layer)
+    // Track geometry: a white casing underneath a brown line so it stays legible
+    // on both street and satellite basemaps.
+    for (const track of rr.tracks) {
+      for (const line of track.lines) {
+        if (line.length < 2) continue
+        L.polyline(line, {
+          color: '#ffffff',
+          weight: 7,
+          opacity: 0.7,
+          lineCap: 'round',
+          lineJoin: 'round',
+          interactive: false,
+        }).addTo(layer)
+        L.polyline(line, {
+          color: '#8d6e63',
+          weight: 4,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round',
+        })
+          .bindTooltip(`🚂 ${track.name}`, { sticky: true, direction: 'top' })
+          .addTo(layer)
+      }
+    }
+    // Marker at the closest point on the track to the address.
+    L.circleMarker([rr.lat, rr.lng], {
+      radius: 5,
+      color: '#5d4037',
+      weight: 2,
+      fillColor: '#8d6e63',
+      fillOpacity: 1,
+    })
+      .bindTooltip(`Nearest track point · ${rr.distanceMi} mi`, { direction: 'top' })
+      .addTo(layer)
+    if (!map.hasLayer(layer)) layer.addTo(map)
+  }, [analysisProgress.railroad, analysisResults.nearestRailroad])
 
   const toggleTornado = () => {
     const map = mapRef.current
@@ -7015,6 +7092,7 @@ function MapPage() {
                           </div>
                         </li>
                       </ul>
+                      <p className="analysis-expand-hint">The track and the quarter-mile boundary are highlighted on the map.</p>
                     </>
                   ) : (
                     <>
