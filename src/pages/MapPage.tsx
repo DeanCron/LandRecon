@@ -2589,6 +2589,7 @@ function MapPage() {
     })
     crowdP.then((r) => {
       if (!isLatestRun()) return
+      dbg('analysis', 'Crowd result:', `${r.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`)
       setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r, crowdError: false }))
       markDone('crowd')
     }).catch((err) => {
@@ -2599,6 +2600,7 @@ function MapPage() {
     })
     railroadP.then((r) => {
       if (!isLatestRun()) return
+      dbg('analysis', 'Railroad result:', r ? `${r.distanceMi.toFixed(2)} mi` : 'no track within range')
       setAnalysisResults((prev) => ({ ...prev, nearestRailroad: r, railroadError: false }))
       markDone('railroad')
     }).catch((err) => {
@@ -6173,6 +6175,7 @@ function MapPage() {
                 className="analysis-error-banner-btn"
                 onClick={() => {
                   const loc = targetLocationRef.current
+                  dbg('analysis', `Re-run requested from error banner (${failed.length} failed check(s): ${list})`)
                   if (loc) runLocationAnalysis(loc.lat, loc.lng, { force: true })
                 }}
                 disabled={status !== 'ready' || analysisResults.loading}
