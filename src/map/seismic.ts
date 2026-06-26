@@ -11,7 +11,9 @@ import { fetchJsonWithRetry } from './fetchRetry'
 // connect-src), so the browser can't call it directly. We route through a
 // same-origin reverse proxy instead — `/usgs-designmaps` in both the nginx
 // production config and the Vite dev server, which forward to the real
-// `/ws/designmaps/asce7-16.json` endpoint (query string preserved).
+// `/ws/building-codes/asce7-16/calculate` endpoint (query string preserved).
+// (USGS retired the older `/ws/designmaps/asce7-16.json` path, which now
+// 301-redirects cross-origin and would re-trip CORS/CSP.)
 const ASCE7_16_BASE = '/usgs-designmaps'
 
 // Mirrors WHP_CLASS_COLORS: bands 1-5 (Very low → Very high) by index, so the

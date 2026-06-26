@@ -137,7 +137,7 @@ export default defineConfig({
         target: 'https://earthquake.usgs.gov',
         changeOrigin: true,
         secure: true,
-        rewrite: (path) => path.replace(/^\/usgs-designmaps/, '/ws/designmaps/asce7-16.json'),
+        rewrite: (path) => path.replace(/^\/usgs-designmaps/, '/ws/building-codes/asce7-16/calculate'),
       },
     },
   },
