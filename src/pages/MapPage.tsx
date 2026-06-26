@@ -6146,6 +6146,40 @@ function MapPage() {
             </>
           )
         })()}
+        {!analysisResults.loading && (() => {
+          const failed: string[] = []
+          if (analysisResults.costcoError) failed.push('Costco')
+          if (analysisResults.erError) failed.push('Emergency room')
+          if (analysisResults.crowdError) failed.push('Crowd magnets')
+          if (analysisResults.railroadError) failed.push('Railroad')
+          if (analysisResults.floodError) failed.push('Flood zone')
+          if (analysisResults.wildfireError) failed.push('Wildfire')
+          if (analysisResults.seismicError) failed.push('Seismic')
+          if (analysisResults.tornadoError) failed.push('Tornado')
+          if (failed.length === 0) return null
+          const list = failed.length === 1
+            ? failed[0]
+            : failed.length === 2
+              ? `${failed[0]} and ${failed[1]}`
+              : `${failed.slice(0, -1).join(', ')}, and ${failed[failed.length - 1]}`
+          return (
+            <div className="analysis-error-banner" role="alert">
+              <span className="analysis-error-banner-icon" aria-hidden="true">⚠️</span>
+              <span className="analysis-error-banner-text">
+                {failed.length === 1 ? 'A check couldn’t complete' : 'Some checks couldn’t complete'} ({list}). Results may be incomplete.
+              </span>
+              <button
+                type="button"
+                className="analysis-error-banner-btn"
+                onClick={() => {
+                  const loc = targetLocationRef.current
+                  if (loc) runLocationAnalysis(loc.lat, loc.lng, { force: true })
+                }}
+                disabled={status !== 'ready' || analysisResults.loading}
+              >Re-run</button>
+            </div>
+          )
+        })()}
         <div className="analysis-print-header">
           <h1>LandRecon — Recon Report</h1>
           <p>{address}</p>

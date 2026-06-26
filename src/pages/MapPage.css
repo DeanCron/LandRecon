@@ -547,6 +547,54 @@
   background: var(--color-primary-hover);
 }
 
+.analysis-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  background: rgba(255, 204, 2, 0.1);
+  border: 1px solid rgba(255, 204, 2, 0.4);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.analysis-error-banner-icon {
+  flex: 0 0 auto;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.analysis-error-banner-text {
+  flex: 1 1 auto;
+  color: var(--color-text);
+}
+
+.analysis-error-banner-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.analysis-error-banner-btn:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.analysis-error-banner-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .layer-panel {
   position: absolute;
   top: 70px;
@@ -3443,6 +3491,7 @@
   .analysis-flyto-link,
   .costco-directions-link,
   .analysis-chevron,
+  .analysis-error-banner,
   .analysis-popout-close {
     display: none !important;
   }
