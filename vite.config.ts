@@ -129,6 +129,16 @@ export default defineConfig({
           'User-Agent': 'LandRecon/1.0',
         },
       },
+      // USGS Seismic Design Maps point lookup. earthquake.usgs.gov sends no
+      // CORS headers, so the SPA calls this same-origin path and we forward to
+      // the real endpoint, preserving the query string. Mirrors the nginx
+      // `/usgs-designmaps` route used in production.
+      '/usgs-designmaps': {
+        target: 'https://earthquake.usgs.gov',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/usgs-designmaps/, '/ws/designmaps/asce7-16.json'),
+      },
     },
   },
 })

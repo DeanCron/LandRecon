@@ -6,7 +6,13 @@ import { fetchJsonWithRetry } from './fetchRetry'
 // peak ground acceleration (PGA, in g) at a single location. PGA is always
 // present inside the contiguous U.S. coverage; out-of-US / open-ocean points
 // return HTTP 500, which the caller surfaces as an error state.
-const ASCE7_16_BASE = 'https://earthquake.usgs.gov/ws/designmaps/asce7-16.json'
+//
+// earthquake.usgs.gov sends no CORS headers (and isn't in the SPA's CSP
+// connect-src), so the browser can't call it directly. We route through a
+// same-origin reverse proxy instead — `/usgs-designmaps` in both the nginx
+// production config and the Vite dev server, which forward to the real
+// `/ws/designmaps/asce7-16.json` endpoint (query string preserved).
+const ASCE7_16_BASE = '/usgs-designmaps'
 
 // Mirrors WHP_CLASS_COLORS: bands 1-5 (Very low → Very high) by index, so the
 // Recon Report card/expand/legend can reuse the same value/label shape as
