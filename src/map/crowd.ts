@@ -114,7 +114,11 @@ export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSi
     relation["boundary"="national_park"]["name"](${bbox});
   );out body center;`
   const data = await fetchOverpass(q, { label: 'crowd', signal })
-  if (!data?.elements) return []
+  // Distinguish a failed/aborted fetch (null) from a genuine empty result.
+  // Returning [] here would falsely render as "no crowd magnets nearby" and get
+  // cached as a clean all-clear. Throw so callers can surface an error state.
+  if (!data) throw new Error('Overpass crowd query failed')
+  if (!data.elements) return []
   const seen = new Set<string>()
   const out: CrowdMagnet[] = []
   for (const el of data.elements) {

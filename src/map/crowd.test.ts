@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { classifyCrowdElement, shouldIncludeCrowdMagnet } from './crowd'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { classifyCrowdElement, shouldIncludeCrowdMagnet, fetchCrowdMagnets } from './crowd'
+import * as overpass from './overpass'
+import L from 'leaflet'
 
 describe('classifyCrowdElement', () => {
   it('maps OSM tags to crowd types', () => {
@@ -45,5 +47,23 @@ describe('shouldIncludeCrowdMagnet', () => {
   it('does not apply school/community filter to parks or racetracks', () => {
     expect(shouldIncludeCrowdMagnet('park', {}, 'Academy Park National Park')).toBe(true)
     expect(shouldIncludeCrowdMagnet('raceway', {}, 'High School Kart Track')).toBe(true)
+  })
+})
+
+describe('fetchCrowdMagnets', () => {
+  const bounds = L.latLngBounds([39.9, -83.1], [40.1, -82.9])
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('throws when the Overpass query fails (null) so it is not mistaken for "none nearby"', async () => {
+    vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue(null)
+    await expect(fetchCrowdMagnets(bounds)).rejects.toThrow()
+  })
+
+  it('returns an empty list (genuine none) when Overpass returns an empty element set', async () => {
+    vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue({ elements: [] })
+    await expect(fetchCrowdMagnets(bounds)).resolves.toEqual([])
   })
 })

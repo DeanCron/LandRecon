@@ -48,6 +48,7 @@ import {
   patchAnalysisCacheSeismic,
   patchAnalysisCacheTornado,
   patchAnalysisCacheRailroad,
+  patchAnalysisCacheCrowd,
 } from '../map/analysisCache'
 import {
   type SavedAnalysis,
@@ -732,6 +733,7 @@ function MapPage() {
     nearestER: { name: string; address: string; distanceMi: number; lat: number; lng: number } | null
     erError: boolean
     crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
+    crowdError: boolean
     nearestRailroad: NearestRailroad | null
     railroadError: boolean
     broadband: BroadbandResponse | null
@@ -748,7 +750,7 @@ function MapPage() {
     tornadoHazard: TornadoPointResult | null
     tornadoError: boolean
     tornadoLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'railroad' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
 
@@ -2044,10 +2046,15 @@ function MapPage() {
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
-      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd']) allDone[c] = 'done'
+      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er']) allDone[c] = 'done'
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
+      // Crowd magnets are cached only once the Overpass query produced a
+      // determined result (the crowdMagnets key is present). A failed query omits
+      // it, so it stays pending and re-fetches rather than showing a false "none".
+      const crowdIsCached = cached.crowdMagnets !== undefined
+      allDone['crowd'] = crowdIsCached ? 'done' : 'pending'
       // Railroad is cached only once the Overpass query produced a determined
       // result (the nearestRailroad key is present). A failed query omits it, so
       // it stays pending and re-fetches rather than showing a false "no track".
@@ -2085,7 +2092,8 @@ function MapPage() {
         nearestER: cached.nearestER as any,
         erError: cached.erError,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        crowdMagnets: (cached.crowdMagnets ?? []) as any,
+        crowdMagnets: (crowdIsCached ? cached.crowdMagnets : []) as any,
+        crowdError: false,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         nearestRailroad: railroadIsCached ? (cached.nearestRailroad as any) : null,
         railroadError: false,
@@ -2126,6 +2134,41 @@ function MapPage() {
         setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
         setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
       })
+      // Crowd magnets are cached once the Overpass query produced a determined
+      // result. A failed query omits them, so re-fetch on a cache hit when absent
+      // rather than leaving a false "no crowd magnets nearby".
+      if (!crowdIsCached) {
+        (async () => {
+          const metersPerMile = 1609.34
+          const radiusDeg = (CROWD_ANALYSIS_RADIUS_MI * metersPerMile) / 111320
+          const bbox = L.latLngBounds(
+            [lat - radiusDeg, lng - radiusDeg * 1.5],
+            [lat + radiusDeg, lng + radiusDeg * 1.5],
+          )
+          const here = L.latLng(lat, lng)
+          const items = await fetchCrowdMagnets(bbox)
+          const hits: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[] = []
+          for (const m of items) {
+            const distMi = Math.round(here.distanceTo(L.latLng(m.lat, m.lng)) / metersPerMile * 10) / 10
+            if (distMi <= CROWD_ANALYSIS_RADIUS_MI) {
+              hits.push({ id: m.id, name: m.name, type: m.type, distanceMi: distMi, lat: m.lat, lng: m.lng })
+            }
+          }
+          hits.sort((a, b) => a.distanceMi - b.distanceMi)
+          return hits
+        })().then((hits) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Crowd result (cache-hit path):', `${hits.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`)
+          setAnalysisResults((prev) => ({ ...prev, crowdMagnets: hits, crowdError: false }))
+          setAnalysisProgress((prev) => ({ ...prev, crowd: 'done' }))
+          patchAnalysisCacheCrowd(lat, lng, hits)
+        }).catch((err) => {
+          dbg('analysis', 'Crowd failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
+          setAnalysisProgress((prev) => ({ ...prev, crowd: 'done' }))
+        })
+      }
       // Railroad is cached once the Overpass query produced a determined result.
       // A failed query omits it, so re-fetch on a cache hit when it's absent
       // rather than leaving a false "no track within range".
@@ -2204,7 +2247,7 @@ function MapPage() {
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
@@ -2476,8 +2519,11 @@ function MapPage() {
       })()
 
     // Crowd magnets within 5mi (OSM Overpass)
+    // Crowd magnets within the analysis radius (OSM Overpass). Resolves to the
+    // (possibly empty) list of nearby venues; REJECTS when the Overpass query
+    // fails, so a fetch error isn't mistaken for "none nearby" (which would also
+    // get cached as a clean all-clear).
     const crowdP = (async () => {
-        try {
           const radiusDeg = (CROWD_ANALYSIS_RADIUS_MI * milesToMeters) / 111320
           const bbox = L.latLngBounds(
             [lat - radiusDeg, lng - radiusDeg * 1.5],
@@ -2494,9 +2540,6 @@ function MapPage() {
           }
           hits.sort((a, b) => a.distanceMi - b.distanceMi)
           return hits
-        } catch {
-          return []
-        }
       })()
 
     // Nearest active railroad track within a quarter mile (OSM Overpass).
@@ -2546,7 +2589,12 @@ function MapPage() {
     })
     crowdP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r }))
+      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r, crowdError: false }))
+      markDone('crowd')
+    }).catch((err) => {
+      dbg('analysis', 'Crowd failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
       markDone('crowd')
     })
     railroadP.then((r) => {
@@ -2571,6 +2619,7 @@ function MapPage() {
     const nearestER = erResult.status === 'fulfilled' ? erResult.value : null
     const erError = erResult.status === 'rejected'
     const crowdMagnets = crowdResult.status === 'fulfilled' ? crowdResult.value : []
+    const crowdError = crowdResult.status === 'rejected'
     const nearestRailroad = railroadResult.status === 'fulfilled' ? railroadResult.value : null
     const railroadError = railroadResult.status === 'rejected'
 
@@ -2712,7 +2761,9 @@ function MapPage() {
         costcoError: false,
         dataCenters,
         nearestER, erError,
-        crowdMagnets,
+        // Omitted (left undefined) when the Overpass query failed, so a failed
+        // check isn't cached as a false "none nearby"; the cache-hit path re-fetches.
+        ...(crowdError ? {} : { crowdMagnets }),
         // Omitted (left undefined) when the Overpass query failed, so a failed
         // check isn't cached as a false "no track"; the cache-hit path re-fetches.
         ...(railroadError ? {} : { nearestRailroad }),
@@ -6217,7 +6268,18 @@ function MapPage() {
 
             {
               const pCrowd = analysisProgress.crowd !== 'done'
-              const severity = pCrowd ? 'pending' : crowdMagnetsSeverity(analysisResults.crowdMagnets.length)
+              const severity = pCrowd
+                ? 'pending'
+                : analysisResults.crowdError
+                  ? 'clear'
+                  : crowdMagnetsSeverity(analysisResults.crowdMagnets.length)
+              const subtitle = pCrowd
+                ? 'Checking…'
+                : analysisResults.crowdError
+                  ? 'Crowd data unavailable'
+                  : analysisResults.crowdMagnets.length > 0
+                    ? `${analysisResults.crowdMagnets.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
+                    : `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`
               cards.push({ key: 'crowd', severity, node: (
                 <div className={`analysis-card ${severity}`} key="crowd">
                   <div
@@ -6233,9 +6295,7 @@ function MapPage() {
                     <div className="analysis-icon">🎟️</div>
                     <div className="analysis-detail">
                       <strong>Crowd Magnets</strong>
-                      <p>{pCrowd ? 'Checking…' : (analysisResults.crowdMagnets.length > 0
-                        ? `${analysisResults.crowdMagnets.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
-                        : `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`)}</p>
+                      <p>{subtitle}</p>
                     </div>
                     {pCrowd && <div className="analysis-card-spinner" aria-hidden="true" />}
                   </div>
@@ -7083,6 +7143,19 @@ function MapPage() {
                         </li>
                       ))}
                     </ul>
+                  </>
+                ) : analysisResults.crowdError ? (
+                  <>
+                    <p className="analysis-expand-level clear">Crowd data unavailable.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        The crowd-magnet data source (OpenStreetMap Overpass) was busy or
+                        unreachable, so we couldn&apos;t confirm whether any large venues are
+                        nearby. This is not a clean &ldquo;none nearby&rdquo; result — re-run
+                        the analysis in a moment to check again.
+                      </p>
+                    </div>
                   </>
                 ) : (
                   <>

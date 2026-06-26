@@ -21,7 +21,10 @@ export interface CachedAnalysisPayload {
     dataCenters: unknown[]
     nearestER: unknown
     erError: boolean
-    crowdMagnets: unknown[]
+    // Optional: present once the Overpass crowd query produced a determined
+    // result. Absent means "not determined" (errored or never resolved) so a
+    // cache hit re-fetches instead of showing a false "no crowd magnets nearby".
+    crowdMagnets?: unknown[]
     // Optional: present (object or null) once the Overpass railroad query has
     // produced a determined result. Absent means "not determined" (errored or
     // never resolved) so a cache hit re-fetches instead of showing "no track".
@@ -107,6 +110,15 @@ export function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unk
   const existing = readAnalysisCache(lat, lng)
   if (!existing) return
   writeAnalysisCache(lat, lng, { ...existing, floodZone })
+}
+
+// Crowd magnets resolve within the primary batch, but a failed Overpass query
+// omits them from the cache (so they aren't cached as a false "none nearby").
+// On a cache hit where they're absent, the re-fetch merges them in the same way.
+export function patchAnalysisCacheCrowd(lat: number, lng: number, crowdMagnets: unknown[]) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, crowdMagnets })
 }
 
 // Railroad resolves within the primary batch, but a failed Overpass query omits
