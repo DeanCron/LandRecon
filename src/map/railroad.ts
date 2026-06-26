@@ -151,6 +151,10 @@ export async function fetchNearestRailroad(
   const radiusM = Math.ceil(RAILROAD_ANALYSIS_RADIUS_MI * MILES_TO_METERS)
   const q = `[out:json][timeout:25];way(around:${radiusM},${center.lat},${center.lng})["railway"~"^(rail|light_rail|narrow_gauge)$"];out tags geom;`
   const data = await fetchOverpass(q, { label: 'railroad', signal })
-  if (!data?.elements) return null
+  // Distinguish a failed/aborted fetch (null) from a genuine empty result.
+  // Returning null here would falsely render as "no track within range" and,
+  // worse, cache that false-clear. Throw so callers can surface an error state.
+  if (!data) throw new Error('Overpass railroad query failed')
+  if (!data.elements) return null
   return nearestRailroadFromElements({ lat: center.lat, lng: center.lng }, data.elements)
 }

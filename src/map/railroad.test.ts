@@ -1,11 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   RAILROAD_ANALYSIS_RADIUS_MI,
   railroadSeverity,
   closestPointOnSegment,
   nearestRailroadFromElements,
+  fetchNearestRailroad,
 } from './railroad'
 import type { OverpassElement } from './overpass'
+import * as overpass from './overpass'
+import L from 'leaflet'
 
 describe('railroadSeverity', () => {
   it('flags a track within a quarter mile as a warning', () => {
@@ -127,5 +130,21 @@ describe('nearestRailroadFromElements', () => {
     for (const [, lng] of pts) {
       expect(Math.abs(lng - center.lng)).toBeLessThan(0.02)
     }
+  })
+})
+
+describe('fetchNearestRailroad', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('throws when the Overpass query fails (null) so it is not mistaken for "no track"', async () => {
+    vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue(null)
+    await expect(fetchNearestRailroad(L.latLng(40, -75))).rejects.toThrow()
+  })
+
+  it('returns null (genuine no-track) when Overpass returns an empty element set', async () => {
+    vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue({ elements: [] })
+    await expect(fetchNearestRailroad(L.latLng(40, -75))).resolves.toBeNull()
   })
 })

@@ -22,7 +22,10 @@ export interface CachedAnalysisPayload {
     nearestER: unknown
     erError: boolean
     crowdMagnets: unknown[]
-    nearestRailroad: unknown
+    // Optional: present (object or null) once the Overpass railroad query has
+    // produced a determined result. Absent means "not determined" (errored or
+    // never resolved) so a cache hit re-fetches instead of showing "no track".
+    nearestRailroad?: unknown
     // Optional: present (object or null) once the FEMA point query has
     // produced a determined result. Absent means "not determined" (errored or
     // never resolved) so a cache hit re-fetches instead of showing "no hazard".
@@ -106,7 +109,16 @@ export function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unk
   writeAnalysisCache(lat, lng, { ...existing, floodZone })
 }
 
-// Wildfire resolves independently too; merge its determined result in the same
+// Railroad resolves within the primary batch, but a failed Overpass query omits
+// it from the cache (so it isn't cached as a false "no track"). On a cache hit
+// where it's absent, the re-fetch merges its determined result in the same way.
+export function patchAnalysisCacheRailroad(lat: number, lng: number, nearestRailroad: unknown) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, nearestRailroad })
+}
+
+
 // way as flood. No-op when there is no current cache entry.
 export function patchAnalysisCacheWildfire(lat: number, lng: number, wildfireHazard: unknown) {
   const existing = readAnalysisCache(lat, lng)

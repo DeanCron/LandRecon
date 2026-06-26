@@ -47,6 +47,7 @@ import {
   patchAnalysisCacheWildfire,
   patchAnalysisCacheSeismic,
   patchAnalysisCacheTornado,
+  patchAnalysisCacheRailroad,
 } from '../map/analysisCache'
 import {
   type SavedAnalysis,
@@ -732,6 +733,7 @@ function MapPage() {
     erError: boolean
     crowdMagnets: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[]
     nearestRailroad: NearestRailroad | null
+    railroadError: boolean
     broadband: BroadbandResponse | null
     broadbandLoading: boolean
     floodZone: { bucket: string; zone: string; label: string } | null
@@ -746,7 +748,7 @@ function MapPage() {
     tornadoHazard: TornadoPointResult | null
     tornadoError: boolean
     tornadoLoading: boolean
-  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+  }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'railroad' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
 
@@ -2042,10 +2044,15 @@ function MapPage() {
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
-      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad']) allDone[c] = 'done'
+      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd']) allDone[c] = 'done'
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
+      // Railroad is cached only once the Overpass query produced a determined
+      // result (the nearestRailroad key is present). A failed query omits it, so
+      // it stays pending and re-fetches rather than showing a false "no track".
+      const railroadIsCached = cached.nearestRailroad !== undefined
+      allDone['railroad'] = railroadIsCached ? 'done' : 'pending'
       // Flood is cached only once the FEMA query produced a determined result
       // (the floodZone key is present). Otherwise it stays pending and re-fetches.
       const floodIsCached = cached.floodZone !== undefined
@@ -2080,7 +2087,8 @@ function MapPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         crowdMagnets: (cached.crowdMagnets ?? []) as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        nearestRailroad: (cached.nearestRailroad ?? null) as any,
+        nearestRailroad: railroadIsCached ? (cached.nearestRailroad as any) : null,
+        railroadError: false,
         broadband: null,
         broadbandLoading: true,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2118,6 +2126,23 @@ function MapPage() {
         setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
         setAnalysisProgress((prev) => ({ ...prev, broadband: 'done' }))
       })
+      // Railroad is cached once the Overpass query produced a determined result.
+      // A failed query omits it, so re-fetch on a cache hit when it's absent
+      // rather than leaving a false "no track within range".
+      if (!railroadIsCached) {
+        fetchNearestRailroad(L.latLng(lat, lng)).then((rr) => {
+          if (!isLatestRun()) return
+          dbg('analysis', 'Railroad result (cache-hit path):', rr ? `${rr.distanceMi.toFixed(2)} mi` : 'no track within range')
+          setAnalysisResults((prev) => ({ ...prev, nearestRailroad: rr, railroadError: false }))
+          setAnalysisProgress((prev) => ({ ...prev, railroad: 'done' }))
+          patchAnalysisCacheRailroad(lat, lng, rr)
+        }).catch((err) => {
+          dbg('analysis', 'Railroad failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
+          setAnalysisProgress((prev) => ({ ...prev, railroad: 'done' }))
+        })
+      }
       // Flood is cached once determined; only re-fetch on a cache hit when the
       // cached entry predates the flood feature (no floodZone key stored).
       if (!floodIsCached) {
@@ -2179,7 +2204,7 @@ function MapPage() {
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
     const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
@@ -2458,7 +2483,7 @@ function MapPage() {
             [lat - radiusDeg, lng - radiusDeg * 1.5],
             [lat + radiusDeg, lng + radiusDeg * 1.5],
           )
-          const items = await fetchCrowdMagnets(bbox, AbortSignal.timeout(TIMEOUT))
+          const items = await fetchCrowdMagnets(bbox)
           const hits: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[] = []
           for (const m of items) {
             const dist = location.distanceTo(L.latLng(m.lat, m.lng))
@@ -2476,14 +2501,10 @@ function MapPage() {
 
     // Nearest active railroad track within a quarter mile (OSM Overpass).
     // Advisory only — flags horn-noise / vibration nuisance worth checking in
-    // person. Resolves to null when no track is in range.
-    const railroadP = (async () => {
-        try {
-          return await fetchNearestRailroad(location, AbortSignal.timeout(TIMEOUT))
-        } catch {
-          return null
-        }
-      })()
+    // person. Resolves to null when no track is in range; REJECTS when the
+    // Overpass query fails, so the result isn't mistaken for a confident
+    // "no track" (which would also get cached as a false all-clear).
+    const railroadP = fetchNearestRailroad(location)
 
     // Commit each check's result and mark it done together, the moment it
     // resolves, so each report tile's progress flag and its data stay in sync.
@@ -2530,7 +2551,12 @@ function MapPage() {
     })
     railroadP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: r }))
+      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: r, railroadError: false }))
+      markDone('railroad')
+    }).catch((err) => {
+      dbg('analysis', 'Railroad failed:', err)
+      if (!isLatestRun()) return
+      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
       markDone('railroad')
     })
 
@@ -2546,6 +2572,7 @@ function MapPage() {
     const erError = erResult.status === 'rejected'
     const crowdMagnets = crowdResult.status === 'fulfilled' ? crowdResult.value : []
     const nearestRailroad = railroadResult.status === 'fulfilled' ? railroadResult.value : null
+    const railroadError = railroadResult.status === 'rejected'
 
     dbg('analysis', 'Primary results in (Costco still in-flight):', {
       noise: noiseLevel != null ? `${noiseLevel} dB` : 'none',
@@ -2686,7 +2713,9 @@ function MapPage() {
         dataCenters,
         nearestER, erError,
         crowdMagnets,
-        nearestRailroad,
+        // Omitted (left undefined) when the Overpass query failed, so a failed
+        // check isn't cached as a false "no track"; the cache-hit path re-fetches.
+        ...(railroadError ? {} : { nearestRailroad }),
         // Omitted (left undefined) if flood hasn't resolved yet — the flood
         // .then patches it in once it lands.
         ...(floodForCache !== undefined ? { floodZone: floodForCache } : {}),
@@ -6217,7 +6246,18 @@ function MapPage() {
             {
               const pRailroad = analysisProgress.railroad !== 'done'
               const rr = analysisResults.nearestRailroad
-              const severity = pRailroad ? 'pending' : railroadSeverity(rr?.distanceMi ?? null)
+              const severity = pRailroad
+                ? 'pending'
+                : analysisResults.railroadError
+                  ? 'clear'
+                  : railroadSeverity(rr?.distanceMi ?? null)
+              const subtitle = pRailroad
+                ? 'Checking…'
+                : analysisResults.railroadError
+                  ? 'Railroad data unavailable'
+                  : rr
+                    ? `Track ${rr.distanceMi} mi away`
+                    : `No track within ${RAILROAD_ANALYSIS_RADIUS_MI} mi`
               cards.push({ key: 'railroad', severity, node: (
                 <div className={`analysis-card ${severity}`} key="railroad">
                   <div
@@ -6233,9 +6273,7 @@ function MapPage() {
                     <div className="analysis-icon">🚂</div>
                     <div className="analysis-detail">
                       <strong>Railroad</strong>
-                      <p>{pRailroad ? 'Checking…' : (rr
-                        ? `Track ${rr.distanceMi} mi away`
-                        : `No track within ${RAILROAD_ANALYSIS_RADIUS_MI} mi`)}</p>
+                      <p>{subtitle}</p>
                     </div>
                     {pRailroad && <div className="analysis-card-spinner" aria-hidden="true" />}
                   </div>
@@ -7093,6 +7131,19 @@ function MapPage() {
                         </li>
                       </ul>
                       <p className="analysis-expand-hint">The track and the quarter-mile boundary are highlighted on the map.</p>
+                    </>
+                  ) : analysisResults.railroadError ? (
+                    <>
+                      <p className="analysis-expand-level clear">Railroad data unavailable.</p>
+                      <div className="analysis-expand-rec">
+                        <strong>Why this matters</strong>
+                        <p>
+                          The railroad data source (OpenStreetMap Overpass) was busy or
+                          unreachable, so we couldn&apos;t confirm whether a track is nearby.
+                          This is not a clean &ldquo;no track&rdquo; result — re-run the
+                          analysis in a moment to check again.
+                        </p>
+                      </div>
                     </>
                   ) : (
                     <>

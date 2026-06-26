@@ -7,6 +7,36 @@ import { dbg } from '../utils/debug'
 // is required.
 const OVERPASS_ENDPOINTS = ['/overpass', '/overpass2']
 
+// Public Overpass instances rate-limit by the number of *concurrent* requests
+// from one client (overpass-api.de typically allows ~2 slots). The Recon Report
+// fires several Overpass queries at once (airports, crowd magnets, railroad),
+// and three-at-once reliably trips a 429 ("Too Many Requests") on one of them —
+// most often the last one queued, which then shows a false "nothing found". We
+// cap concurrency at 2 so we stay within the slot budget without serialising so
+// hard that one slow query blocks the rest (head-of-line blocking). Crucially,
+// each request's timeout is started *after* it acquires a slot (see
+// fetchOverpass), not when it was enqueued, so waiting never eats its budget.
+const OVERPASS_MAX_CONCURRENCY = 2
+let overpassActive = 0
+const overpassWaiters: Array<() => void> = []
+function acquireOverpassSlot(): Promise<() => void> {
+  return new Promise((resolve) => {
+    const grant = () => {
+      overpassActive++
+      let released = false
+      resolve(() => {
+        if (released) return
+        released = true
+        overpassActive--
+        const next = overpassWaiters.shift()
+        if (next) next()
+      })
+    }
+    if (overpassActive < OVERPASS_MAX_CONCURRENCY) grant()
+    else overpassWaiters.push(grant)
+  })
+}
+
 export interface OverpassElement {
   type?: string
   id?: number
@@ -27,19 +57,21 @@ export async function fetchOverpass<T = OverpassResponse>(
   query: string,
   opts: { timeoutMs?: number; signal?: AbortSignal; label?: string } = {},
 ): Promise<T | null> {
-  const { timeoutMs = 20000, signal: externalSignal, label } = opts
+  const { timeoutMs = 12000, signal: externalSignal, label } = opts
   const tag = label ? `overpass:${label}` : 'overpass'
   const body = `data=${encodeURIComponent(query)}`
-  let lastErr: unknown = null
-  for (const url of OVERPASS_ENDPOINTS) {
-    if (externalSignal?.aborted) break
-    for (let attempt = 0; attempt < 2; attempt++) {
+  const release = await acquireOverpassSlot()
+  try {
+    let lastErr: unknown = null
+    // One attempt per mirror, failing straight over to the other on a timeout or
+    // rate-limit rather than hammering the same overloaded server twice.
+    for (const url of OVERPASS_ENDPOINTS) {
       if (externalSignal?.aborted) break
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
-      dbg(tag, `${url} attempt ${attempt + 1}`)
+      dbg(tag, `${url}`)
       const ctrl = new AbortController()
       const onExternalAbort = () => ctrl.abort()
       externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
+      // Timeout starts here — after any time spent waiting for a slot.
       const timer = setTimeout(() => ctrl.abort(), timeoutMs)
       try {
         const res = await fetch(url, {
@@ -51,24 +83,25 @@ export async function fetchOverpass<T = OverpassResponse>(
           body,
           signal: ctrl.signal,
         })
-        if (res.status === 504 || res.status === 429) {
+        if (!res.ok) {
+          // 429/504 (rate-limit / gateway timeout) and any other non-OK status:
+          // fall through to the next mirror.
           lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
           continue
         }
-        if (!res.ok) {
-          lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
-          break // non-retryable error, try next endpoint
-        }
         return (await res.json()) as T
       } catch (err) {
+        // Network error or per-attempt timeout — try the next mirror.
         lastErr = err
-        break // network error, try next endpoint
+        continue
       } finally {
         clearTimeout(timer)
         externalSignal?.removeEventListener('abort', onExternalAbort)
       }
     }
+    console.warn('Overpass: all endpoints failed', lastErr)
+    return null
+  } finally {
+    release()
   }
-  console.warn('Overpass: all endpoints failed', lastErr)
-  return null
 }
