@@ -6072,6 +6072,7 @@ function MapPage() {
               className="analysis-action-btn"
               onClick={() => {
                 const loc = targetLocationRef.current
+                dbg('analysis', 'Re-analyze requested from toolbar')
                 if (loc) runLocationAnalysis(loc.lat, loc.lng, { force: true })
               }}
               disabled={status !== 'ready' || analysisResults.loading}
