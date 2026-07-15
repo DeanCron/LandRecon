@@ -14,6 +14,12 @@ const OVERPASS_ENDPOINTS = (process.env.OVERPASS_URL || [
   'https://overpass.private.coffee/api/interpreter',
 ].join(',')).split(',').map((s) => s.trim()).filter(Boolean)
 const UA = 'LandRecon-Snapshotter/1.0 (+https://github.com/DeanCron/LandRecon)'
+// Comfortably above the [timeout:180] embedded in every query. Overpass QL's
+// timeout only bounds server-side compute — it does nothing if the mirror
+// stalls the connection instead of erroring, which would otherwise hang this
+// fetch (and the whole job) forever, since undici's fetch has no default
+// timeout of its own.
+const FETCH_TIMEOUT_MS = 200_000
 
 // CONUS — lower-48 with small ocean margin so border tiles are inclusive.
 export const CONUS = Object.freeze({
@@ -28,6 +34,8 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 async function fetchFromAnyEndpoint(query, label) {
   let lastErr
   for (const url of OVERPASS_ENDPOINTS) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(new Error(`client-side timeout after ${FETCH_TIMEOUT_MS}ms`)), FETCH_TIMEOUT_MS)
     try {
       const t0 = performance.now()
       const res = await fetch(url, {
@@ -37,6 +45,7 @@ async function fetchFromAnyEndpoint(query, label) {
           'User-Agent': UA,
         },
         body: 'data=' + encodeURIComponent(query),
+        signal: ctrl.signal,
       })
       if (!res.ok) {
         const body = await res.text().catch(() => '')
@@ -52,6 +61,8 @@ async function fetchFromAnyEndpoint(query, label) {
     } catch (err) {
       lastErr = err
       console.warn(`[${label}] ${new URL(url).host} threw: ${err.message}`)
+    } finally {
+      clearTimeout(timer)
     }
   }
   throw lastErr || new Error('All Overpass endpoints failed')
