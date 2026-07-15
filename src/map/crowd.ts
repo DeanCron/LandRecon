@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import { fetchOverpass } from '../map/overpass'
+import { CONUS_BOUNDS, loadCrowdSnapshot } from './snapshots'
 
 export const CROWD_TYPES = ['stadium', 'concert', 'park', 'raceway', 'themepark'] as const
 export type CrowdType = typeof CROWD_TYPES[number]
@@ -100,6 +101,16 @@ export function shouldIncludeCrowdMagnet(type: CrowdType, tags: Record<string, s
 }
 
 export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): Promise<CrowdMagnet[]> {
+  // Prefer the daily CONUS snapshot over a live Overpass call whenever the
+  // bbox center falls inside CONUS. Previously only the toggleable map layer
+  // did this — the Recon Report's crowd-magnet check called straight through
+  // to live Overpass every run, making it one of the more common sources of
+  // 429s from the shared public mirrors. Falls back to live Overpass outside
+  // CONUS or when the snapshot fails to load.
+  if (L.latLngBounds(CONUS_BOUNDS).contains(bounds.getCenter())) {
+    const snap = await loadCrowdSnapshot()
+    if (snap) return snap.magnets.filter((m) => bounds.contains([m.lat, m.lng] as L.LatLngTuple))
+  }
   const s = bounds.getSouth(), w = bounds.getWest()
   const n = bounds.getNorth(), e = bounds.getEast()
   const bbox = `${s},${w},${n},${e}`

@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import { fetchOverpass, type OverpassElement } from './overpass'
+import { CONUS_BOUNDS, loadRailroadSnapshot, type RailroadSnapshotLine } from './snapshots'
 
 // ── Railroad proximity ──────────────────────────────────────────────────
 // A railroad track within a quarter mile of a home is a meaningful nuisance:
@@ -139,15 +140,58 @@ export function nearestRailroadFromElements(
   }
 }
 
-// Fetch the nearest active railroad track within RADIUS of the address via
-// Overpass. The `around` filter pre-scopes candidate ways to the radius, so any
-// element returned has geometry within range; we then compute the precise
-// nearest point. Heavy rail, light rail, and narrow-gauge lines count; subways
-// (underground), trams, and abandoned/disused alignments are excluded.
+// Margin (in miles) added around the address when pruning CONUS-snapshot
+// lines by their precomputed bbox, well beyond both RAILROAD_CLIP_RADIUS_MI
+// and RAILROAD_ANALYSIS_RADIUS_MI. A bbox can only ever be larger than the
+// line it bounds, so this prefilter can never produce a false negative —
+// it just skips the (many) distant lines before unpacking their full point
+// list, without risking missing a genuinely nearby track.
+const SNAPSHOT_PREFILTER_MARGIN_MI = 1
+
+// Reduce a CONUS railroad snapshot down to candidate ways near `center`
+// (via cheap bbox overlap), unpack their flat coords back into Overpass-
+// element shape, and hand off to the shared nearest-point reducer so the
+// snapshot and live-Overpass paths share identical proximity/clipping logic.
+export function nearestRailroadFromSnapshot(
+  center: { lat: number; lng: number },
+  lines: RailroadSnapshotLine[],
+): NearestRailroad | null {
+  const latMarginDeg = SNAPSHOT_PREFILTER_MARGIN_MI / 69
+  const lonMarginDeg = SNAPSHOT_PREFILTER_MARGIN_MI / (69 * Math.max(Math.cos((center.lat * Math.PI) / 180), 0.01))
+  const minLat = center.lat - latMarginDeg, maxLat = center.lat + latMarginDeg
+  const minLon = center.lng - lonMarginDeg, maxLon = center.lng + lonMarginDeg
+  const elements: OverpassElement[] = []
+  for (const line of lines) {
+    const [bMinLat, bMinLon, bMaxLat, bMaxLon] = line.bbox
+    if (bMaxLat < minLat || bMinLat > maxLat || bMaxLon < minLon || bMinLon > maxLon) continue
+    const geometry: { lat: number; lon: number }[] = []
+    for (let i = 0; i < line.coords.length; i += 2) {
+      geometry.push({ lat: line.coords[i], lon: line.coords[i + 1] })
+    }
+    elements.push({ type: 'way', tags: { name: line.name }, geometry })
+  }
+  return nearestRailroadFromElements(center, elements)
+}
+
+// Fetch the nearest active railroad track within RADIUS of the address.
+// Prefers the daily CONUS snapshot when the address falls inside CONUS —
+// unlike the crowd-magnet check (which already had a snapshot for the map
+// layer), railroad previously had *no* snapshot at all and hit live Overpass
+// on every single report run, making it one of the most common sources of
+// 429s from the shared public mirrors. Falls back to live Overpass outside
+// CONUS or when the snapshot is unavailable. The `around` filter in the live
+// query pre-scopes candidate ways to the radius, so any element returned has
+// geometry within range; we then compute the precise nearest point. Heavy
+// rail, light rail, and narrow-gauge lines count; subways (underground),
+// trams, and abandoned/disused alignments are excluded.
 export async function fetchNearestRailroad(
   center: L.LatLng,
   signal?: AbortSignal,
 ): Promise<NearestRailroad | null> {
+  if (L.latLngBounds(CONUS_BOUNDS).contains(center)) {
+    const snap = await loadRailroadSnapshot()
+    if (snap) return nearestRailroadFromSnapshot({ lat: center.lat, lng: center.lng }, snap.lines)
+  }
   const radiusM = Math.ceil(RAILROAD_ANALYSIS_RADIUS_MI * MILES_TO_METERS)
   const q = `[out:json][timeout:25];way(around:${radiusM},${center.lat},${center.lng})["railway"~"^(rail|light_rail|narrow_gauge)$"];out tags geom;`
   const data = await fetchOverpass(q, { label: 'railroad', signal })

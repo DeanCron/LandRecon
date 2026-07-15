@@ -57,12 +57,16 @@ jobs:
         run: node scripts/snapshot-transit-lines.mjs
         continue-on-error: true
 
+      - name: Snapshot railroad tracks (freight + passenger)
+        run: node scripts/snapshot-railroad.mjs
+        continue-on-error: true
+
       - name: Inventory built snapshots
         id: inventory
         run: |
           echo "Built snapshots:"
           ls -lh dist-snapshots/ || true
-          expected=(cameras-us crowd-us transit-stops-us transit-lines-us)
+          expected=(cameras-us crowd-us transit-stops-us transit-lines-us railroad-us)
           missing=()
           for name in "${expected[@]}"; do
             if [ ! -s "dist-snapshots/$name.json.gz" ]; then

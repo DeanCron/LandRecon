@@ -27,6 +27,21 @@ export interface CameraSnapshot extends SnapshotEnvelope { cameras: CameraRecord
 export interface CrowdSnapshotPayload extends SnapshotEnvelope { magnets: CrowdMagnet[] }
 export interface TransitStopsSnapshot extends SnapshotEnvelope { stops: SnapshotTransitStop[] }
 export interface TransitLinesSnapshot extends SnapshotEnvelope { lines: SnapshotTransitLine[] }
+export interface RailroadSnapshot extends SnapshotEnvelope { lines: RailroadSnapshotLine[] }
+
+// A single OSM railway way (freight + passenger — rail/light_rail/narrow_gauge,
+// unfiltered by route relation, mirroring the live query in
+// src/map/railroad.ts::fetchNearestRailroad). `bbox` is precomputed at build
+// time so the client can cheaply skip lines that can't possibly be the
+// nearest track before unpacking their full point list.
+export interface RailroadSnapshotLine {
+  id: string
+  name: string
+  // Flat [lat, lon, lat, lon, ...] pairs, same packing as transit lines.
+  coords: number[]
+  // [minLat, minLon, maxLat, maxLon] over all points in this way.
+  bbox: [number, number, number, number]
+}
 
 export interface SnapshotTransitStop { id: string; type: 'rail' | 'subway' | 'tram'; lat: number; lon: number; name: string }
 export interface SnapshotTransitLine { id: string; type: 'rail' | 'subway' | 'tram'; coords: number[] }
@@ -64,3 +79,4 @@ export const loadCamerasSnapshot = makeSnapshotLoader<CameraSnapshot>('cameras-u
 export const loadCrowdSnapshot = makeSnapshotLoader<CrowdSnapshotPayload>('crowd-us.json', 'crowd')
 export const loadTransitStopsSnapshot = makeSnapshotLoader<TransitStopsSnapshot>('transit-stops-us.json', 'transit')
 export const loadTransitLinesSnapshot = makeSnapshotLoader<TransitLinesSnapshot>('transit-lines-us.json', 'transit')
+export const loadRailroadSnapshot = makeSnapshotLoader<RailroadSnapshot>('railroad-us.json', 'railroad')

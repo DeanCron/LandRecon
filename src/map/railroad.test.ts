@@ -4,10 +4,13 @@ import {
   railroadSeverity,
   closestPointOnSegment,
   nearestRailroadFromElements,
+  nearestRailroadFromSnapshot,
   fetchNearestRailroad,
 } from './railroad'
 import type { OverpassElement } from './overpass'
 import * as overpass from './overpass'
+import * as snapshots from './snapshots'
+import type { RailroadSnapshotLine } from './snapshots'
 import L from 'leaflet'
 
 describe('railroadSeverity', () => {
@@ -136,6 +139,10 @@ describe('nearestRailroadFromElements', () => {
 describe('fetchNearestRailroad', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // 40, -75 sits inside CONUS, so fetchNearestRailroad tries the snapshot
+    // first. Default to "unavailable" so the pre-existing live-Overpass tests
+    // exercise the fallback path without making a real network request.
+    vi.spyOn(snapshots, 'loadRailroadSnapshot').mockResolvedValue(null)
   })
 
   it('throws when the Overpass query fails (null) so it is not mistaken for "no track"', async () => {
@@ -146,5 +153,79 @@ describe('fetchNearestRailroad', () => {
   it('returns null (genuine no-track) when Overpass returns an empty element set', async () => {
     vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue({ elements: [] })
     await expect(fetchNearestRailroad(L.latLng(40, -75))).resolves.toBeNull()
+  })
+
+  it('prefers the CONUS snapshot over live Overpass when available', async () => {
+    const fetchOverpassSpy = vi.spyOn(overpass, 'fetchOverpass')
+    const lines: RailroadSnapshotLine[] = [
+      {
+        id: 'way/1',
+        name: 'CSX-12',
+        coords: [40.0005, -75.01, 40.0005, -74.99],
+        bbox: [40.0005, -75.01, 40.0005, -74.99],
+      },
+    ]
+    vi.spyOn(snapshots, 'loadRailroadSnapshot').mockResolvedValue({
+      version: 1,
+      generated_at: '2026-01-01T00:00:00Z',
+      region: 'us-conus',
+      bbox: [24.5, -125.0, 49.4, -66.9],
+      count: 1,
+      lines,
+    })
+    const hit = await fetchNearestRailroad(L.latLng(40, -75))
+    expect(hit).not.toBeNull()
+    expect(hit!.name).toBe('CSX-12')
+    expect(fetchOverpassSpy).not.toHaveBeenCalled()
+  })
+
+  it('falls back to live Overpass when the snapshot is unavailable', async () => {
+    vi.spyOn(snapshots, 'loadRailroadSnapshot').mockResolvedValue(null)
+    const fetchOverpassSpy = vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue({ elements: [] })
+    await fetchNearestRailroad(L.latLng(40, -75))
+    expect(fetchOverpassSpy).toHaveBeenCalled()
+  })
+
+  it('skips the snapshot entirely outside CONUS', async () => {
+    const loadSnapshotSpy = vi.spyOn(snapshots, 'loadRailroadSnapshot')
+    vi.spyOn(overpass, 'fetchOverpass').mockResolvedValue({ elements: [] })
+    await fetchNearestRailroad(L.latLng(10, 10))
+    expect(loadSnapshotSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('nearestRailroadFromSnapshot', () => {
+  const center = { lat: 40, lng: -75 }
+
+  it('prunes lines whose bbox cannot be near the center', () => {
+    const lines: RailroadSnapshotLine[] = [
+      {
+        id: 'way/far',
+        name: 'Far Line',
+        coords: [45, -75, 45, -74.9],
+        bbox: [45, -75, 45, -74.9],
+      },
+      {
+        id: 'way/near',
+        name: 'Near Line',
+        coords: [40.0005, -75.01, 40.0005, -74.99],
+        bbox: [40.0005, -75.01, 40.0005, -74.99],
+      },
+    ]
+    const hit = nearestRailroadFromSnapshot(center, lines)
+    expect(hit).not.toBeNull()
+    expect(hit!.name).toBe('Near Line')
+  })
+
+  it('returns null when no snapshot line is near enough', () => {
+    const lines: RailroadSnapshotLine[] = [
+      {
+        id: 'way/far',
+        name: 'Far Line',
+        coords: [45, -75, 45, -74.9],
+        bbox: [45, -75, 45, -74.9],
+      },
+    ]
+    expect(nearestRailroadFromSnapshot(center, lines)).toBeNull()
   })
 })
