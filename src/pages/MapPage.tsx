@@ -41,6 +41,17 @@ import {
 } from '../map/broadband'
 import { fetchCostcosViaPlaces, parseCostcoAddress } from '../map/costco'
 import {
+  type WorkAddress,
+  type CommuteEstimate,
+  loadSavedWorkAddress,
+  saveWorkAddress,
+  clearSavedWorkAddress,
+  geocodeWorkAddress,
+  fetchCommute,
+  formatCommuteMinutes,
+  commuteSeverity,
+} from '../map/commute'
+import {
   readAnalysisCache,
   writeAnalysisCache,
   patchAnalysisCacheFlood,
@@ -752,7 +763,22 @@ function MapPage() {
     tornadoLoading: boolean
   }>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
-  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'railroad' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | null>(null)
+  const [analysisDetail, setAnalysisDetail] = useState<'noise' | 'superfunds' | 'costco' | 'datacenters' | 'er' | 'score' | 'crowd' | 'railroad' | 'broadband' | 'flood' | 'wildfire' | 'seismic' | 'tornado' | 'commute' | null>(null)
+
+  // Commute Time — an opt-in check against a work address the user enters,
+  // rather than a fixed dataset. propertyCoords mirrors targetLocationRef in
+  // state (set once per geocode) so effects can depend on it declaratively.
+  const [workAddress, setWorkAddress] = useState<WorkAddress | null>(() => loadSavedWorkAddress())
+  const [propertyCoords, setPropertyCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [commuteResult, setCommuteResult] = useState<CommuteEstimate | null>(null)
+  const [commuteLoading, setCommuteLoading] = useState(false)
+  const [commuteError, setCommuteError] = useState(false)
+  const [commuteRouteVisible, setCommuteRouteVisible] = useState(false)
+  const commuteRouteLayerRef = useRef<L.LayerGroup | null>(null)
+  const [workAddressDraft, setWorkAddressDraft] = useState('')
+  const [workAddressEditing, setWorkAddressEditing] = useState(false)
+  const [workAddressSaving, setWorkAddressSaving] = useState(false)
+  const [workAddressInputError, setWorkAddressInputError] = useState<string | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -2899,6 +2925,7 @@ function MapPage() {
         dbg('init', `Geocoded to ${lat}, ${lng}`)
         pushRecentSearch(address)
         targetLocationRef.current = L.latLng(lat, lng)
+        setPropertyCoords({ lat, lng })
 
         const houseIcon = L.divIcon({
           className: 'location-pin',
@@ -3107,6 +3134,10 @@ function MapPage() {
         // is found within the quarter-mile boundary (added to the map on demand).
         railroadHighlightLayerRef.current = L.layerGroup()
 
+        // Commute route layer — populated once a commute estimate exists for
+        // the current property + work address, added to the map on toggle.
+        commuteRouteLayerRef.current = L.layerGroup()
+
         // Create AirNow AQI layer (polygon contours; not added to map until toggled on)
         aqiLayerRef.current = L.geoJSON(undefined, {
           style: (feature) => {
@@ -3262,6 +3293,7 @@ function MapPage() {
       industrialLayerRef.current = null
       industrialFetchedKeyRef.current = null
       railroadHighlightLayerRef.current = null
+      commuteRouteLayerRef.current = null
       surgeLayerRef.current = null
       slrLayerRef.current = null
       wildfireLayerRef.current = null
@@ -3414,6 +3446,48 @@ function MapPage() {
     }
     setCostcoVisible(!costcoVisible)
   }
+
+  // Commute route visibility is just a state flip — the draw effect above
+  // handles building/attaching the polyline whenever this or commuteResult
+  // changes, so there's no per-toggle fetch/listener setup needed here.
+  const toggleCommuteRoute = () => {
+    dbg('toggle', `commute route → ${commuteRouteVisible ? 'OFF' : 'ON'}`)
+    setCommuteRouteVisible((v) => !v)
+  }
+
+  // Geocodes and persists a work address entered in the Commute Time detail
+  // panel. Reads from workAddressDraft and manages the panel's own saving/
+  // error/editing UI state, so the JSX below just wires up a submit handler.
+  const submitWorkAddress = useCallback(async () => {
+    const trimmed = workAddressDraft.trim()
+    if (!trimmed) return
+    setWorkAddressSaving(true)
+    setWorkAddressInputError(null)
+    try {
+      const geocoded = await geocodeWorkAddress(trimmed, TOMTOM_API_KEY)
+      if (!geocoded) {
+        setWorkAddressInputError('Address not found. Try a more specific address.')
+        return
+      }
+      saveWorkAddress(geocoded)
+      setWorkAddress(geocoded)
+      setWorkAddressEditing(false)
+      setWorkAddressDraft('')
+    } catch (err) {
+      dbg('commute', 'Work address geocode failed:', err)
+      setWorkAddressInputError('Something went wrong looking up that address. Try again.')
+    } finally {
+      setWorkAddressSaving(false)
+    }
+  }, [workAddressDraft])
+
+  const removeWorkAddress = useCallback(() => {
+    clearSavedWorkAddress()
+    setWorkAddress(null)
+    setCommuteRouteVisible(false)
+    setWorkAddressEditing(true)
+    setWorkAddressDraft('')
+  }, [])
 
   const loadDataCenters = useCallback(async (
     map: L.Map,
@@ -4155,6 +4229,94 @@ function MapPage() {
       .addTo(layer)
     if (!map.hasLayer(layer)) layer.addTo(map)
   }, [analysisProgress.railroad, analysisResults.nearestRailroad])
+
+  // Fetch a commute estimate whenever both a property location and a work
+  // address are known. Re-runs on a new property search (propertyCoords
+  // changes) and when the user sets/changes/clears their work address —
+  // unlike the other Recon Report checks, there's no dataset to snapshot
+  // here, so this is always a live per-user TomTom Routing API call.
+  useEffect(() => {
+    if (status !== 'ready' || !propertyCoords || !workAddress) {
+      setCommuteResult(null)
+      setCommuteError(false)
+      setCommuteLoading(false)
+      return
+    }
+    let cancelled = false
+    setCommuteLoading(true)
+    setCommuteError(false)
+    dbg('commute', `Fetching commute from ${propertyCoords.lat},${propertyCoords.lng} to work address…`)
+    fetchCommute({
+      originLat: propertyCoords.lat,
+      originLng: propertyCoords.lng,
+      destLat: workAddress.lat,
+      destLng: workAddress.lng,
+      apiKey: TOMTOM_API_KEY,
+    })
+      .then((r) => {
+        if (cancelled) return
+        dbg('commute', r ? `Live ${r.liveMinutes}min / typical ${r.typicalMinutes}min, ${r.distanceMi}mi` : 'No route found')
+        setCommuteResult(r)
+        setCommuteError(!r)
+      })
+      .catch((err) => {
+        dbg('commute', 'Fetch failed:', err)
+        if (cancelled) return
+        setCommuteResult(null)
+        setCommuteError(true)
+      })
+      .finally(() => {
+        if (cancelled) return
+        setCommuteLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [status, propertyCoords, workAddress])
+
+  // Draw the commute route on the map whenever a new estimate lands and the
+  // layer is toggled on. Combined into one effect (rather than a separate
+  // toggle handler) since the geometry itself only exists once commuteResult
+  // is populated — there's no per-viewport fetch to manage here.
+  useEffect(() => {
+    const map = mapRef.current
+    const layer = commuteRouteLayerRef.current
+    if (!map || !layer) return
+    layer.clearLayers()
+    const route = commuteResult?.route
+    if (!commuteRouteVisible || !route || route.length < 2) {
+      if (map.hasLayer(layer)) map.removeLayer(layer)
+      return
+    }
+    L.polyline(route, {
+      color: '#ffffff',
+      weight: 7,
+      opacity: 0.7,
+      lineCap: 'round',
+      lineJoin: 'round',
+      interactive: false,
+    }).addTo(layer)
+    L.polyline(route, {
+      color: '#1e88e5',
+      weight: 4,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round',
+    })
+      .bindTooltip(`🚗 Commute · ${formatCommuteMinutes(commuteResult!.liveMinutes)} (${commuteResult!.distanceMi} mi)`, { sticky: true, direction: 'top' })
+      .addTo(layer)
+    if (workAddress) {
+      L.circleMarker([workAddress.lat, workAddress.lng], {
+        radius: 6,
+        color: '#0d47a1',
+        weight: 2,
+        fillColor: '#1e88e5',
+        fillOpacity: 1,
+      })
+        .bindTooltip('Work', { direction: 'top' })
+        .addTo(layer)
+    }
+    if (!map.hasLayer(layer)) layer.addTo(map)
+  }, [commuteResult, commuteRouteVisible, workAddress])
+
 
   const toggleTornado = () => {
     const map = mapRef.current
@@ -5506,6 +5668,19 @@ function MapPage() {
             <label className="layer-toggle">
               <input
                 type="checkbox"
+                checked={commuteRouteVisible}
+                onChange={toggleCommuteRoute}
+                disabled={status !== 'ready' || !commuteResult}
+              />
+              <span className="layer-label">
+                Commute Route
+                {commuteLoading && <span className="layer-loading"> ⏳</span>}
+              </span>
+            </label>
+
+            <label className="layer-toggle">
+              <input
+                type="checkbox"
                 checked={emsVisible}
                 onChange={toggleEms}
                 disabled={status !== 'ready'}
@@ -6580,6 +6755,52 @@ function MapPage() {
             }
 
             {
+              // Commute Time — opt-in check against a user-entered work address,
+              // not a fixed dataset. Lives right above Costco in the convenience
+              // tier. When no work address is set yet, the card just prompts the
+              // user to add one via the detail popout rather than showing a
+              // permanent spinner (which would reintroduce the progress-count
+              // mismatch bug fixed earlier — this card is deliberately excluded
+              // from the fixed analysisProgress check list for that reason).
+              const severity = !workAddress
+                ? 'clear'
+                : commuteLoading
+                  ? 'pending'
+                  : commuteResult
+                    ? commuteSeverity(commuteResult.liveMinutes)
+                    : 'clear'
+              cards.push({ key: 'commute', severity, node: (
+                <div className={`analysis-card ${severity}`} key="commute">
+                  <div
+                    className={`analysis-item${commuteLoading ? '' : ' clickable'}`}
+                    onClick={() => {
+                      if (commuteLoading) return
+                      if (analysisDetail === 'commute') setAnalysisDetail(null)
+                      else setAnalysisDetail('commute')
+                    }}
+                    aria-busy={commuteLoading || undefined}
+                  >
+                    <div className={`analysis-chevron${analysisDetail === 'commute' ? ' expanded' : ''}${commuteLoading ? ' hidden' : ''}`}>‹</div>
+                    <div className="analysis-icon">🚗</div>
+                    <div className="analysis-detail">
+                      <strong>Commute Time</strong>
+                      <p>{!workAddress
+                        ? 'Add your work address'
+                        : commuteLoading
+                        ? 'Calculating commute…'
+                        : commuteResult
+                        ? `${formatCommuteMinutes(commuteResult.liveMinutes)} now · ${formatCommuteMinutes(commuteResult.typicalMinutes)} rush hour`
+                        : commuteError
+                        ? 'Couldn\'t calculate commute'
+                        : ''}</p>
+                    </div>
+                    {commuteLoading && <div className="analysis-card-spinner" aria-hidden="true" />}
+                  </div>
+                </div>
+              ) })
+            }
+
+            {
               // Costco — convenience tier, lowest weight, lives at the bottom of the report
               const severity = analysisResults.costcoLoading ? 'pending' : analysisResults.costco ? costcoSeverity(analysisResults.costco.distanceMi) : analysisResults.costcoError ? 'clear' : 'danger'
               cards.push({ key: 'costco', severity, node: (
@@ -6721,6 +6942,7 @@ function MapPage() {
                analysisDetail === 'wildfire' ? '🔥 Wildfire Hazard' :
                analysisDetail === 'seismic' ? '🌎 Seismic Hazard' :
                analysisDetail === 'tornado' ? '🌪️ Tornado Risk' :
+               analysisDetail === 'commute' ? '🚗 Commute Time' :
                '🏢 Data Centers'}
             </strong>
             <button className="analysis-popout-close" onClick={() => {
@@ -6942,6 +7164,92 @@ function MapPage() {
                         Superfund sites can contaminate local soil, groundwater, and air — posing health risks and reducing property values.
                         The absence of any sites nearby is a positive indicator for this location.
                       </p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {analysisDetail === 'commute' && (
+              <>
+                {(!workAddress || workAddressEditing) ? (
+                  <>
+                    <p className="analysis-expand-sub">
+                      {workAddress ? 'Update your work address:' : 'Enter your work address to estimate the drive from this property:'}
+                    </p>
+                    <div className="commute-input-row">
+                      <input
+                        type="text"
+                        className="commute-input"
+                        placeholder="e.g. 123 Main St, Missoula, MT"
+                        value={workAddressDraft}
+                        onChange={(e) => { setWorkAddressDraft(e.target.value); setWorkAddressInputError(null) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') submitWorkAddress() }}
+                        disabled={workAddressSaving}
+                      />
+                      <button
+                        type="button"
+                        className="commute-save-btn"
+                        onClick={submitWorkAddress}
+                        disabled={workAddressSaving || !workAddressDraft.trim()}
+                      >
+                        {workAddressSaving ? 'Looking up…' : 'Save'}
+                      </button>
+                    </div>
+                    {workAddressInputError && <p className="commute-input-error">{workAddressInputError}</p>}
+                    {workAddress && (
+                      <button
+                        type="button"
+                        className="commute-cancel-btn"
+                        onClick={() => { setWorkAddressEditing(false); setWorkAddressDraft(''); setWorkAddressInputError(null) }}
+                        disabled={workAddressSaving}
+                      >Cancel</button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="analysis-expand-sub">{workAddress.address}</p>
+                    {commuteLoading ? (
+                      <p className="analysis-expand-level" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="analysis-card-spinner" aria-hidden="true" style={{ margin: 0 }} />
+                        Calculating commute…
+                      </p>
+                    ) : commuteResult ? (
+                      <>
+                        <p className={`analysis-expand-level ${commuteSeverity(commuteResult.liveMinutes)}`}>
+                          {formatCommuteMinutes(commuteResult.liveMinutes)} right now · {commuteResult.distanceMi} miles
+                        </p>
+                        <p style={{ fontSize: '0.78rem', color: '#888', margin: '4px 0 12px' }}>
+                          ~{formatCommuteMinutes(commuteResult.typicalMinutes)} on a typical weekday, arriving by 9am
+                        </p>
+                        <div className="analysis-costco-actions">
+                          <a
+                            className="costco-directions-link"
+                            href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(address || '')}&destination=${workAddress.lat},${workAddress.lng}&travelmode=driving`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 11l19-9-9 19-2-8-8-2z" />
+                            </svg>
+                            Driving directions →
+                          </a>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="analysis-expand-level">Couldn't calculate a route to this address — it may be unreachable by car.</p>
+                    )}
+                    <div className="commute-actions">
+                      <button
+                        type="button"
+                        className="commute-change-btn"
+                        onClick={() => { setWorkAddressEditing(true); setWorkAddressDraft(workAddress.address) }}
+                      >Change</button>
+                      <button
+                        type="button"
+                        className="commute-remove-btn"
+                        onClick={removeWorkAddress}
+                      >Remove</button>
                     </div>
                   </>
                 )}

@@ -2403,6 +2403,80 @@
   flex-shrink: 0;
 }
 
+/* Commute Time detail popout — work address input + result actions */
+.commute-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.commute-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.commute-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.commute-save-btn,
+.commute-change-btn,
+.commute-remove-btn,
+.commute-cancel-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  white-space: nowrap;
+}
+
+.commute-save-btn {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.commute-save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.commute-save-btn:hover:not(:disabled),
+.commute-change-btn:hover,
+.commute-cancel-btn:hover {
+  border-color: var(--color-primary);
+}
+
+.commute-remove-btn:hover {
+  border-color: rgba(239, 83, 80, 0.6);
+  color: #c62828;
+}
+
+.commute-input-error {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #c62828;
+}
+
+.commute-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* Broadband-at-this-address detail popout */
 .broadband-stats {
   display: grid;
