@@ -2,19 +2,21 @@ name: Snapshot Overpass datasets
 
 # Nightly Overpass crawl of every CONUS dataset that the client otherwise
 # fetches per-bbox at runtime. Each script writes its own gzipped JSON to
-# dist-snapshots/; the upload step pushes everything to the public
-# `snapshots` container on landreconstorage.
+# dist-snapshots/, then is uploaded to the public `snapshots` container on
+# landreconstorage immediately — not batched into one upload at the end —
+# so a job-level timeout (or an early script's hard failure) can't discard
+# datasets that already finished. Azure Login happens once, up front.
 #
 # Scripts run sequentially (not in parallel) to stay polite with the public
-# overpass-api.de endpoint. Total runtime ~10-25 min depending on tile
-# response times.
+# Overpass mirrors. Under normal mirror conditions this totals ~10-25 min;
+# under mirror degradation (504s / stalls forcing retries+failover) it can
+# run much longer, hence the generous job timeout below.
 #
 # To add a new dataset:
 #   1. Drop a new scripts/snapshot-{name}.mjs (use snapshot-cameras.mjs as
 #      a template — they all share scripts/lib/conus-crawl.mjs).
-#   2. Add `node scripts/snapshot-{name}.mjs` to the "Fetch snapshots" step.
-#   3. The upload step picks up the new dist-snapshots/{name}-us.json.gz
-#      automatically (glob upload), no workflow edits needed there.
+#   2. Add a "Snapshot {name}" step followed by an "Upload {name}" step
+#      (copy an existing pair below and swap the script/blob name).
 
 on:
   schedule:
@@ -27,7 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 180
+    # Generous headroom for mirror-degraded runs: five sequential crawls,
+    # each individually capable of taking well over an hour when every tile
+    # needs multiple retries across all three mirrors. Actions caps hosted
+    # jobs at 6h regardless of this value.
+    timeout-minutes: 330
 
     steps:
       - uses: actions/checkout@v5
@@ -36,37 +42,71 @@ jobs:
         with:
           node-version: '22'
 
+      # Login once, up front, so each dataset can upload itself immediately
+      # after it's built rather than waiting for every script to finish.
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       # Per-script steps with continue-on-error so one Overpass tile timeout
       # doesn't kill the whole pipeline — we'd rather upload partial/stale
       # snapshots than no snapshots. Each script also tolerates partial tile
       # failures internally and writes the snapshot with a `partial: true`
-      # flag if any tile was lost.
+      # flag if any tile was lost. Railroad runs first since it's the newest
+      # dataset and has no prior blob to fall back on if the job runs out of
+      # time before reaching it.
+      - name: Snapshot railroad tracks (freight + passenger)
+        run: node scripts/snapshot-railroad.mjs
+        continue-on-error: true
+
+      - name: Upload railroad tracks
+        if: always()
+        run: bash scripts/upload-snapshot.sh railroad-us
+        continue-on-error: true
+
       - name: Snapshot cameras
         run: node scripts/snapshot-cameras.mjs
+        continue-on-error: true
+
+      - name: Upload cameras
+        if: always()
+        run: bash scripts/upload-snapshot.sh cameras-us
         continue-on-error: true
 
       - name: Snapshot crowd magnets
         run: node scripts/snapshot-crowd.mjs
         continue-on-error: true
 
+      - name: Upload crowd magnets
+        if: always()
+        run: bash scripts/upload-snapshot.sh crowd-us
+        continue-on-error: true
+
       - name: Snapshot rail/subway/tram stops
         run: node scripts/snapshot-transit-stops.mjs
+        continue-on-error: true
+
+      - name: Upload rail/subway/tram stops
+        if: always()
+        run: bash scripts/upload-snapshot.sh transit-stops-us
         continue-on-error: true
 
       - name: Snapshot rail/subway/tram lines
         run: node scripts/snapshot-transit-lines.mjs
         continue-on-error: true
 
-      - name: Snapshot railroad tracks (freight + passenger)
-        run: node scripts/snapshot-railroad.mjs
+      - name: Upload rail/subway/tram lines
+        if: always()
+        run: bash scripts/upload-snapshot.sh transit-lines-us
         continue-on-error: true
 
       - name: Inventory built snapshots
-        id: inventory
+        if: always()
         run: |
           echo "Built snapshots:"
           ls -lh dist-snapshots/ || true
-          expected=(cameras-us crowd-us transit-stops-us transit-lines-us railroad-us)
+          expected=(railroad-us cameras-us crowd-us transit-stops-us transit-lines-us)
           missing=()
           for name in "${expected[@]}"; do
             if [ ! -s "dist-snapshots/$name.json.gz" ]; then
@@ -74,40 +114,6 @@ jobs:
             fi
           done
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "::warning::Missing snapshots (blob keeps prior version): ${missing[*]}"
-          fi
-          count=$(ls dist-snapshots/*.json.gz 2>/dev/null | wc -l)
-          echo "built_count=$count" >> "$GITHUB_OUTPUT"
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No snapshots built — nothing to upload"
-            exit 1
+            echo "::warning::Missing snapshots this run (blob keeps prior version, if any): ${missing[*]}"
           fi
 
-      - name: Azure Login
-        uses: azure/login@v3
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Upload snapshots to blob
-        run: |
-          set -e
-          for gz in dist-snapshots/*.json.gz; do
-            blob_name="$(basename "$gz" .gz)"   # cameras-us.json.gz -> cameras-us.json
-            echo "→ uploading $gz as snapshots/$blob_name"
-            az storage blob upload \
-              --account-name landreconstorage \
-              --container-name snapshots \
-              --name "$blob_name" \
-              --file "$gz" \
-              --content-cache "public, max-age=86400, immutable" \
-              --content-encoding "gzip" \
-              --content-type "application/json; charset=utf-8" \
-              --auth-mode login \
-              --overwrite
-          done
-          echo ""
-          echo "Snapshot URLs:"
-          for gz in dist-snapshots/*.json.gz; do
-            blob_name="$(basename "$gz" .gz)"
-            echo "  https://landreconstorage.blob.core.windows.net/snapshots/$blob_name"
-          done
