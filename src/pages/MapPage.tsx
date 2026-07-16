@@ -5217,7 +5217,7 @@ function MapPage() {
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
         {status === 'ready' && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
+          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
           const done = checks.filter((k) => analysisProgress[k] === 'done').length
           const total = checks.length
           // Show the strip from the moment an analysis kicks off until every
@@ -5338,7 +5338,7 @@ function MapPage() {
         >
           <span className="fab-label">Report</span>
           {(() => {
-            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'broadband', 'flood'] as const
+            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
             const done = checks.filter((k) => analysisProgress[k] === 'done').length
             if (done >= checks.length || Object.keys(analysisProgress).length === 0) return null
             return (
