@@ -5665,7 +5665,10 @@ function MapPage() {
               <span className="layer-label">Costco</span>
             </label>
 
-            <label className="layer-toggle">
+            <label
+              className="layer-toggle"
+              title={!workAddress ? 'Add your work address in the Commute Time report card first' : undefined}
+            >
               <input
                 type="checkbox"
                 checked={commuteRouteVisible}
