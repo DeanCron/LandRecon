@@ -56,7 +56,11 @@ export type SeismicPointResult = { value: number; label: string; pga: number }
 // Returns null when the service responds but PGA is missing/unparseable.
 // Throws on network/HTTP failure (including the HTTP 500 returned for points
 // outside the U.S. coverage) so the caller can flag an error.
-export async function fetchSeismicAtPoint(lat: number, lng: number): Promise<SeismicPointResult | null> {
+export async function fetchSeismicAtPoint(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<SeismicPointResult | null> {
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lng),
@@ -64,7 +68,10 @@ export async function fetchSeismicAtPoint(lat: number, lng: number): Promise<Sei
     siteClass: 'D',
     title: 'LandRecon',
   })
-  const data = await fetchJsonWithRetry<{ response?: { data?: { pga?: number } } }>(`${ASCE7_16_BASE}?${params}`)
+  const data = await fetchJsonWithRetry<{ response?: { data?: { pga?: number } } }>(
+    `${ASCE7_16_BASE}?${params}`,
+    { init: { signal } },
+  )
   const pga = data?.response?.data?.pga
   if (typeof pga !== 'number' || !Number.isFinite(pga)) return null
   const value = seismicBand(pga)

@@ -189,7 +189,7 @@ export async function fetchNearestRailroad(
   signal?: AbortSignal,
 ): Promise<NearestRailroad | null> {
   if (L.latLngBounds(CONUS_BOUNDS).contains(center)) {
-    const snap = await loadRailroadSnapshot()
+    const snap = await loadRailroadSnapshot(signal)
     if (snap) return nearestRailroadFromSnapshot({ lat: center.lat, lng: center.lng }, snap.lines)
   }
   const radiusM = Math.ceil(RAILROAD_ANALYSIS_RADIUS_MI * MILES_TO_METERS)

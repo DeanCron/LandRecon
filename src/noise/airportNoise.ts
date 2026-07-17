@@ -134,6 +134,7 @@ export async function queryNoiseLevelAtPoint(
   url: string,
   lat: number,
   lng: number,
+  signal?: AbortSignal,
 ): Promise<NoiseBand | null> {
   const pmt = getPMTiles(url)
   const zoom = NOISE_MAX_ZOOM
@@ -147,11 +148,12 @@ export async function queryNoiseLevelAtPoint(
 
   let tile: { data: ArrayBuffer } | undefined
   try {
-    tile = await pmt.getZxy(zoom, x, y)
+    tile = await pmt.getZxy(zoom, x, y, signal)
   } catch {
     return null
   }
   if (!tile) return null
+  if (signal?.aborted) return null
 
   const vt = new VectorTile(new Pbf(tile.data))
   const layer = vt.layers[NOISE_LAYER_NAME]
@@ -163,6 +165,7 @@ export async function queryNoiseLevelAtPoint(
 
   let best: NoiseBand | null = null
   for (let i = 0; i < layer.length; i++) {
+    if (signal?.aborted) return null
     const feat = layer.feature(i)
     const geom = feat.loadGeometry() as unknown as Ring[]
     if (!pointInFeature(px, py, geom)) continue

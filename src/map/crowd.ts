@@ -108,7 +108,7 @@ export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSi
   // 429s from the shared public mirrors. Falls back to live Overpass outside
   // CONUS or when the snapshot fails to load.
   if (L.latLngBounds(CONUS_BOUNDS).contains(bounds.getCenter())) {
-    const snap = await loadCrowdSnapshot()
+    const snap = await loadCrowdSnapshot(signal)
     if (snap) return snap.magnets.filter((m) => bounds.contains([m.lat, m.lng] as L.LatLngTuple))
   }
   const s = bounds.getSouth(), w = bounds.getWest()

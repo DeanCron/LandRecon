@@ -32,4 +32,41 @@ describe('fetchJsonWithRetry', () => {
     await expect(fetchJsonWithRetry('https://x', { retries: 1, backoffMs: 0 })).rejects.toThrow()
     expect(fetchMock).toHaveBeenCalledTimes(2) // first attempt + 1 retry
   })
+
+  it('stops immediately when the caller aborts', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = fetchJsonWithRetry('https://x', {
+      init: { signal: controller.signal },
+      retries: 2,
+      backoffMs: 1000,
+    })
+    controller.abort()
+
+    await expect(request).rejects.toBeDefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels the retry backoff when the caller aborts', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = fetchJsonWithRetry('https://x', {
+      init: { signal: controller.signal },
+      retries: 2,
+      backoffMs: 10000,
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort()
+
+    await expect(request).rejects.toBeDefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

@@ -81,7 +81,11 @@ export type TornadoPointResult = { value: number; label: string; rating: string;
 // Returns null when the point falls outside the model coverage or the tract
 // has no usable rating. Throws on network/HTTP failure so the caller can flag
 // an error state.
-export async function fetchTornadoAtPoint(lat: number, lng: number): Promise<TornadoPointResult | null> {
+export async function fetchTornadoAtPoint(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<TornadoPointResult | null> {
   const params = new URLSearchParams({
     where: '1=1',
     outFields: TORNADO_OUT_FIELDS,
@@ -95,6 +99,7 @@ export async function fetchTornadoAtPoint(lat: number, lng: number): Promise<Tor
   })
   const data = await fetchJsonWithRetry<{ features?: Array<{ attributes?: { TRND_RISKR?: string; TRND_RISKS?: number } }> }>(
     `${TORNADO_API}?${params}`,
+    { init: { signal } },
   )
   const attrs = data?.features?.[0]?.attributes
   const rating = String(attrs?.TRND_RISKR ?? '').trim()

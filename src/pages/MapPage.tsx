@@ -10,6 +10,7 @@ import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker, f
 const GuidedTour = lazy(() => import('../components/GuidedTour'))
 import { pushRecentSearch, updateRecentSearchGrade } from '../utils/recentSearches'
 import { debounce } from '../utils/perf'
+import { combineAbortSignals } from '../utils/abort'
 import { trackEvent } from '../utils/analytics'
 import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
@@ -733,6 +734,10 @@ function MapPage() {
   // Monotonic counter so an in-flight analysis can detect that the user has
   // since kicked off a newer one and silently discard its (now-stale) results.
   const analysisRunIdRef = useRef(0)
+  // Abort the actual network work as well as suppressing stale state writes.
+  // The run id remains useful for non-abortable/synchronous work and as a
+  // final guard against a response resolving during a run transition.
+  const analysisAbortRef = useRef<AbortController | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [noiseVisible, setNoiseVisible] = useState(false)
@@ -2140,7 +2145,13 @@ function MapPage() {
   const runLocationAnalysis = useCallback(async (lat: number, lng: number, opts?: { force?: boolean }) => {
     dbg('analysis', `Running analysis at ${lat.toFixed(5)}, ${lng.toFixed(5)}${opts?.force ? ' (forced)' : ''}`)
     const runId = ++analysisRunIdRef.current
-    const isLatestRun = () => analysisRunIdRef.current === runId
+    analysisAbortRef.current?.abort()
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
+    const { signal } = controller
+    const timedSignal = (timeoutMs: number) =>
+      combineAbortSignals([signal, AbortSignal.timeout(timeoutMs)])
+    const isLatestRun = () => analysisRunIdRef.current === runId && !signal.aborted
 
     // Cache hit: hand back the previously-computed report instantly and skip
     // all the network calls below. Re-analyze (force=true) bypasses the cache.
@@ -2220,7 +2231,7 @@ function MapPage() {
       })
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
-      fetchBroadband(lat, lng).then((bb) => {
+      fetchBroadband(lat, lng, signal).then((bb) => {
         if (!isLatestRun()) {
           dbg('analysis', 'Stale run — discarding Broadband result (cache-hit path)')
           return
@@ -2248,7 +2259,7 @@ function MapPage() {
             [lat + radiusDeg, lng + radiusDeg * 1.5],
           )
           const here = L.latLng(lat, lng)
-          const items = await fetchCrowdMagnets(bbox)
+          const items = await fetchCrowdMagnets(bbox, signal)
           const hits: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[] = []
           for (const m of items) {
             const distMi = Math.round(here.distanceTo(L.latLng(m.lat, m.lng)) / metersPerMile * 10) / 10
@@ -2275,7 +2286,7 @@ function MapPage() {
       // A failed query omits it, so re-fetch on a cache hit when it's absent
       // rather than leaving a false "no track within range".
       if (!railroadIsCached) {
-        fetchNearestRailroad(L.latLng(lat, lng)).then((rr) => {
+        fetchNearestRailroad(L.latLng(lat, lng), signal).then((rr) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Railroad result (cache-hit path):', rr ? `${rr.distanceMi.toFixed(2)} mi` : 'no track within range')
           setAnalysisResults((prev) => ({ ...prev, nearestRailroad: rr, railroadError: false }))
@@ -2291,7 +2302,7 @@ function MapPage() {
       // Flood is cached once determined; only re-fetch on a cache hit when the
       // cached entry predates the flood feature (no floodZone key stored).
       if (!floodIsCached) {
-        fetchFloodAtPoint(lat, lng).then((fz) => {
+        fetchFloodAtPoint(lat, lng, signal).then((fz) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Flood result (cache-hit path):', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
           setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
@@ -2305,7 +2316,7 @@ function MapPage() {
         })
       }
       if (!wildfireIsCached) {
-        fetchWildfireAtPoint(lat, lng).then((wf) => {
+        fetchWildfireAtPoint(lat, lng, signal).then((wf) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Wildfire result (cache-hit path):', wf ? `${wf.label} (${wf.value})` : 'no mapped hazard')
           setAnalysisResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
@@ -2319,7 +2330,7 @@ function MapPage() {
         })
       }
       if (!seismicIsCached) {
-        fetchSeismicAtPoint(lat, lng).then((sq) => {
+        fetchSeismicAtPoint(lat, lng, signal).then((sq) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Seismic result (cache-hit path):', sq ? `${sq.label} (PGA ${sq.pga}g)` : 'no mapped hazard')
           setAnalysisResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
@@ -2333,7 +2344,7 @@ function MapPage() {
         })
       }
       if (!tornadoIsCached) {
-        fetchTornadoAtPoint(lat, lng).then((tn) => {
+        fetchTornadoAtPoint(lat, lng, signal).then((tn) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Tornado result (cache-hit path):', tn ? `${tn.label} (${tn.rating})` : 'no mapped risk')
           setAnalysisResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
@@ -2372,10 +2383,13 @@ function MapPage() {
     const costcoPromise = (async () => {
       try {
         const radiusM = COSTCO_ANALYSIS_RADIUS_MI * milesToMeters
+        const timeoutSignal = AbortSignal.timeout(15000)
         const places = await fetchCostcosViaPlaces({
           circle: { lat, lng, radiusM },
-          signal: AbortSignal.timeout(15000),
+          signal: combineAbortSignals([signal, timeoutSignal]),
         })
+        if (signal.aborted) throw signal.reason
+        if (timeoutSignal.aborted) throw new Error('Costco lookup timed out')
         const seen = new Set<string>()
         const hits: CostcoHit[] = []
         let nearestBeyond: CostcoHit | null = null
@@ -2404,6 +2418,11 @@ function MapPage() {
         return { nearest: hits[0] ?? null, nearby: hits, nearestBeyond }
       } finally { markDone('costco') }
     })()
+    // Costco's state/cache handler is intentionally attached after the primary
+    // checks resolve, but cancellation can reject this promise before then.
+    // Mark the rejection handled immediately; the later .then/.catch still
+    // performs normal current-run result processing.
+    void costcoPromise.catch(() => undefined)
 
     // Run the other checks in parallel with timeouts. We *don't* await Costco
     // here so the report can render as soon as these checks resolve. Each one
@@ -2414,7 +2433,7 @@ function MapPage() {
     // Check noise via PMTiles vector query, then find nearest airport
     const noiseP = (async () => {
         const { queryNoiseLevelAtPoint } = await loadAirportNoiseModule()
-        const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng)
+        const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng, signal)
         if (!band) return null
         const level = band.dbMin
 
@@ -2430,7 +2449,7 @@ function MapPage() {
           );out body center;`
           const data = await fetchOverpass(query, {
             timeoutMs: 15000,
-            signal: AbortSignal.timeout(15000),
+            signal: timedSignal(15000),
             label: 'nearest-airport',
           })
           if (data) {
@@ -2471,7 +2490,7 @@ function MapPage() {
           resultRecordCount: '50',
         })
         const res = await fetch(`${SUPERFUND_API}?${params}`, {
-          signal: AbortSignal.timeout(TIMEOUT),
+          signal: timedSignal(TIMEOUT),
         })
         if (!res.ok) return []
         const data = await res.json()
@@ -2512,7 +2531,7 @@ function MapPage() {
     const dataCenterP = (async () => {
         let data = dataCenterDataRef.current
         if (!data) {
-          const res = await fetch('/data/data-centers.json')
+          const res = await fetch('/data/data-centers.json', { signal })
           data = (await res.json()) as DataCenter[]
           dataCenterDataRef.current = data
         }
@@ -2584,7 +2603,7 @@ function MapPage() {
               },
               fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress,places.types,places.primaryType',
               apiKey: GOOGLE_MAPS_KEY,
-              signal: AbortSignal.timeout(TIMEOUT),
+              signal: timedSignal(TIMEOUT),
             })
             if (!data) return
             for (const raw of (data.places || []) as Record<string, unknown>[]) {
@@ -2628,7 +2647,7 @@ function MapPage() {
             [lat - radiusDeg, lng - radiusDeg * 1.5],
             [lat + radiusDeg, lng + radiusDeg * 1.5],
           )
-          const items = await fetchCrowdMagnets(bbox)
+          const items = await fetchCrowdMagnets(bbox, signal)
           const hits: { id: string; name: string; type: CrowdType; distanceMi: number; lat: number; lng: number }[] = []
           for (const m of items) {
             const dist = location.distanceTo(L.latLng(m.lat, m.lng))
@@ -2646,7 +2665,7 @@ function MapPage() {
     // person. Resolves to null when no track is in range; REJECTS when the
     // Overpass query fails, so the result isn't mistaken for a confident
     // "no track" (which would also get cached as a false all-clear).
-    const railroadP = fetchNearestRailroad(location)
+    const railroadP = fetchNearestRailroad(location, signal)
 
     // Commit each check's result and mark it done together, the moment it
     // resolves, so each report tile's progress flag and its data stay in sync.
@@ -2741,7 +2760,7 @@ function MapPage() {
 
     // FCC Broadband fetch runs independently of the other categories. Same
     // pattern as Costco — fire-and-forget, merge result when it lands.
-    fetchBroadband(lat, lng).then((bb) => {
+    fetchBroadband(lat, lng, signal).then((bb) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Broadband result')
         return
@@ -2762,7 +2781,7 @@ function MapPage() {
     // Captured for the cache write below; stays undefined ("not determined")
     // until the query produces a result so errors aren't cached as "no hazard".
     let floodForCache: unknown
-    fetchFloodAtPoint(lat, lng).then((fz) => {
+    fetchFloodAtPoint(lat, lng, signal).then((fz) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Flood result')
         return
@@ -2782,7 +2801,7 @@ function MapPage() {
     // USFS Wildfire Hazard Potential class for the exact point — same
     // fire-and-forget + cache-patch pattern as flood.
     let wildfireForCache: unknown
-    fetchWildfireAtPoint(lat, lng).then((wf) => {
+    fetchWildfireAtPoint(lat, lng, signal).then((wf) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Wildfire result')
         return
@@ -2802,7 +2821,7 @@ function MapPage() {
     // USGS ASCE 7-16 design PGA (seismic hazard) for the exact point — same
     // fire-and-forget + cache-patch pattern as flood/wildfire.
     let seismicForCache: unknown
-    fetchSeismicAtPoint(lat, lng).then((sq) => {
+    fetchSeismicAtPoint(lat, lng, signal).then((sq) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Seismic result')
         return
@@ -2822,7 +2841,7 @@ function MapPage() {
     // FEMA National Risk Index tornado risk rating for the exact point — same
     // fire-and-forget + cache-patch pattern as seismic.
     let tornadoForCache: unknown
-    fetchTornadoAtPoint(lat, lng).then((tn) => {
+    fetchTornadoAtPoint(lat, lng, signal).then((tn) => {
       if (!isLatestRun()) {
         dbg('analysis', 'Stale run — discarding Tornado result')
         return
@@ -2892,6 +2911,13 @@ function MapPage() {
   const retryCostco = useCallback(async () => {
     const target = targetLocationRef.current
     if (!target) return
+    const runId = analysisRunIdRef.current
+    const runSignal = analysisAbortRef.current?.signal
+    const timeoutSignal = AbortSignal.timeout(15000)
+    const signal = runSignal
+      ? combineAbortSignals([runSignal, timeoutSignal])
+      : timeoutSignal
+    const isCurrent = () => analysisRunIdRef.current === runId && !runSignal?.aborted
     setAnalysisResults((prev) => ({
       ...prev,
       costcoError: false,
@@ -2903,8 +2929,10 @@ function MapPage() {
     try {
       const places = await fetchCostcosViaPlaces({
         circle: { lat, lng, radiusM: COSTCO_ANALYSIS_RADIUS_MI * milesToMeters },
-        signal: AbortSignal.timeout(15000),
+        signal,
       })
+      if (!isCurrent()) return
+      if (timeoutSignal.aborted) throw new Error('Costco retry timed out')
       const seen = new Set<string>()
       const hits: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number }[] = []
       let nearestBeyond: { osmId: string; name: string; city: string; address: string; distanceMi: number; lat: number; lng: number } | null = null
@@ -2940,6 +2968,7 @@ function MapPage() {
       }))
     } catch (err) {
       dbg('analysis', 'Costco retry failed:', err)
+      if (!isCurrent()) return
       setAnalysisResults((prev) => ({
         ...prev,
         costco: null,
@@ -2975,6 +3004,12 @@ function MapPage() {
 
     if (!mapContainer.current) return
 
+    // Stop the old report as soon as a different address is requested. Waiting
+    // for the new geocode to finish would leave the previous address's network
+    // checks running (and still considered current) during a slow/failed lookup.
+    analysisRunIdRef.current++
+    analysisAbortRef.current?.abort()
+    analysisAbortRef.current = null
     setStatus('loading')
     setErrorMsg('')
     dbg('init', 'Geocoding address:', address)
@@ -3341,6 +3376,7 @@ function MapPage() {
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
+      analysisAbortRef.current?.abort()
       ro?.disconnect()
       window.removeEventListener('resize', scheduleInvalidate)
       window.removeEventListener('orientationchange', scheduleInvalidate)
@@ -4315,7 +4351,7 @@ function MapPage() {
       setCommuteLoading(false)
       return
     }
-    let cancelled = false
+    const controller = new AbortController()
     setCommuteLoading(true)
     setCommuteError(false)
     dbg('commute', `Fetching commute from ${propertyCoords.lat},${propertyCoords.lng} to work address…`)
@@ -4325,24 +4361,25 @@ function MapPage() {
       destLat: workAddress.lat,
       destLng: workAddress.lng,
       apiKey: TOMTOM_API_KEY,
+      signal: controller.signal,
     })
       .then((r) => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         dbg('commute', r ? `Live ${r.liveMinutes}min / typical ${r.typicalMinutes}min, ${r.distanceMi}mi` : 'No route found')
         setCommuteResult(r)
         setCommuteError(!r)
       })
       .catch((err) => {
         dbg('commute', 'Fetch failed:', err)
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setCommuteResult(null)
         setCommuteError(true)
       })
       .finally(() => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setCommuteLoading(false)
       })
-    return () => { cancelled = true }
+    return () => controller.abort()
   }, [status, propertyCoords, workAddress])
 
   // Draw the commute route on the map whenever a new estimate lands and the

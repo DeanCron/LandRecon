@@ -52,26 +52,37 @@ export interface SnapshotTransitLine { id: string; type: 'rail' | 'subway' | 'tr
 export function makeSnapshotLoader<T>(filename: string, dbgLabel: string) {
   let cache: T | null = null
   let inFlight: Promise<T | null> | null = null
-  return function load(): Promise<T | null> {
-    if (cache) return Promise.resolve(cache)
-    if (inFlight) return inFlight
-    const t0 = performance.now()
-    inFlight = (async () => {
-      try {
-        const res = await fetch(`${SNAPSHOT_BASE}/${filename}`, { cache: 'force-cache' })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const snap = (await res.json()) as T
-        cache = snap
-        const meta = snap as unknown as SnapshotEnvelope
-        dbg(dbgLabel, `Snapshot ${filename} loaded in ${(performance.now() - t0).toFixed(0)}ms — ${meta.count} records, generated ${meta.generated_at}`)
-        return snap
-      } catch (err) {
-        dbg(dbgLabel, `Snapshot ${filename} fetch failed; will fall back to live Overpass:`, err)
-        inFlight = null
-        return null
-      }
-    })()
-    return inFlight
+  return function load(signal?: AbortSignal): Promise<T | null> {
+    if (signal?.aborted) return Promise.resolve(null)
+    let shared = cache ? Promise.resolve(cache) : inFlight
+    if (!shared) {
+      const t0 = performance.now()
+      shared = (async () => {
+        try {
+          const res = await fetch(`${SNAPSHOT_BASE}/${filename}`, { cache: 'force-cache' })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const snap = (await res.json()) as T
+          cache = snap
+          const meta = snap as unknown as SnapshotEnvelope
+          dbg(dbgLabel, `Snapshot ${filename} loaded in ${(performance.now() - t0).toFixed(0)}ms — ${meta.count} records, generated ${meta.generated_at}`)
+          return snap
+        } catch (err) {
+          dbg(dbgLabel, `Snapshot ${filename} fetch failed; will fall back to live Overpass:`, err)
+          inFlight = null
+          return null
+        }
+      })()
+      inFlight = shared
+    }
+    if (!signal) return shared
+    return new Promise((resolve) => {
+      const onAbort = () => resolve(null)
+      signal.addEventListener('abort', onAbort, { once: true })
+      shared.then((value) => {
+        signal.removeEventListener('abort', onAbort)
+        if (!signal.aborted) resolve(value)
+      })
+    })
   }
 }
 

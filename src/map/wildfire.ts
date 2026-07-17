@@ -79,7 +79,11 @@ export function wildfireClassLabel(value: number): string {
 // Identify the WHP class at a single location for the Recon Report. Returns
 // null when the point has no mapped class (NoData — e.g. outside CONUS or
 // open ocean). Throws on network/HTTP failure so the caller can flag an error.
-export async function fetchWildfireAtPoint(lat: number, lng: number): Promise<WildfirePointResult | null> {
+export async function fetchWildfireAtPoint(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<WildfirePointResult | null> {
   const params = new URLSearchParams({
     geometry: JSON.stringify({ x: lng, y: lat, spatialReference: { wkid: 4326 } }),
     geometryType: 'esriGeometryPoint',
@@ -87,7 +91,10 @@ export async function fetchWildfireAtPoint(lat: number, lng: number): Promise<Wi
     returnCatalogItems: 'false',
     f: 'json',
   })
-  const data = await fetchJsonWithRetry<{ value?: string }>(`${WHP_IDENTIFY}?${params}`)
+  const data = await fetchJsonWithRetry<{ value?: string }>(
+    `${WHP_IDENTIFY}?${params}`,
+    { init: { signal } },
+  )
   const raw = data?.value
   const value = typeof raw === 'string' ? parseInt(raw, 10) : NaN
   if (!Number.isFinite(value) || value < 1 || value > 7) return null

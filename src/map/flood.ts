@@ -207,7 +207,11 @@ export async function fetchFloodFeatures(
 // Point-in-polygon query against the FEMA NFHL layer for a single location —
 // used by the Recon Report. Returns the worst-severity flood bucket that the
 // point falls inside, or null when the point isn't in any mapped flood zone.
-export async function fetchFloodAtPoint(lat: number, lng: number): Promise<FloodPointResult | null> {
+export async function fetchFloodAtPoint(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<FloodPointResult | null> {
   const params = new URLSearchParams({
     where: '1=1',
     outFields: FLOOD_FIELDS,
@@ -220,7 +224,10 @@ export async function fetchFloodAtPoint(lat: number, lng: number): Promise<Flood
     returnGeometry: 'false',
     resultRecordCount: '50',
   })
-  const data = await fetchJsonWithRetry<GeoJSON.FeatureCollection>(`${FLOOD_API}?${params}`)
+  const data = await fetchJsonWithRetry<GeoJSON.FeatureCollection>(
+    `${FLOOD_API}?${params}`,
+    { init: { signal } },
+  )
   const feats = data.features ?? []
   let best: FloodPointResult | null = null
   let bestRank = -1
