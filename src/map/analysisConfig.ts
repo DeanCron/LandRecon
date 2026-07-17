@@ -1,0 +1,3 @@
+export const COSTCO_ANALYSIS_RADIUS_MI = 100
+export const ER_ANALYSIS_RADIUS_MI = 15
+export const SUPERFUND_ANALYSIS_RADIUS_MI = 3
