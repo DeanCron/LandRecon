@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   readAnalysisCache,
   writeAnalysisCache,
+  patchAnalysisCacheNoise,
   patchAnalysisCacheFlood,
   patchAnalysisCacheWildfire,
   type CachedAnalysisPayload,
@@ -47,7 +48,7 @@ describe('analysisCache', () => {
     const stale = JSON.stringify({ ts: Date.now() - 25 * 60 * 60 * 1000, data: sampleData() })
     // Mirror the key scheme by writing through the public API then overwriting.
     writeAnalysisCache(LAT, LNG, sampleData())
-    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v5:'))!
+    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v6:'))!
     localStorage.setItem(key, stale)
     expect(readAnalysisCache(LAT, LNG)).toBeNull()
   })
@@ -56,6 +57,26 @@ describe('analysisCache', () => {
     writeAnalysisCache(LAT, LNG, sampleData())
     patchAnalysisCacheFlood(LAT, LNG, { bucket: 'high', zone: 'AE', label: 'High risk' })
     expect(readAnalysisCache(LAT, LNG)?.floodZone).toEqual({ bucket: 'high', zone: 'AE', label: 'High risk' })
+  })
+
+  it('patchAnalysisCacheNoise stores a determined no-contour result', () => {
+    const withoutNoise = sampleData()
+    delete withoutNoise.noiseLevel
+    delete withoutNoise.noiseAirport
+    delete withoutNoise.noiseAirportCode
+    writeAnalysisCache(LAT, LNG, withoutNoise)
+
+    patchAnalysisCacheNoise(LAT, LNG, {
+      noiseLevel: null,
+      noiseAirport: null,
+      noiseAirportCode: null,
+    })
+
+    expect(readAnalysisCache(LAT, LNG)).toMatchObject({
+      noiseLevel: null,
+      noiseAirport: null,
+      noiseAirportCode: null,
+    })
   })
 
   it('patchAnalysisCacheWildfire is a no-op without an existing entry', () => {

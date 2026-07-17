@@ -1,6 +1,6 @@
 import { quantizeCoord } from '../utils/perf'
 
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v5:'
+const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v6:'
 // Persisted in localStorage so a recently-analyzed address is instant on a
 // return visit (even after closing the tab). The underlying data is mostly
 // static infrastructure (flood zones, Superfund sites, data centers, nearest
@@ -10,9 +10,12 @@ const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 export interface CachedAnalysisPayload {
   ts: number
   data: {
-    noiseLevel: number | null
-    noiseAirport: string | null
-    noiseAirportCode: string | null
+    // Optional: present once the PMTiles noise query produced a determined
+    // result. Absent means the noise module/query failed, so a cache hit retries
+    // instead of showing a false "no airport noise" result.
+    noiseLevel?: number | null
+    noiseAirport?: string | null
+    noiseAirportCode?: string | null
     superfunds: unknown[]
     costco: unknown
     costcoNearby: unknown[]
@@ -110,6 +113,16 @@ export function patchAnalysisCacheFlood(lat: number, lng: number, floodZone: unk
   const existing = readAnalysisCache(lat, lng)
   if (!existing) return
   writeAnalysisCache(lat, lng, { ...existing, floodZone })
+}
+
+export function patchAnalysisCacheNoise(
+  lat: number,
+  lng: number,
+  noise: { noiseLevel: number | null; noiseAirport: string | null; noiseAirportCode: string | null },
+) {
+  const existing = readAnalysisCache(lat, lng)
+  if (!existing) return
+  writeAnalysisCache(lat, lng, { ...existing, ...noise })
 }
 
 // Crowd magnets resolve within the primary batch, but a failed Overpass query

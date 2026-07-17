@@ -186,7 +186,21 @@ export default function AnalysisDetailPanel({
             })()}
             {analysisDetail === 'noise' && (
               <>
-                {analysisResults.noiseLevel ? (
+                {analysisResults.noiseError ? (
+                  <>
+                    <p className="analysis-expand-level clear">Airport noise data couldn't be loaded for this location.</p>
+                    <div className="analysis-expand-rec">
+                      <strong>Why this matters</strong>
+                      <p>
+                        This result is unknown, not a clean bill of health. Reload LandRecon and
+                        re-analyze the address to retry the airport noise dataset.
+                      </p>
+                    </div>
+                    <button type="button" className="analysis-expand-retry" onClick={() => window.location.reload()}>
+                      Reload LandRecon
+                    </button>
+                  </>
+                ) : analysisResults.noiseLevel ? (
                   <>
                     {analysisResults.noiseAirport && (
                       <p className="analysis-expand-sub">

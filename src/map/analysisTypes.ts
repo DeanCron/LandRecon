@@ -28,6 +28,8 @@ export interface AnalysisResults {
   noiseLevel: number | null
   noiseAirport: string | null
   noiseAirportCode: string | null
+  noiseLoading: boolean
+  noiseError: boolean
   superfunds: {
     name: string
     distanceMi: number

@@ -12,6 +12,7 @@ import {
   type SavedAnalysisSnippet,
 } from '../utils/recentSearches'
 import { trackEvent } from '../utils/analytics'
+import { prefetchMapAnalysis, prefetchMapPage } from './mapPageLoader'
 import './HomePage.css'
 
 // Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
@@ -84,31 +85,10 @@ function HomePage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [recentOpen])
 
-  // Warm the MapPage + heavy noise chunk while the user is reading the home
-  // screen, so clicking through feels instant. requestIdleCallback delays it
-  // past first paint; the dynamic imports hit the SW precache on revisits
-  // and pull from the network on first visits. Browsers without RIC fall
-  // back to a 1.5s setTimeout.
-  useEffect(() => {
-    const prefetch = () => {
-      import('./MapPage').catch(() => undefined)
-      import('../noise/airportNoise').catch(() => undefined)
-    }
-    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
-    if (typeof ric === 'function') {
-      const id = ric(prefetch, { timeout: 3000 })
-      return () => {
-        const cic = (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback
-        if (typeof cic === 'function') cic(id)
-      }
-    }
-    const id = window.setTimeout(prefetch, 1500)
-    return () => window.clearTimeout(id)
-  }, [])
-
   const goToAddress = (value: string, source: 'typed' | 'suggestion' | 'locate' | 'recent' | 'saved' = 'typed') => {
     const trimmed = value.trim()
     if (!trimmed) return
+    prefetchMapAnalysis()
     setShowSuggestions(false)
     setRecentOpen(false)
     setRecent(pushRecentSearch(trimmed))
@@ -184,6 +164,7 @@ function HomePage() {
 
   const handleInputChange = (value: string) => {
     setAddress(value)
+    if (value.trim().length >= 3) prefetchMapAnalysis()
     fetchSuggestions(value)
   }
 
@@ -219,6 +200,7 @@ function HomePage() {
       setLocateError('Your browser does not support geolocation.')
       return
     }
+    prefetchMapAnalysis()
     setLocateError(null)
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
@@ -275,7 +257,13 @@ function HomePage() {
         <p className="home-subtitle">
           Smart neighborhood insights for any U.S. address
         </p>
-        <form className="home-form" onSubmit={handleSubmit}>
+        <form
+          className="home-form"
+          onSubmit={handleSubmit}
+          onPointerEnter={prefetchMapPage}
+          onFocusCapture={prefetchMapPage}
+          onTouchStart={prefetchMapPage}
+        >
           <div className="input-wrapper" ref={wrapperRef}>
             <svg className="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
@@ -364,6 +352,9 @@ function HomePage() {
                   <button
                     type="button"
                     className="home-saved-go"
+                    onPointerEnter={prefetchMapAnalysis}
+                    onFocus={prefetchMapAnalysis}
+                    onTouchStart={prefetchMapAnalysis}
                     onClick={() => goToAddress(s.address, 'saved')}
                     title={s.address}
                   >
@@ -401,6 +392,9 @@ function HomePage() {
               className="home-recent-trigger"
               aria-haspopup="listbox"
               aria-expanded={recentOpen}
+              onPointerEnter={prefetchMapPage}
+              onFocus={prefetchMapPage}
+              onTouchStart={prefetchMapPage}
               onClick={() => setRecentOpen((v) => !v)}
             >
               <svg
@@ -448,6 +442,9 @@ function HomePage() {
                         <button
                           type="button"
                           className="home-recent-go"
+                          onPointerEnter={prefetchMapAnalysis}
+                          onFocus={prefetchMapAnalysis}
+                          onTouchStart={prefetchMapAnalysis}
                           onClick={() => goToAddress(item.address, 'recent')}
                           title={item.address}
                         >

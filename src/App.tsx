@@ -2,9 +2,11 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import MapPageSkeleton from './components/MapPageSkeleton'
+import LazyLoadErrorBoundary from './components/LazyLoadErrorBoundary'
 import { trackPageView } from './utils/analytics'
+import { loadMapPage } from './pages/mapPageLoader'
 
-const MapPage = lazy(() => import('./pages/MapPage'))
+const MapPage = lazy(loadMapPage)
 
 // Fires a GA4 page_view on every React Router navigation. We strip query
 // params because address strings can be PII; the path alone (e.g. `/map`)
@@ -27,9 +29,11 @@ function App() {
         <Route
           path="/map"
           element={
-            <Suspense fallback={<MapPageSkeleton />}>
-              <MapPage />
-            </Suspense>
+            <LazyLoadErrorBoundary fallback={<MapPageSkeleton failed />}>
+              <Suspense fallback={<MapPageSkeleton />}>
+                <MapPage />
+              </Suspense>
+            </LazyLoadErrorBoundary>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

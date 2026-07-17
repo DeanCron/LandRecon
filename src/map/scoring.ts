@@ -71,6 +71,8 @@ export type SeverityLevel = 'clear' | 'good' | 'warning' | 'danger'
 
 export function computeLocationGrade(results: {
   noiseLevel: number | null
+  noiseLoading?: boolean
+  noiseError?: boolean
   superfunds: { status: string }[]
   costco: { distanceMi: number } | null
   costcoError: boolean
@@ -110,13 +112,15 @@ export function computeLocationGrade(results: {
   // --- SAFETY (max 3) ---
 
   // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+)
-  let noiseScore = 0
-  let noiseDetail = 'No airport noise detected'
-  if (results.noiseLevel) {
-    if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
-    else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
+  if (!results.noiseLoading && !results.noiseError) {
+    let noiseScore = 0
+    let noiseDetail = 'No airport noise detected'
+    if (results.noiseLevel) {
+      if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
+      else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
+    }
+    breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 3, detail: noiseDetail, tier: 'safety' })
   }
-  breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 3, detail: noiseDetail, tier: 'safety' })
 
   // Superfund: clear=0, warning=2, danger=3
   const sfSev = superfundSeverity(results.superfunds)

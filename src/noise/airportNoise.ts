@@ -146,14 +146,9 @@ export async function queryNoiseLevelAtPoint(
   const x = Math.floor(xFloat)
   const y = Math.floor(yFloat)
 
-  let tile: { data: ArrayBuffer } | undefined
-  try {
-    tile = await pmt.getZxy(zoom, x, y, signal)
-  } catch {
-    return null
-  }
+  const tile: { data: ArrayBuffer } | undefined = await pmt.getZxy(zoom, x, y, signal)
   if (!tile) return null
-  if (signal?.aborted) return null
+  signal?.throwIfAborted()
 
   const vt = new VectorTile(new Pbf(tile.data))
   const layer = vt.layers[NOISE_LAYER_NAME]
@@ -165,7 +160,7 @@ export async function queryNoiseLevelAtPoint(
 
   let best: NoiseBand | null = null
   for (let i = 0; i < layer.length; i++) {
-    if (signal?.aborted) return null
+    signal?.throwIfAborted()
     const feat = layer.feature(i)
     const geom = feat.loadGeometry() as unknown as Ring[]
     if (!pointInFeature(px, py, geom)) continue

@@ -56,6 +56,7 @@ import {
 import {
   readAnalysisCache,
   writeAnalysisCache,
+  patchAnalysisCacheNoise,
   patchAnalysisCacheFlood,
   patchAnalysisCacheWildfire,
   patchAnalysisCacheSeismic,
@@ -199,6 +200,7 @@ import {
   computeLocationGrade,
 } from '../map/scoring'
 import { patchTooltipClickBehavior } from '../map/tooltipFix'
+import { loadAirportNoiseModule } from '../noise/loadAirportNoise'
 import {
   COSTCO_ANALYSIS_RADIUS_MI,
   ER_ANALYSIS_RADIUS_MI,
@@ -213,17 +215,6 @@ import { NPL_STATUS_INFO } from '../map/analysisPresentation'
 // touch devices open both the tooltip and the popup, leaving the tooltip stuck
 // on screen. See src/map/tooltipFix.ts for the full rationale.
 patchTooltipClickBehavior(L)
-
-// The heavy noise module (PMTiles + protomaps-leaflet + vector-tile) is
-// dynamic-imported on first use so it stays out of the initial MapPage chunk.
-type AirportNoiseModule = typeof import('../noise/airportNoise')
-let airportNoiseModulePromise: Promise<AirportNoiseModule> | null = null
-function loadAirportNoiseModule(): Promise<AirportNoiseModule> {
-  if (!airportNoiseModulePromise) {
-    airportNoiseModulePromise = import('../noise/airportNoise')
-  }
-  return airportNoiseModulePromise
-}
 
 const NOISE_PMTILES_URL =
   import.meta.env.VITE_NOISE_PMTILES_URL || '/data/airport-noise.pmtiles'
@@ -743,7 +734,7 @@ function MapPage() {
     cd118: null,
   })
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
-  const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const [analysisDetail, setAnalysisDetail] = useState<AnalysisDetail>(null)
 
@@ -801,7 +792,7 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (analysisResults.loading || analysisResults.costcoLoading) {
+    if (analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
     }
@@ -2088,6 +2079,49 @@ function MapPage() {
     const timedSignal = (timeoutMs: number) =>
       combineAbortSignals([signal, AbortSignal.timeout(timeoutMs)])
     const isLatestRun = () => analysisRunIdRef.current === runId && !signal.aborted
+    const fetchNoiseAnalysis = async () => {
+      const { queryNoiseLevelAtPoint } = await loadAirportNoiseModule()
+      const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng, signal)
+      if (!band) return null
+      const level = band.dbMin
+
+      let airportName: string | null = null
+      let airportCode: string | null = null
+      try {
+        const metersPerMile = 1609.34
+        const radiusDeg = (15 * metersPerMile) / 111320
+        const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.5},${lat + radiusDeg},${lng + radiusDeg * 1.5}`
+        const query = `[out:json][timeout:15];(
+          node["aeroway"="aerodrome"](${bbox});
+          way["aeroway"="aerodrome"](${bbox});
+          relation["aeroway"="aerodrome"](${bbox});
+        );out body center;`
+        const data = await fetchOverpass(query, {
+          timeoutMs: 15000,
+          signal: timedSignal(15000),
+          label: 'nearest-airport',
+        })
+        if (data) {
+          const location = L.latLng(lat, lng)
+          let minDist = Infinity
+          for (const el of data.elements || []) {
+            const elLat = el.lat ?? el.center?.lat
+            const elLon = el.lon ?? el.center?.lon
+            if (elLat == null || elLon == null) continue
+            const dist = location.distanceTo(L.latLng(elLat, elLon))
+            if (dist < minDist) {
+              minDist = dist
+              airportName = el.tags?.name || el.tags?.official_name || 'Unknown Airport'
+              airportCode = el.tags?.iata || el.tags?.['iata:code'] || el.tags?.ref || null
+            }
+          }
+        }
+      } catch {
+        // Airport metadata is optional; the contour result is still valid.
+      }
+
+      return { level, airport: airportName, code: airportCode }
+    }
 
     // Cache hit: hand back the previously-computed report instantly and skip
     // all the network calls below. Re-analyze (force=true) bypasses the cache.
@@ -2095,7 +2129,9 @@ function MapPage() {
     if (cached) {
       dbg('analysis', 'Cache hit — restoring without re-fetching')
       const allDone: Record<string, 'pending' | 'done'> = {}
-      for (const c of ['noise', 'superfund', 'costco', 'datacenters', 'er']) allDone[c] = 'done'
+      for (const c of ['superfund', 'costco', 'datacenters', 'er']) allDone[c] = 'done'
+      const noiseIsCached = cached.noiseLevel !== undefined
+      allDone['noise'] = noiseIsCached ? 'done' : 'pending'
       // Broadband isn't cached (server has its own 24h cache + lookup is cheap),
       // so it starts pending on cache hits and transitions to done when fetch lands.
       allDone['broadband'] = 'pending'
@@ -2122,9 +2158,11 @@ function MapPage() {
       setAnalysisProgress(allDone)
       setAnalysisResults({
         loading: false,
-        noiseLevel: cached.noiseLevel,
-        noiseAirport: cached.noiseAirport,
-        noiseAirportCode: cached.noiseAirportCode,
+        noiseLevel: cached.noiseLevel ?? null,
+        noiseAirport: cached.noiseAirport ?? null,
+        noiseAirportCode: cached.noiseAirportCode ?? null,
+        noiseLoading: !noiseIsCached,
+        noiseError: false,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         superfunds: cached.superfunds as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2165,6 +2203,36 @@ function MapPage() {
         tornadoError: false,
         tornadoLoading: !tornadoIsCached,
       })
+      if (!noiseIsCached) {
+        fetchNoiseAnalysis().then((noise) => {
+          if (!isLatestRun()) return
+          const noiseLevel = noise?.level ?? null
+          const noiseAirport = noise?.airport ?? null
+          const noiseAirportCode = noise?.code ?? null
+          setAnalysisResults((prev) => ({
+            ...prev,
+            noiseLevel,
+            noiseAirport,
+            noiseAirportCode,
+            noiseLoading: false,
+            noiseError: false,
+          }))
+          setAnalysisProgress((prev) => ({ ...prev, noise: 'done' }))
+          patchAnalysisCacheNoise(lat, lng, { noiseLevel, noiseAirport, noiseAirportCode })
+        }).catch((err) => {
+          dbg('analysis', 'Noise failed (cache-hit path):', err)
+          if (!isLatestRun()) return
+          setAnalysisResults((prev) => ({
+            ...prev,
+            noiseLevel: null,
+            noiseAirport: null,
+            noiseAirportCode: null,
+            noiseLoading: false,
+            noiseError: true,
+          }))
+          setAnalysisProgress((prev) => ({ ...prev, noise: 'done' }))
+        })
+      }
       // Broadband is not stored in the cache (server has its own 24h cache
       // and the lookup is fast/cheap), so fire it independently on cache hits.
       fetchBroadband(lat, lng, signal).then((bb) => {
@@ -2296,7 +2364,7 @@ function MapPage() {
       return
     }
 
-    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
+    setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
     const progress: Record<string, 'pending' | 'done'> = {}
     for (const c of ANALYSIS_CHECKS) progress[c] = 'pending'
@@ -2367,47 +2435,7 @@ function MapPage() {
     // report tile flips to its real value as its check lands — never showing a
     // resolved-but-not-yet-committed state.
     // Check noise via PMTiles vector query, then find nearest airport
-    const noiseP = (async () => {
-        const { queryNoiseLevelAtPoint } = await loadAirportNoiseModule()
-        const band = await queryNoiseLevelAtPoint(NOISE_PMTILES_URL, lat, lng, signal)
-        if (!band) return null
-        const level = band.dbMin
-
-        let airportName: string | null = null
-        let airportCode: string | null = null
-        try {
-          const radiusDeg = (15 * milesToMeters) / 111320
-          const bbox = `${lat - radiusDeg},${lng - radiusDeg * 1.5},${lat + radiusDeg},${lng + radiusDeg * 1.5}`
-          const query = `[out:json][timeout:15];(
-            node["aeroway"="aerodrome"](${bbox});
-            way["aeroway"="aerodrome"](${bbox});
-            relation["aeroway"="aerodrome"](${bbox});
-          );out body center;`
-          const data = await fetchOverpass(query, {
-            timeoutMs: 15000,
-            signal: timedSignal(15000),
-            label: 'nearest-airport',
-          })
-          if (data) {
-            let minDist = Infinity
-            for (const el of data.elements || []) {
-              const elLat = el.lat ?? el.center?.lat
-              const elLon = el.lon ?? el.center?.lon
-              if (elLat == null || elLon == null) continue
-              const dist = location.distanceTo(L.latLng(elLat, elLon))
-              if (dist < minDist) {
-                minDist = dist
-                airportName = el.tags?.name || el.tags?.official_name || 'Unknown Airport'
-                airportCode = el.tags?.iata || el.tags?.['iata:code'] || el.tags?.ref || null
-              }
-            }
-          }
-        } catch {
-          // Airport name lookup failed
-        }
-
-        return { level, airport: airportName, code: airportCode }
-      })()
+    const noiseP = fetchNoiseAnalysis()
 
     // Check Superfund sites within SUPERFUND_ANALYSIS_RADIUS_MI miles
     const superfundP = (async () => {
@@ -2607,11 +2635,26 @@ function MapPage() {
     // resolves, so each report tile's progress flag and its data stay in sync.
     noiseP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, noiseLevel: r?.level ?? null, noiseAirport: r?.airport ?? null, noiseAirportCode: r?.code ?? null }))
+      setAnalysisResults((prev) => ({
+        ...prev,
+        noiseLevel: r?.level ?? null,
+        noiseAirport: r?.airport ?? null,
+        noiseAirportCode: r?.code ?? null,
+        noiseLoading: false,
+        noiseError: false,
+      }))
       markDone('noise')
-    }).catch(() => {
+    }).catch((err) => {
+      dbg('analysis', 'Noise failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, noiseLevel: null, noiseAirport: null, noiseAirportCode: null }))
+      setAnalysisResults((prev) => ({
+        ...prev,
+        noiseLevel: null,
+        noiseAirport: null,
+        noiseAirportCode: null,
+        noiseLoading: false,
+        noiseError: true,
+      }))
       markDone('noise')
     })
     superfundP.then((r) => {
@@ -2667,6 +2710,7 @@ function MapPage() {
     const [noiseResult, superfundResult, dataCenterResult, erResult, crowdResult, railroadResult] = await Promise.allSettled([noiseP, superfundP, dataCenterP, erP, crowdP, railroadP])
 
     const noiseData = noiseResult.status === 'fulfilled' ? noiseResult.value : null
+    const noiseError = noiseResult.status === 'rejected'
     const noiseLevel = noiseData?.level ?? null
     const noiseAirport = noiseData?.airport ?? null
     const noiseAirportCode = noiseData?.code ?? null
@@ -2809,7 +2853,7 @@ function MapPage() {
         costcoLoading: false,
       }))
       writeAnalysisCache(lat, lng, {
-        noiseLevel, noiseAirport, noiseAirportCode,
+        ...(noiseError ? {} : { noiseLevel, noiseAirport, noiseAirportCode }),
         superfunds,
         costco: data.nearest,
         costcoNearby: data.nearby,
@@ -5406,7 +5450,7 @@ function MapPage() {
   // product's signature output, so its A-F distribution is a key signal.
   const lastGradedAddrRef = useRef<string | null>(null)
   useEffect(() => {
-    if (analysisResults.loading || analysisResults.costcoLoading) return
+    if (analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading) return
     if (!address) return
     const g = computeLocationGrade(analysisResults)
     updateRecentSearchGrade(address, g.letter, g.color)
@@ -6508,7 +6552,7 @@ function MapPage() {
             <button
               className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
-              disabled={analysisResults.loading || analysisResults.costcoLoading}
+              disabled={analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading}
               title="Save for comparison"
               aria-label="Save for comparison"
             >
@@ -6545,6 +6589,7 @@ function MapPage() {
         })()}
         {!analysisResults.loading && (() => {
           const failed: string[] = []
+          if (analysisResults.noiseError) failed.push('Airport noise')
           if (analysisResults.costcoError) failed.push('Costco')
           if (analysisResults.erError) failed.push('Emergency room')
           if (analysisResults.crowdError) failed.push('Crowd magnets')
@@ -6559,6 +6604,7 @@ function MapPage() {
             : failed.length === 2
               ? `${failed[0]} and ${failed[1]}`
               : `${failed.slice(0, -1).join(', ')}, and ${failed[failed.length - 1]}`
+          const requiresReload = analysisResults.noiseError
           return (
             <div className="analysis-error-banner" role="alert">
               <span className="analysis-error-banner-icon" aria-hidden="true">⚠️</span>
@@ -6569,12 +6615,16 @@ function MapPage() {
                 type="button"
                 className="analysis-error-banner-btn"
                 onClick={() => {
+                  if (requiresReload) {
+                    window.location.reload()
+                    return
+                  }
                   const loc = targetLocationRef.current
                   dbg('analysis', `Re-run requested from error banner (${failed.length} failed check(s): ${list})`)
                   if (loc) runLocationAnalysis(loc.lat, loc.lng, { force: true })
                 }}
                 disabled={status !== 'ready' || analysisResults.loading}
-              >Re-run</button>
+              >{requiresReload ? 'Reload' : 'Re-run'}</button>
             </div>
           )
         })()}
@@ -6590,7 +6640,20 @@ function MapPage() {
 
             {
               const pNoise = analysisProgress.noise !== 'done'
-              const severity = pNoise ? 'pending' : (analysisResults.noiseLevel ? noiseSeverity(analysisResults.noiseLevel) : 'clear')
+              const severity = pNoise
+                ? 'pending'
+                : analysisResults.noiseError
+                  ? 'unavailable'
+                  : analysisResults.noiseLevel
+                    ? noiseSeverity(analysisResults.noiseLevel)
+                    : 'clear'
+              const subtitle = pNoise
+                ? 'Checking…'
+                : analysisResults.noiseError
+                  ? 'Airport noise data unavailable'
+                  : analysisResults.noiseLevel
+                    ? `~${analysisResults.noiseLevel} dB DNL`
+                    : 'No airport noise detected'
               cards.push({ key: 'noise', severity, node: (
                 <div className={`analysis-card ${severity}`} key="noise">
                   <div
@@ -6606,7 +6669,7 @@ function MapPage() {
                     <div className="analysis-icon">✈️</div>
                     <div className="analysis-detail">
                       <strong>Airport Noise</strong>
-                      <p>{pNoise ? 'Checking…' : (analysisResults.noiseLevel ? `~${analysisResults.noiseLevel} dB DNL` : 'No airport noise detected')}</p>
+                      <p>{subtitle}</p>
                     </div>
                     {pNoise && <div className="analysis-card-spinner" aria-hidden="true" />}
                   </div>
@@ -7061,7 +7124,7 @@ function MapPage() {
               ) })
             }
 
-            const isProblem = (s: string) => s === 'warning' || s === 'danger'
+            const isProblem = (s: string) => s === 'warning' || s === 'danger' || s === 'unavailable'
             const problems = cards.filter((c) => isProblem(c.severity))
             const pending = cards.filter((c) => c.severity === 'pending')
             const cleared = cards.filter((c) => c.severity !== 'pending' && !isProblem(c.severity))

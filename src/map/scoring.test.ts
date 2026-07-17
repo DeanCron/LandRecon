@@ -52,6 +52,8 @@ describe('severity helpers', () => {
 function clearResults() {
   return {
     noiseLevel: 0,
+    noiseLoading: false,
+    noiseError: false,
     superfunds: [] as { status: string }[],
     costco: { distanceMi: 5 },
     costcoError: false,
@@ -114,6 +116,12 @@ describe('computeLocationGrade (tier-normalized)', () => {
     expect(flagged).toBeDefined()
     const loading = computeLocationGrade({ ...clearResults(), floodLoading: true })
     expect(loading.breakdown.find((b) => b.label === 'Flood Zone')).toBeUndefined()
+  })
+
+  it('omits airport noise when its data could not be loaded', () => {
+    const failed = computeLocationGrade({ ...clearResults(), noiseError: true })
+    expect(failed.breakdown.find((b) => b.label === 'Airport Noise')).toBeUndefined()
+    expect(failed.pct).toBeCloseTo(1, 5)
   })
 
   it('stacked safety dangers push the grade down to C or worse', () => {

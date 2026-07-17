@@ -41,6 +41,52 @@
   background-size: 64px 64px;
 }
 
+.map-skeleton-error {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: min(420px, calc(100% - 32px));
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.map-skeleton-error p {
+  margin: 8px 0 18px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.map-skeleton-error-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.map-skeleton-error-actions button,
+.map-skeleton-error-actions a {
+  padding: 9px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.map-skeleton-error-actions button {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: white;
+}
+
 .map-skeleton-fabs {
   position: absolute;
   bottom: max(20px, env(safe-area-inset-bottom, 20px));

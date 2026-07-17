@@ -2097,6 +2097,11 @@
   border-color: rgba(239, 83, 80, 0.45);
 }
 
+.analysis-card.unavailable {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: rgba(100, 116, 139, 0.45);
+}
+
 .analysis-card.clear {
   background: rgba(102, 187, 106, 0.1);
   border-color: rgba(102, 187, 106, 0.4);
