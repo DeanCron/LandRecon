@@ -459,6 +459,82 @@ const COSTCO_ANALYSIS_RADIUS_MI = 100
 const ER_ANALYSIS_RADIUS_MI = 15
 const SUPERFUND_ANALYSIS_RADIUS_MI = 3
 
+const ANALYSIS_CHECKS = [
+  'noise',
+  'superfund',
+  'costco',
+  'datacenters',
+  'er',
+  'crowd',
+  'railroad',
+  'broadband',
+  'flood',
+  'wildfire',
+  'seismic',
+  'tornado',
+] as const
+
+const GRADE_DESCRIPTIONS: Record<string, string> = {
+  A: 'This location has minimal environmental or infrastructure concerns. All categories show favorable conditions, making it well-suited for residential or commercial use without significant risk factors.',
+  B: 'This location is generally favorable with only minor concerns in one or two categories. Any flagged issues are moderate and unlikely to significantly impact quality of life or property value.',
+  C: 'This location has a mix of favorable and concerning factors. One or more categories show moderate issues that warrant further investigation before making a decision.',
+  D: 'This location has notable concerns across multiple categories. Several environmental or infrastructure factors may negatively affect quality of life, property value, or health.',
+  F: 'This location has significant concerns across most categories. Multiple high-severity issues were detected that could substantially impact livability, safety, or long-term value.',
+}
+
+const SCORE_EXPLANATIONS: Record<string, Record<'clear' | 'warning' | 'danger', string>> = {
+  'Airport Noise': {
+    clear: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
+    warning: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
+    danger: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.',
+  },
+  'Superfund Sites': {
+    clear: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
+    warning: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
+    danger: `One or more active Superfund sites are within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. Active sites may pose environmental or health risks and could affect property values.`,
+  },
+  'Emergency Room': {
+    clear: 'An emergency room is within close range. Quick access to emergency medical care is a significant safety advantage for this location.',
+    warning: 'An emergency room is at moderate distance. Response times may be longer during peak traffic, but access is still reasonable.',
+    danger: 'No emergency room was found nearby. Longer travel times to emergency care could be a concern, especially for families or elderly residents.',
+  },
+  'Data Centers': {
+    clear: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
+    warning: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
+    danger: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.',
+  },
+  'Crowd Magnets': {
+    clear: `No major venues, stadiums, or arenas were found within ${CROWD_ANALYSIS_RADIUS_MI} miles. Expect normal traffic patterns without event-driven surges.`,
+    warning: 'A nearby venue or attraction may bring seasonal traffic, event-night congestion, or noise during peak hours.',
+    danger: 'Multiple high-draw venues are close by. Expect significant event-driven traffic, parking pressure, and noise on game days, concert nights, or convention weekends.',
+  },
+  Broadband: {
+    clear: 'Multiple providers offer high-speed (100+ Mbps) or gigabit service at this address. You should have plenty of options for fast, reliable internet.',
+    warning: 'Broadband is available but speeds are modest. Streaming and video calls work, but heavy households or remote workers may feel constrained.',
+    danger: 'This address is FCC-underserved (<25 Mbps down). Expect very limited wired options — consider fixed wireless, satellite, or cellular as alternatives.',
+  },
+  'Nearest Costco': {
+    clear: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
+    warning: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
+    danger: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.',
+  },
+  'Flood Zone': {
+    clear: 'This address is outside FEMA\'s moderate- and high-risk flood zones. Flood insurance is generally not federally required, though no area is completely risk-free.',
+    warning: 'This address is in a moderate-risk zone (0.2% annual-chance / "500-year" floodplain). Flood insurance is usually optional but recommended — moderate-risk areas still see a meaningful share of claims.',
+    danger: 'This address is in a Special Flood Hazard Area (1% annual-chance / "100-year" floodplain) or coastal V zone. Federally backed mortgages require flood insurance, premiums run higher, and flood risk is real.',
+  },
+  'Wildfire Hazard': {
+    clear: 'This address is in a Low / Very Low USFS wildfire hazard class (or a non-burnable developed/water area). Wildfire risk here is minimal, though no area is entirely risk-free.',
+    warning: 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.',
+    danger: 'This address is in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space obligations, and meaningful wildfire risk in fire season.',
+  },
+  Railroad: {
+    clear: 'No active railroad track was found within a quarter mile. Train-horn noise and vibration are unlikely to be a concern at this location.',
+    warning: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.',
+    danger: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.',
+  },
+}
+
 // leaflet.markercluster is a side-effect plugin that extends the L.* namespace.
 // Defer loading it until a layer that needs clustering is enabled, so it
 // doesn't sit in the initial MapPage chunk for users who never toggle a
@@ -2275,9 +2351,8 @@ function MapPage() {
 
     setAnalysisResults({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
 
-    const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
     const progress: Record<string, 'pending' | 'done'> = {}
-    for (const c of checks) progress[c] = 'pending'
+    for (const c of ANALYSIS_CHECKS) progress[c] = 'pending'
     setAnalysisProgress({ ...progress })
     const markDone = (key: string) => {
       if (!isLatestRun()) return
@@ -2353,14 +2428,12 @@ function MapPage() {
             way["aeroway"="aerodrome"](${bbox});
             relation["aeroway"="aerodrome"](${bbox});
           );out body center;`
-          const res = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LandRecon/1.0' },
-            body: `data=${encodeURIComponent(query)}`,
+          const data = await fetchOverpass(query, {
+            timeoutMs: 15000,
             signal: AbortSignal.timeout(15000),
+            label: 'nearest-airport',
           })
-          if (res.ok) {
-            const data = await res.json()
+          if (data) {
             let minDist = Infinity
             for (const el of data.elements || []) {
               const elLat = el.lat ?? el.center?.lat
@@ -5215,6 +5288,13 @@ function MapPage() {
     }
   }, [address, analysisResults])
 
+  const analysisDoneCount = ANALYSIS_CHECKS.reduce(
+    (count, key) => count + (analysisProgress[key] === 'done' ? 1 : 0),
+    0,
+  )
+  const analysisHasStarted = ANALYSIS_CHECKS.some((key) => analysisProgress[key] !== undefined)
+  const analysisComplete = analysisDoneCount >= ANALYSIS_CHECKS.length
+
   return (
     <div className="map-page">
       <header className="map-header">
@@ -5379,26 +5459,23 @@ function MapPage() {
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
         {status === 'ready' && (() => {
-          const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
-          const done = checks.filter((k) => analysisProgress[k] === 'done').length
-          const total = checks.length
           // Show the strip from the moment an analysis kicks off until every
           // category lands. Hidden before any analysis starts (progress empty)
           // and once everything's done. Note: Costco + Broadband resolve after
           // analysisResults.loading flips false, so we gate on progress, not
           // the loading flag.
-          if (done >= total || Object.keys(analysisProgress).length === 0) return null
-          const pct = Math.round((done / total) * 100)
+          if (analysisComplete || !analysisHasStarted) return null
+          const pct = Math.round((analysisDoneCount / ANALYSIS_CHECKS.length) * 100)
           return (
             <div
               className="analysis-progress-strip"
               role="status"
               aria-live="polite"
-              aria-label={`Analyzing area, ${done} of ${total} categories ready`}
+              aria-label={`Analyzing area, ${analysisDoneCount} of ${ANALYSIS_CHECKS.length} categories ready`}
             >
               <div className="analysis-progress-strip-fill" style={{ width: `${pct}%` }} />
               <span className="analysis-progress-strip-text">
-                Analyzing area · <strong>{done}</strong> of {total} ready
+                Analyzing area · <strong>{analysisDoneCount}</strong> of {ANALYSIS_CHECKS.length} ready
               </span>
             </div>
           )
@@ -5500,12 +5577,10 @@ function MapPage() {
         >
           <span className="fab-label">Report</span>
           {(() => {
-            const checks = ['noise', 'superfund', 'costco', 'datacenters', 'er', 'crowd', 'railroad', 'broadband', 'flood', 'wildfire', 'seismic', 'tornado'] as const
-            const done = checks.filter((k) => analysisProgress[k] === 'done').length
-            if (done >= checks.length || Object.keys(analysisProgress).length === 0) return null
+            if (analysisComplete || !analysisHasStarted) return null
             return (
-              <span className="fab-progress-badge" aria-label={`${done} of ${checks.length} ready`}>
-                {done}/{checks.length}
+              <span className="fab-progress-badge" aria-label={`${analysisDoneCount} of ${ANALYSIS_CHECKS.length} ready`}>
+                {analysisDoneCount}/{ANALYSIS_CHECKS.length}
               </span>
             )
           })()}
@@ -6957,20 +7032,13 @@ function MapPage() {
           <div className="analysis-popout-body">
             {analysisDetail === 'score' && (() => {
               const grade = computeLocationGrade(analysisResults)
-              const gradeDescriptions: Record<string, string> = {
-                A: 'This location has minimal environmental or infrastructure concerns. All categories show favorable conditions, making it well-suited for residential or commercial use without significant risk factors.',
-                B: 'This location is generally favorable with only minor concerns in one or two categories. Any flagged issues are moderate and unlikely to significantly impact quality of life or property value.',
-                C: 'This location has a mix of favorable and concerning factors. One or more categories show moderate issues that warrant further investigation before making a decision.',
-                D: 'This location has notable concerns across multiple categories. Several environmental or infrastructure factors may negatively affect quality of life, property value, or health.',
-                F: 'This location has significant concerns across most categories. Multiple high-severity issues were detected that could substantially impact livability, safety, or long-term value.'
-              }
               return (
                 <>
                   <div className="score-breakdown-grade-summary">
                     <div className="score-breakdown-grade-badge" style={{ '--grade-color': grade.color } as React.CSSProperties}>{grade.letter}</div>
                     <div className="score-breakdown-grade-info">
                       <strong>{Math.round(grade.pct * 100)}% — {grade.letter === 'A' ? 'Excellent' : grade.letter === 'B' ? 'Good' : grade.letter === 'C' ? 'Fair' : grade.letter === 'D' ? 'Poor' : 'Critical'}</strong>
-                      <p>{gradeDescriptions[grade.letter]}</p>
+                      <p>{GRADE_DESCRIPTIONS[grade.letter]}</p>
                     </div>
                   </div>
                   <div className="score-breakdown-divider" />
@@ -6984,58 +7052,6 @@ function MapPage() {
                     const barColor = sevKey === 'clear' ? '#4caf50' : sevKey === 'warning' ? '#ffb300' : '#ef5350'
                     const statusLabel = sevKey === 'clear' ? 'No concerns' : sevKey === 'warning' ? 'Minor concern' : 'Notable concern'
                     const tierLabel = b.tier === 'safety' ? 'Safety' : b.tier === 'lifestyle' ? 'Lifestyle' : 'Convenience'
-                    const explanations: Record<string, Record<'clear' | 'warning' | 'danger', string>> = {
-                      'Airport Noise': {
-                        clear: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
-                        warning: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
-                        danger: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.'
-                      },
-                      'Superfund Sites': {
-                        clear: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
-                        warning: 'A small number of Superfund sites are nearby. Residual risk may be limited, but due diligence is recommended.',
-                        danger: `One or more active Superfund sites are within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. Active sites may pose environmental or health risks and could affect property values.`
-                      },
-                      'Emergency Room': {
-                        clear: 'An emergency room is within close range. Quick access to emergency medical care is a significant safety advantage for this location.',
-                        warning: 'An emergency room is at moderate distance. Response times may be longer during peak traffic, but access is still reasonable.',
-                        danger: 'No emergency room was found nearby. Longer travel times to emergency care could be a concern, especially for families or elderly residents.'
-                      },
-                      'Data Centers': {
-                        clear: 'No data centers were detected nearby. This area is clear of associated concerns like noise from cooling systems or heavy truck traffic.',
-                        warning: 'A few data centers are nearby. Minor impacts from generator testing, backup diesel operations, or increased traffic are possible.',
-                        danger: 'Multiple data centers are near this location. Expect potential noise from industrial cooling, periodic generator testing, and increased commercial vehicle traffic.'
-                      },
-                      'Crowd Magnets': {
-                        clear: `No major venues, stadiums, or arenas were found within ${CROWD_ANALYSIS_RADIUS_MI} miles. Expect normal traffic patterns without event-driven surges.`,
-                        warning: 'A nearby venue or attraction may bring seasonal traffic, event-night congestion, or noise during peak hours.',
-                        danger: 'Multiple high-draw venues are close by. Expect significant event-driven traffic, parking pressure, and noise on game days, concert nights, or convention weekends.'
-                      },
-                      'Broadband': {
-                        clear: 'Multiple providers offer high-speed (100+ Mbps) or gigabit service at this address. You should have plenty of options for fast, reliable internet.',
-                        warning: 'Broadband is available but speeds are modest. Streaming and video calls work, but heavy households or remote workers may feel constrained.',
-                        danger: 'This address is FCC-underserved (<25 Mbps down). Expect very limited wired options — consider fixed wireless, satellite, or cellular as alternatives.'
-                      },
-                      'Nearest Costco': {
-                        clear: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
-                        warning: 'A Costco is within reasonable range. You magnificent, bulk-buying genius — rotisserie chickens practically deliver themselves at this distance.',
-                        danger: 'No Costco in sight. You\'ll be buying toilet paper like a regular person — one sad, normal-sized pack at a time. Our condolences.'
-                      },
-                      'Flood Zone': {
-                        clear: 'This address is outside FEMA\'s moderate- and high-risk flood zones. Flood insurance is generally not federally required, though no area is completely risk-free.',
-                        warning: 'This address is in a moderate-risk zone (0.2% annual-chance / "500-year" floodplain). Flood insurance is usually optional but recommended — moderate-risk areas still see a meaningful share of claims.',
-                        danger: 'This address is in a Special Flood Hazard Area (1% annual-chance / "100-year" floodplain) or coastal V zone. Federally backed mortgages require flood insurance, premiums run higher, and flood risk is real.'
-                      },
-                      'Wildfire Hazard': {
-                        clear: 'This address is in a Low / Very Low USFS wildfire hazard class (or a non-burnable developed/water area). Wildfire risk here is minimal, though no area is entirely risk-free.',
-                        warning: 'This address is in a Moderate wildfire hazard class. Risk is real but lower — defensible space and ember-resistant home hardening are still worthwhile precautions.',
-                        danger: 'This address is in a High or Very High wildfire hazard class. Expect stricter insurance underwriting and higher premiums, defensible-space obligations, and meaningful wildfire risk in fire season.'
-                      },
-                      'Railroad': {
-                        clear: 'No active railroad track was found within a quarter mile. Train-horn noise and vibration are unlikely to be a concern at this location.',
-                        warning: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.',
-                        danger: 'An active railroad track runs within a quarter mile. Expect possible train-horn noise, vibration, and overnight freight movements — visit the property at different times of day before deciding.'
-                      }
-                    }
                     return (
                       <div className="score-breakdown-row" key={b.label}>
                         <div className="score-breakdown-label">
@@ -7048,7 +7064,7 @@ function MapPage() {
                           <div className="score-breakdown-bar-fill" style={{ width: `${((b.max - b.score) / b.max) * 100}%`, background: barColor }} />
                         </div>
                         <p className="score-breakdown-detail">{b.detail}</p>
-                        <p className="score-breakdown-explanation">{explanations[b.label]?.[sevKey] || ''}</p>
+                        <p className="score-breakdown-explanation">{SCORE_EXPLANATIONS[b.label]?.[sevKey] || ''}</p>
                       </div>
                     )
                   })}

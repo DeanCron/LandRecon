@@ -19,9 +19,19 @@ const OVERPASS_ENDPOINTS = ['/overpass', '/overpass2']
 const OVERPASS_MAX_CONCURRENCY = 2
 let overpassActive = 0
 const overpassWaiters: Array<() => void> = []
-function acquireOverpassSlot(): Promise<() => void> {
+function acquireOverpassSlot(signal?: AbortSignal): Promise<(() => void) | null> {
   return new Promise((resolve) => {
+    let queued = false
+    const onAbort = () => {
+      if (!queued) return
+      const index = overpassWaiters.indexOf(grant)
+      if (index >= 0) overpassWaiters.splice(index, 1)
+      queued = false
+      resolve(null)
+    }
     const grant = () => {
+      queued = false
+      signal?.removeEventListener('abort', onAbort)
       overpassActive++
       let released = false
       resolve(() => {
@@ -32,8 +42,15 @@ function acquireOverpassSlot(): Promise<() => void> {
         if (next) next()
       })
     }
-    if (overpassActive < OVERPASS_MAX_CONCURRENCY) grant()
-    else overpassWaiters.push(grant)
+    if (signal?.aborted) {
+      resolve(null)
+    } else if (overpassActive < OVERPASS_MAX_CONCURRENCY) {
+      grant()
+    } else {
+      queued = true
+      signal?.addEventListener('abort', onAbort, { once: true })
+      overpassWaiters.push(grant)
+    }
   })
 }
 
@@ -60,7 +77,8 @@ export async function fetchOverpass<T = OverpassResponse>(
   const { timeoutMs = 12000, signal: externalSignal, label } = opts
   const tag = label ? `overpass:${label}` : 'overpass'
   const body = `data=${encodeURIComponent(query)}`
-  const release = await acquireOverpassSlot()
+  const release = await acquireOverpassSlot(externalSignal)
+  if (!release) return null
   try {
     let lastErr: unknown = null
     // One attempt per mirror, failing straight over to the other on a timeout or
