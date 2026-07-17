@@ -668,9 +668,12 @@ function MapPage() {
   const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLinesKnownIdsRef = useRef<Set<string>>(new Set())
   const transitLinesLoadingRef = useRef(false)
+  const transitLinesRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
+  const transitRequestGenerationRef = useRef(0)
   const busLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const busLinesKnownIdsRef = useRef<Set<string>>(new Set())
   const busLinesLoadingRef = useRef(false)
+  const busLinesRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
   const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
@@ -714,6 +717,7 @@ function MapPage() {
   const homeMarkerRef = useRef<L.Marker | null>(null)
   const transitStopsKnownIdsRef = useRef<Set<string>>(new Set())
   const transitStopsLoadingRef = useRef(false)
+  const transitStopsRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
   const transitBusStopsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   // ALPR camera layer (Flock + other manufacturers) — sourced from OSM via
   // the DeFlock crowdsourcing project. Single cluster, no sub-types.
@@ -721,6 +725,7 @@ function MapPage() {
   const camerasLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const camerasKnownIdsRef = useRef<Set<string>>(new Set())
   const camerasLoadingRef = useRef(false)
+  const camerasRequestRef = useRef<{ key: string; controller: AbortController } | null>(null)
   // In-flight guards for the GeoJSON polygon/line loaders below. Without
   // these, a zoom+pan in quick succession can launch overlapping fetches; an
   // older request resolving last would clobber the newer viewport's features
@@ -2022,9 +2027,14 @@ function MapPage() {
   }, [])
 
   const loadTransitData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
-    if (transitStopsLoadingRef.current) return true
     // Same gate as the line layer — at very low zoom the bbox is huge.
-    if (map.getZoom() < 10) return true
+    if (map.getZoom() < 10) {
+      if (transitStopsRequestRef.current) {
+        transitStopsRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      return true
+    }
 
     let bounds = map.getBounds().pad(0.3)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -2038,7 +2048,11 @@ function MapPage() {
 
     const railLoaded = transitLoadedBoundsRef.current
     const busLoaded = transitBusStopsLoadedBoundsRef.current
-    const needRail = !railLoaded || !railLoaded.contains(bounds)
+    const railVisible =
+      transitSubVisibleRef.current.rail ||
+      transitSubVisibleRef.current.subway ||
+      transitSubVisibleRef.current.tram
+    const needRail = railVisible && (!railLoaded || !railLoaded.contains(bounds))
     // Bus stops are very dense; only include them once the user has zoomed in
     // enough that the dots aren't a wall. The line layer uses the same gate.
     const needBus =
@@ -2047,19 +2061,35 @@ function MapPage() {
       (!busLoaded || !busLoaded.contains(bounds))
 
     if (!needRail && !needBus) {
+      if (transitStopsRequestRef.current) {
+        transitStopsRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
       dbg('transit', 'Skipping — bounds already loaded')
       return true
     }
+
+    const sw = bounds.getSouthWest()
+    const ne = bounds.getNorthEast()
+    const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    const requestKey = `${bbox}|rail=${needRail}|bus=${needBus}`
+    const currentRequest = transitStopsRequestRef.current
+    if (currentRequest?.key === requestKey && !currentRequest.controller.signal.aborted) {
+      return currentRequest.promise
+    }
+    currentRequest?.controller.abort()
+    const controller = new AbortController()
+    const { signal } = controller
+    let resolveRequest!: (ok: boolean) => void
+    const requestPromise = new Promise<boolean>((resolve) => { resolveRequest = resolve })
+    transitStopsRequestRef.current = { key: requestKey, controller, promise: requestPromise }
+    transitRequestGenerationRef.current++
 
     dbg('transit', `Loading transit stops (rail=${needRail}, bus=${needBus})…`)
     setTransitLoading(true)
     transitStopsLoadingRef.current = true
     let ok = true
     try {
-      const sw = bounds.getSouthWest()
-      const ne = bounds.getNorthEast()
-      const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
-
       // Rail/subway/tram: try snapshot first if in CONUS, fall back to live.
       // Bus: always live (snapshot intentionally excludes bus — too dense).
       const stops: Array<{ id: string; stop: { lat: number; lon: number; name: string; type: 'rail' | 'subway' | 'tram' | 'bus' } }> = []
@@ -2069,9 +2099,10 @@ function MapPage() {
         const conus = L.latLngBounds(CONUS_BOUNDS)
         let railStops: typeof stops = []
         if (conus.contains(center)) {
-          const snap = await loadTransitStopsSnapshot()
+          const snap = await loadTransitStopsSnapshot(signal)
           if (snap) {
             for (const s of snap.stops) {
+              signal.throwIfAborted()
               if (!bounds.contains([s.lat, s.lon] as L.LatLngTuple)) continue
               railStops.push({ id: s.id, stop: { lat: s.lat, lon: s.lon, name: s.name, type: s.type } })
             }
@@ -2080,16 +2111,17 @@ function MapPage() {
           }
         }
         if (railSource !== 'snapshot') {
-          railStops = await fetchStopsInWorker(bbox, { rail: true, bus: false })
+          railStops = await fetchStopsInWorker(bbox, { rail: true, bus: false }, signal)
           railSource = 'live'
         }
         stops.push(...railStops)
       }
       if (needBus) {
-        const busStops = await fetchStopsInWorker(bbox, { rail: false, bus: true })
+        const busStops = await fetchStopsInWorker(bbox, { rail: false, bus: true }, signal)
         stops.push(...busStops)
       }
 
+      signal.throwIfAborted()
       let subLayers = transitSubLayersRef.current
       if (!subLayers) {
         const [rail, subway, tram, bus] = await Promise.all([
@@ -2098,6 +2130,7 @@ function MapPage() {
           createClusterGroup(TRANSIT_COLORS.tram),
           createClusterGroup(TRANSIT_COLORS.bus),
         ])
+        signal.throwIfAborted()
         subLayers = { rail, subway, tram, bus }
         transitSubLayersRef.current = subLayers
         for (const t of Object.keys(subLayers) as TransitStop['type'][]) {
@@ -2110,6 +2143,7 @@ function MapPage() {
       const known = transitStopsKnownIdsRef.current
       let added = 0
       for (const { id, stop } of stops) {
+        signal.throwIfAborted()
         if (known.has(id)) continue
         known.add(id)
         const color = TRANSIT_COLORS[stop.type]
@@ -2133,11 +2167,17 @@ function MapPage() {
       }
       dbg('transit', `Added ${added} new stops (rail=${railSource}; total known: ${known.size})`)
     } catch (err) {
-      console.error('Failed to load transit data:', err)
-      ok = false
+      if (!signal.aborted) {
+        console.error('Failed to load transit data:', err)
+        ok = false
+      }
     } finally {
-      transitStopsLoadingRef.current = false
-      setTransitLoading(false)
+      resolveRequest(ok)
+      if (transitStopsRequestRef.current?.controller === controller) {
+        transitStopsRequestRef.current = null
+        transitStopsLoadingRef.current = false
+        setTransitLoading(false)
+      }
     }
     return ok
   }, [])
@@ -3010,6 +3050,16 @@ function MapPage() {
     analysisRunIdRef.current++
     analysisAbortRef.current?.abort()
     analysisAbortRef.current = null
+    transitInitRunIdRef.current++
+    transitRequestGenerationRef.current++
+    handleTransitMove.cancel()
+    handleCamerasMove.cancel()
+    transitStopsRequestRef.current?.controller.abort()
+    transitLinesRequestRef.current?.controller.abort()
+    busLinesRequestRef.current?.controller.abort()
+    camerasRequestRef.current?.controller.abort()
+    setTransitStatus(null)
+    setCamerasStatus(null)
     setStatus('loading')
     setErrorMsg('')
     dbg('init', 'Geocoding address:', address)
@@ -3377,6 +3427,10 @@ function MapPage() {
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
       analysisAbortRef.current?.abort()
+      transitStopsRequestRef.current?.controller.abort()
+      transitLinesRequestRef.current?.controller.abort()
+      busLinesRequestRef.current?.controller.abort()
+      camerasRequestRef.current?.controller.abort()
       ro?.disconnect()
       window.removeEventListener('resize', scheduleInvalidate)
       window.removeEventListener('orientationchange', scheduleInvalidate)
@@ -3861,8 +3915,8 @@ function MapPage() {
   // sub-types. Bbox-cached so panning within a previously-loaded area
   // doesn't re-query Overpass.
   const loadCamerasData = useCallback(async (map: L.Map, layer: L.LayerGroup): Promise<boolean> => {
-    if (camerasLoadingRef.current) return true
     if (map.getZoom() < 10) {
+      camerasRequestRef.current?.controller.abort()
       dbg('cameras', `Skipping — zoom ${map.getZoom()} below threshold (10)`)
       setCamerasStatus({ kind: 'empty', text: 'Zoom in to load cameras' })
       return true
@@ -3880,7 +3934,24 @@ function MapPage() {
     }
 
     const loaded = camerasLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('cameras', 'Skipping — bounds already loaded'); return true }
+    if (loaded && loaded.contains(bounds)) {
+      camerasRequestRef.current?.controller.abort()
+      dbg('cameras', 'Skipping — bounds already loaded')
+      setCamerasStatus(camerasKnownIdsRef.current.size === 0
+        ? { kind: 'empty', text: 'No mapped surveillance cameras in this area' }
+        : null)
+      return true
+    }
+
+    const sw = bounds.getSouthWest()
+    const ne = bounds.getNorthEast()
+    const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    const currentRequest = camerasRequestRef.current
+    if (currentRequest?.key === bbox && !currentRequest.controller.signal.aborted) return true
+    currentRequest?.controller.abort()
+    const controller = new AbortController()
+    const { signal } = controller
+    camerasRequestRef.current = { key: bbox, controller }
 
     dbg('cameras', 'Loading ALPR cameras…')
     camerasLoadingRef.current = true
@@ -3889,10 +3960,6 @@ function MapPage() {
 
     let ok = true
     try {
-      const sw = bounds.getSouthWest()
-      const ne = bounds.getNorthEast()
-      const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
-
       // Prefer the daily CONUS snapshot when the map center is inside the
       // contiguous US — collapses a per-bbox Overpass round-trip into one
       // page-lifetime fetch of a ~1–2 MB gzipped JSON served from CDN.
@@ -3904,24 +3971,29 @@ function MapPage() {
       let source: 'snapshot' | 'live' = 'live'
 
       if (conus.contains(center)) {
-        const snap = await loadCamerasSnapshot()
+        const snap = await loadCamerasSnapshot(signal)
         if (snap) {
-          cameras = snap.cameras.filter((c) => bounds.contains([c.lat, c.lon] as L.LatLngTuple))
+          for (const camera of snap.cameras) {
+            signal.throwIfAborted()
+            if (bounds.contains([camera.lat, camera.lon] as L.LatLngTuple)) cameras.push(camera)
+          }
           source = 'snapshot'
           dbg('cameras', `Snapshot match: ${cameras.length} cameras in viewport (of ${snap.count} CONUS total)`)
         }
       }
 
       if (source === 'live') {
-        cameras = await fetchCamerasInWorker(bbox)
+        cameras = await fetchCamerasInWorker(bbox, signal)
         dbg('cameras', `Worker returned ${cameras.length} cameras for bbox=${bbox}`)
       }
 
+      signal.throwIfAborted()
       // Lazy-create the cluster on first load. Use the Flock magenta as the
       // cluster bubble color since it's the most visually obvious.
       let cluster = layer.getLayers()[0] as L.LayerGroup | undefined
       if (!cluster) {
         cluster = await createClusterGroup(CAMERA_COLORS.flock)
+        signal.throwIfAborted()
         cluster.addTo(layer)
         dbg('cameras', 'Created cluster group')
       }
@@ -3931,6 +4003,7 @@ function MapPage() {
       let flockAdded = 0
       let withDirection = 0
       for (const cam of cameras) {
+        signal.throwIfAborted()
         if (known.has(cam.id)) continue
         known.add(cam.id)
         const color = cam.isFlock ? CAMERA_COLORS.flock : CAMERA_COLORS.other
@@ -3956,13 +4029,17 @@ function MapPage() {
         setCamerasStatus(null)
       }
     } catch (err) {
+      if (signal.aborted) return true
       console.warn('Camera fetch failed:', err)
       dbg('cameras', 'Fetch failed:', err)
       setCamerasStatus({ kind: 'error', text: 'Failed to load cameras' })
       ok = false
     } finally {
-      camerasLoadingRef.current = false
-      setCamerasLoading(false)
+      if (camerasRequestRef.current?.controller === controller) {
+        camerasRequestRef.current = null
+        camerasLoadingRef.current = false
+        setCamerasLoading(false)
+      }
     }
     return ok
   }, [])
@@ -3971,7 +4048,7 @@ function MapPage() {
     () => debounce(() => {
       const map = mapRef.current
       const layer = camerasLayerRef.current
-      if (map && layer) loadCamerasData(map, layer)
+      if (map && layer && map.hasLayer(layer)) loadCamerasData(map, layer)
     }, 250),
     [loadCamerasData],
   )
@@ -3982,6 +4059,8 @@ function MapPage() {
     if (!map || !layer) return
     dbg('toggle', `cameras → ${camerasVisible ? 'OFF' : 'ON'}`)
     if (camerasVisible) {
+      handleCamerasMove.cancel()
+      camerasRequestRef.current?.controller.abort()
       map.removeLayer(layer)
       map.off('moveend', handleCamerasMove)
       layer.clearLayers()
@@ -4791,10 +4870,15 @@ function MapPage() {
   const loadTransitLines = useCallback(async (map: L.Map): Promise<boolean> => {
     const layers = transitLineLayersRef.current
     if (!layers) return true
-    if (transitLinesLoadingRef.current) return true
     // At very low zoom the bounding box becomes huge and Overpass would
     // return tens of thousands of ways — skip rather than hammer the API.
-    if (map.getZoom() < 10) return true
+    if (map.getZoom() < 10) {
+      if (transitLinesRequestRef.current) {
+        transitLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      return true
+    }
 
     let bounds = map.getBounds().pad(0.5)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -4809,11 +4893,28 @@ function MapPage() {
     }
 
     const loaded = transitLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return true
+    if (loaded && loaded.contains(bounds)) {
+      if (transitLinesRequestRef.current) {
+        transitLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      return true
+    }
 
     const sw = bounds.getSouthWest()
     const ne = bounds.getNorthEast()
     const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    const currentRequest = transitLinesRequestRef.current
+    if (currentRequest?.key === bbox && !currentRequest.controller.signal.aborted) {
+      return currentRequest.promise
+    }
+    currentRequest?.controller.abort()
+    const controller = new AbortController()
+    const { signal } = controller
+    let resolveRequest!: (ok: boolean) => void
+    const requestPromise = new Promise<boolean>((resolve) => { resolveRequest = resolve })
+    transitLinesRequestRef.current = { key: bbox, controller, promise: requestPromise }
+    transitRequestGenerationRef.current++
     // Light rail / subway / tram are passenger by definition; for heavy rail
     // we only include ways that are members of a route=train relation
     // (commuter / intercity), which excludes freight-only mainlines, yards
@@ -4831,9 +4932,10 @@ function MapPage() {
       let lines: Array<{ id: string; type: 'rail' | 'subway' | 'tram'; coords: [number, number][] }> = []
       let source: 'snapshot' | 'live' = 'live'
       if (conus.contains(center)) {
-        const snap = await loadTransitLinesSnapshot()
+        const snap = await loadTransitLinesSnapshot(signal)
         if (snap) {
           for (const l of snap.lines) {
+            signal.throwIfAborted()
             // Cheap bbox prefilter on the first coord to skip continents-away
             // lines without materializing pair arrays for every record.
             if (l.coords.length < 4) continue
@@ -4858,12 +4960,14 @@ function MapPage() {
         }
       }
       if (source === 'live') {
-        lines = await fetchTransitLinesInWorker(bbox)
+        lines = await fetchTransitLinesInWorker(bbox, signal)
       }
 
+      signal.throwIfAborted()
       const known = transitLinesKnownIdsRef.current
       let added = 0
       for (const line of lines) {
+        signal.throwIfAborted()
         if (known.has(line.id)) continue
         L.polyline(line.coords, {
           color: TRANSIT_COLORS[line.type],
@@ -4879,10 +4983,16 @@ function MapPage() {
         ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
         : bounds
     } catch (err) {
-      console.warn('Transit line fetch failed:', err)
-      ok = false
+      if (!signal.aborted) {
+        console.warn('Transit line fetch failed:', err)
+        ok = false
+      }
     } finally {
-      transitLinesLoadingRef.current = false
+      resolveRequest(ok)
+      if (transitLinesRequestRef.current?.controller === controller) {
+        transitLinesRequestRef.current = null
+        transitLinesLoadingRef.current = false
+      }
     }
     return ok
   }, [])
@@ -4890,10 +5000,15 @@ function MapPage() {
   const loadBusLines = useCallback(async (map: L.Map): Promise<boolean> => {
     const layers = transitLineLayersRef.current
     if (!layers) return true
-    if (busLinesLoadingRef.current) return true
     // Bus lines ride on streets and would create a tangle at city-wide zoom;
     // only fetch when the user has zoomed in to a neighborhood-level view.
-    if (map.getZoom() < 13) return true
+    if (map.getZoom() < 13) {
+      if (busLinesRequestRef.current) {
+        busLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      return true
+    }
 
     let bounds = map.getBounds().pad(0.25)
     const latSpan = bounds.getNorth() - bounds.getSouth()
@@ -4908,20 +5023,38 @@ function MapPage() {
     }
 
     const loaded = busLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) return true
+    if (loaded && loaded.contains(bounds)) {
+      if (busLinesRequestRef.current) {
+        busLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      return true
+    }
 
     const sw = bounds.getSouthWest()
     const ne = bounds.getNorthEast()
     const bbox = `${sw.lat},${sw.lng},${ne.lat},${ne.lng}`
+    const currentRequest = busLinesRequestRef.current
+    if (currentRequest?.key === bbox && !currentRequest.controller.signal.aborted) {
+      return currentRequest.promise
+    }
+    currentRequest?.controller.abort()
+    const controller = new AbortController()
+    const { signal } = controller
+    let resolveRequest!: (ok: boolean) => void
+    const requestPromise = new Promise<boolean>((resolve) => { resolveRequest = resolve })
+    busLinesRequestRef.current = { key: bbox, controller, promise: requestPromise }
+    transitRequestGenerationRef.current++
     // Get road ways that are members of bus route relations in the bbox.
     dbg('transit', `Fetching bus route ways for bbox=${bbox}`)
     busLinesLoadingRef.current = true
     let ok = true
     try {
-      const lines = await fetchBusLinesInWorker(bbox)
+      const lines = await fetchBusLinesInWorker(bbox, signal)
       const known = busLinesKnownIdsRef.current
       let added = 0
       for (const line of lines) {
+        signal.throwIfAborted()
         if (known.has(line.id)) continue
         L.polyline(line.coords, {
           color: TRANSIT_COLORS.bus,
@@ -4939,10 +5072,16 @@ function MapPage() {
         ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
         : bounds
     } catch (err) {
-      console.warn('Bus line fetch failed:', err)
-      ok = false
+      if (!signal.aborted) {
+        console.warn('Bus line fetch failed:', err)
+        ok = false
+      }
     } finally {
-      busLinesLoadingRef.current = false
+      resolveRequest(ok)
+      if (busLinesRequestRef.current?.controller === controller) {
+        busLinesRequestRef.current = null
+        busLinesLoadingRef.current = false
+      }
     }
     return ok
   }, [])
@@ -4958,6 +5097,11 @@ function MapPage() {
       // Invalidate any in-flight init so a late failure won't pop a toast
       // for a layer the user already turned off.
       transitInitRunIdRef.current++
+      transitRequestGenerationRef.current++
+      handleTransitMove.cancel()
+      transitStopsRequestRef.current?.controller.abort()
+      transitLinesRequestRef.current?.controller.abort()
+      busLinesRequestRef.current?.controller.abort()
       map.removeLayer(layer)
       if (lineLayers) {
         for (const t of ['rail', 'subway', 'tram', 'bus'] as const) {
@@ -4982,15 +5126,24 @@ function MapPage() {
     setTransitStatus({ kind: 'loading', text: 'Loading transit data…' })
 
     const runId = ++transitInitRunIdRef.current
-    const tasks: Promise<boolean>[] = [
-      loadTransitData(map, layer),
-      loadTransitLines(map),
-    ]
+    transitRequestGenerationRef.current++
+    const tasks: Promise<boolean>[] = [loadTransitData(map, layer)]
+    if (
+      transitSubVisibleRef.current.rail ||
+      transitSubVisibleRef.current.subway ||
+      transitSubVisibleRef.current.tram
+    ) {
+      tasks.push(loadTransitLines(map))
+    }
     if (transitSubVisibleRef.current.bus) tasks.push(loadBusLines(map))
+    const requestGeneration = transitRequestGenerationRef.current
 
     Promise.all(tasks).then((results) => {
       // Stale callback — user has already toggled off or re-toggled.
       if (runId !== transitInitRunIdRef.current) return
+      // A map move superseded one of the initial viewport requests. The move
+      // handler owns status for the replacement generation.
+      if (requestGeneration !== transitRequestGenerationRef.current) return
       const allOk = results.every(Boolean)
       if (allOk) {
         setTransitStatus(null)
@@ -5022,12 +5175,10 @@ function MapPage() {
     const next = { ...transitSubVisible, [type]: nowVisible }
     setTransitSubVisible(next)
     transitSubVisibleRef.current = next
+    transitRequestGenerationRef.current++
 
     if (nowVisible) {
       subLayers[type].addTo(parentLayer)
-      // loadTransitData will decide whether a fetch is actually needed
-      // (e.g. bus may need a fetch even if rail bounds already cover the box).
-      loadTransitData(map, parentLayer)
     } else {
       parentLayer.removeLayer(subLayers[type])
     }
@@ -5039,23 +5190,67 @@ function MapPage() {
     if (lineLayers) {
       if (nowVisible) {
         lineLayers[type].addTo(map)
-        if (type === 'bus') loadBusLines(map)
-        else loadTransitLines(map)
       } else {
         map.removeLayer(lineLayers[type])
       }
     }
+
+    const tasks: Promise<boolean>[] = [loadTransitData(map, parentLayer)]
+    if (next.rail || next.subway || next.tram) {
+      tasks.push(loadTransitLines(map))
+    } else if (transitLinesRequestRef.current) {
+      transitLinesRequestRef.current.controller.abort()
+      transitRequestGenerationRef.current++
+    }
+    if (next.bus) {
+      tasks.push(loadBusLines(map))
+    } else if (busLinesRequestRef.current) {
+      busLinesRequestRef.current.controller.abort()
+      transitRequestGenerationRef.current++
+    }
+
+    setTransitStatus({ kind: 'loading', text: 'Loading transit data…' })
+    const requestGeneration = transitRequestGenerationRef.current
+    Promise.all(tasks).then((results) => {
+      if (!map.hasLayer(parentLayer)) return
+      if (requestGeneration !== transitRequestGenerationRef.current) return
+      setTransitStatus(results.every(Boolean)
+        ? null
+        : { kind: 'error', text: "Couldn't load transit data. Please try again in a moment." })
+    })
   }
 
   const handleTransitMove = useMemo(
     () => debounce(() => {
       const map = mapRef.current
       const layer = transitLayerRef.current
-      if (map && layer) {
-        loadTransitData(map, layer)
-        loadTransitLines(map)
-        if (transitSubVisibleRef.current.bus) loadBusLines(map)
+      if (!map || !layer || !map.hasLayer(layer)) return
+      transitRequestGenerationRef.current++
+      const tasks: Promise<boolean>[] = [loadTransitData(map, layer)]
+      if (
+        transitSubVisibleRef.current.rail ||
+        transitSubVisibleRef.current.subway ||
+        transitSubVisibleRef.current.tram
+      ) {
+        tasks.push(loadTransitLines(map))
+      } else if (transitLinesRequestRef.current) {
+        transitLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
       }
+      if (transitSubVisibleRef.current.bus) {
+        tasks.push(loadBusLines(map))
+      } else if (busLinesRequestRef.current) {
+        busLinesRequestRef.current.controller.abort()
+        transitRequestGenerationRef.current++
+      }
+      const requestGeneration = transitRequestGenerationRef.current
+      Promise.all(tasks).then((results) => {
+        if (!map.hasLayer(layer)) return
+        if (requestGeneration !== transitRequestGenerationRef.current) return
+        setTransitStatus(results.every(Boolean)
+          ? null
+          : { kind: 'error', text: "Couldn't load transit data. Please try again in a moment." })
+      })
     }, 250),
     [loadTransitData, loadTransitLines, loadBusLines],
   )

@@ -13,7 +13,22 @@ function dbg(...args: unknown[]) { if (LR_DEBUG) console.debug('[LR:worker]', ..
 
 let worker: Worker | null = null
 let nextId = 1
-const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; kind: string; t0: number }>()
+const pending = new Map<number, {
+  resolve: (v: unknown) => void
+  reject: (e: Error) => void
+  kind: string
+  t0: number
+  signal?: AbortSignal
+  onAbort?: () => void
+}>()
+
+function cleanupPending(id: number) {
+  const p = pending.get(id)
+  if (!p) return null
+  pending.delete(id)
+  if (p.signal && p.onAbort) p.signal.removeEventListener('abort', p.onAbort)
+  return p
+}
 
 function getWorker(): Worker {
   if (!worker) {
@@ -21,9 +36,8 @@ function getWorker(): Worker {
     worker = new OverpassWorker()
     worker.onmessage = (ev: MessageEvent<{ id: number; ok: boolean; result?: unknown; error?: string }>) => {
       const { id, ok, result, error } = ev.data
-      const p = pending.get(id)
+      const p = cleanupPending(id)
       if (!p) return
-      pending.delete(id)
       const dt = Math.round(performance.now() - p.t0)
       const count = Array.isArray(result) ? result.length : undefined
       if (ok) {
@@ -37,7 +51,10 @@ function getWorker(): Worker {
     worker.onerror = (ev: ErrorEvent) => {
       console.error('Overpass worker fatal:', ev.message)
       dbg(`Worker crashed with ${pending.size} pending request(s)`)
-      for (const [, p] of pending) p.reject(new Error('Worker crashed: ' + ev.message))
+      for (const [id, p] of pending) {
+        cleanupPending(id)
+        p.reject(new Error('Worker crashed: ' + ev.message))
+      }
       pending.clear()
       worker?.terminate()
       worker = null
@@ -46,28 +63,55 @@ function getWorker(): Worker {
   return worker
 }
 
-function call<T>(kind: 'stops' | 'lines' | 'bus' | 'cameras', payload: unknown): Promise<T> {
+function call<T>(
+  kind: 'stops' | 'lines' | 'bus' | 'cameras',
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+      return
+    }
     const id = nextId++
     const t0 = performance.now()
-    pending.set(id, { resolve: resolve as (v: unknown) => void, reject, kind, t0 })
+    const onAbort = () => {
+      const p = cleanupPending(id)
+      if (!p) return
+      worker?.postMessage({ id, kind: 'cancel' })
+      dbg(`${kind} #${id} cancelled after ${Math.round(performance.now() - t0)}ms`)
+      reject(signal?.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
+    }
+    pending.set(id, {
+      resolve: resolve as (v: unknown) => void,
+      reject,
+      kind,
+      t0,
+      signal,
+      onAbort,
+    })
+    signal?.addEventListener('abort', onAbort, { once: true })
     dbg(`${kind} #${id} dispatched`)
     getWorker().postMessage({ id, kind, payload })
   })
 }
 
-export function fetchStopsInWorker(bbox: string, opts: { rail: boolean; bus: boolean }): Promise<StopResult[]> {
-  return call<StopResult[]>('stops', { bbox, rail: opts.rail, bus: opts.bus })
+export function fetchStopsInWorker(
+  bbox: string,
+  opts: { rail: boolean; bus: boolean },
+  signal?: AbortSignal,
+): Promise<StopResult[]> {
+  return call<StopResult[]>('stops', { bbox, rail: opts.rail, bus: opts.bus }, signal)
 }
 
-export function fetchTransitLinesInWorker(bbox: string): Promise<LineResult[]> {
-  return call<LineResult[]>('lines', { bbox })
+export function fetchTransitLinesInWorker(bbox: string, signal?: AbortSignal): Promise<LineResult[]> {
+  return call<LineResult[]>('lines', { bbox }, signal)
 }
 
-export function fetchBusLinesInWorker(bbox: string): Promise<BusLineResult[]> {
-  return call<BusLineResult[]>('bus', { bbox })
+export function fetchBusLinesInWorker(bbox: string, signal?: AbortSignal): Promise<BusLineResult[]> {
+  return call<BusLineResult[]>('bus', { bbox }, signal)
 }
 
-export function fetchCamerasInWorker(bbox: string): Promise<CameraResult[]> {
-  return call<CameraResult[]>('cameras', { bbox })
+export function fetchCamerasInWorker(bbox: string, signal?: AbortSignal): Promise<CameraResult[]> {
+  return call<CameraResult[]>('cameras', { bbox }, signal)
 }

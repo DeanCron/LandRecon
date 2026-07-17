@@ -32,22 +32,29 @@ export interface CameraResult {
 
 type Kind = 'stops' | 'lines' | 'bus' | 'cameras'
 
-interface InMsg { id: number; kind: Kind; payload: unknown }
+interface RequestMsg { id: number; kind: Kind; payload: unknown }
+interface CancelMsg { id: number; kind: 'cancel' }
+type InMsg = RequestMsg | CancelMsg
 interface OutMsg<T = unknown> { id: number; ok: boolean; result?: T; error?: string }
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+const controllers = new Map<number, AbortController>()
 
-async function postOverpass(query: string): Promise<{ elements?: unknown[] }> {
+async function postOverpass(query: string, signal: AbortSignal): Promise<{ elements?: unknown[] }> {
   const res = await fetch(OVERPASS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'data=' + encodeURIComponent(query),
+    signal,
   })
   if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`)
   return res.json()
 }
 
-async function handleStops(p: { bbox: string; rail: boolean; bus: boolean }): Promise<StopResult[]> {
+async function handleStops(
+  p: { bbox: string; rail: boolean; bus: boolean },
+  signal: AbortSignal,
+): Promise<StopResult[]> {
   const parts: string[] = []
   if (p.rail) {
     parts.push(`node["railway"~"^(station|halt|tram_stop)$"](${p.bbox});`)
@@ -59,9 +66,10 @@ async function handleStops(p: { bbox: string; rail: boolean; bus: boolean }): Pr
   }
   if (parts.length === 0) return []
   const query = `[out:json][timeout:25];(${parts.join('')});out;`
-  const data = await postOverpass(query)
+  const data = await postOverpass(query, signal)
   const out: StopResult[] = []
   for (const raw of (data.elements || [])) {
+    signal.throwIfAborted()
     const el = raw as { type?: string; id?: number; lat?: number; lon?: number; tags?: Record<string, string> }
     if (el.type !== 'node' || typeof el.lat !== 'number' || typeof el.lon !== 'number' || typeof el.id !== 'number') continue
     const tags = el.tags || {}
@@ -78,7 +86,7 @@ async function handleStops(p: { bbox: string; rail: boolean; bus: boolean }): Pr
   return out
 }
 
-async function handleLines(p: { bbox: string }): Promise<LineResult[]> {
+async function handleLines(p: { bbox: string }, signal: AbortSignal): Promise<LineResult[]> {
   const query =
     `[out:json][timeout:25];` +
     `way["railway"~"^(light_rail|subway|tram)$"](${p.bbox});` +
@@ -86,9 +94,10 @@ async function handleLines(p: { bbox: string }): Promise<LineResult[]> {
     `rel["route"="train"](${p.bbox});` +
     `way(r)["railway"~"^(rail|light_rail|narrow_gauge)$"](${p.bbox});` +
     `out geom;`
-  const data = await postOverpass(query)
+  const data = await postOverpass(query, signal)
   const out: LineResult[] = []
   for (const raw of (data.elements || [])) {
+    signal.throwIfAborted()
     const el = raw as { type?: string; id?: number; tags?: Record<string, string>; geometry?: { lat: number; lon: number }[] }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2 || typeof el.id !== 'number') continue
     const railwayTag = el.tags?.railway
@@ -102,15 +111,16 @@ async function handleLines(p: { bbox: string }): Promise<LineResult[]> {
   return out
 }
 
-async function handleBus(p: { bbox: string }): Promise<BusLineResult[]> {
+async function handleBus(p: { bbox: string }, signal: AbortSignal): Promise<BusLineResult[]> {
   const query =
     `[out:json][timeout:25];` +
     `rel["route"="bus"](${p.bbox});` +
     `way(r)["highway"](${p.bbox});` +
     `out geom;`
-  const data = await postOverpass(query)
+  const data = await postOverpass(query, signal)
   const out: BusLineResult[] = []
   for (const raw of (data.elements || [])) {
+    signal.throwIfAborted()
     const el = raw as { type?: string; id?: number; geometry?: { lat: number; lon: number }[] }
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2 || typeof el.id !== 'number') continue
     const coords: [number, number][] = el.geometry.map((g) => [g.lat, g.lon])
@@ -119,7 +129,7 @@ async function handleBus(p: { bbox: string }): Promise<BusLineResult[]> {
   return out
 }
 
-async function handleCameras(p: { bbox: string }): Promise<CameraResult[]> {
+async function handleCameras(p: { bbox: string }, signal: AbortSignal): Promise<CameraResult[]> {
   // ALPR cameras as tagged in OpenStreetMap by the DeFlock project and
   // other contributors. Three clauses to catch the common tag variants.
   const query =
@@ -130,10 +140,11 @@ async function handleCameras(p: { bbox: string }): Promise<CameraResult[]> {
     `node["surveillance:type"~"^ALPR$",i](${p.bbox});` +
     `);` +
     `out;`
-  const data = await postOverpass(query)
+  const data = await postOverpass(query, signal)
   const out: CameraResult[] = []
   const seen = new Set<string>()
   for (const raw of (data.elements || [])) {
+    signal.throwIfAborted()
     const el = raw as { type?: string; id?: number; lat?: number; lon?: number; tags?: Record<string, string> }
     if (el.type !== 'node' || typeof el.lat !== 'number' || typeof el.lon !== 'number' || typeof el.id !== 'number') continue
     const id = `node/${el.id}`
@@ -157,19 +168,29 @@ async function handleCameras(p: { bbox: string }): Promise<CameraResult[]> {
 }
 
 self.onmessage = async (ev: MessageEvent<InMsg>) => {
-  const { id, kind, payload } = ev.data
+  const { id, kind } = ev.data
+  if (kind === 'cancel') {
+    controllers.get(id)?.abort()
+    return
+  }
+  const { payload } = ev.data
+  const controller = new AbortController()
+  controllers.set(id, controller)
   try {
     let result: unknown
-    if (kind === 'stops') result = await handleStops(payload as { bbox: string; rail: boolean; bus: boolean })
-    else if (kind === 'lines') result = await handleLines(payload as { bbox: string })
-    else if (kind === 'bus') result = await handleBus(payload as { bbox: string })
-    else if (kind === 'cameras') result = await handleCameras(payload as { bbox: string })
+    if (kind === 'stops') result = await handleStops(payload as { bbox: string; rail: boolean; bus: boolean }, controller.signal)
+    else if (kind === 'lines') result = await handleLines(payload as { bbox: string }, controller.signal)
+    else if (kind === 'bus') result = await handleBus(payload as { bbox: string }, controller.signal)
+    else if (kind === 'cameras') result = await handleCameras(payload as { bbox: string }, controller.signal)
     else throw new Error(`Unknown kind: ${String(kind)}`)
     const msg: OutMsg = { id, ok: true, result }
     self.postMessage(msg)
   } catch (err) {
+    if (controller.signal.aborted) return
     const msg: OutMsg = { id, ok: false, error: err instanceof Error ? err.message : String(err) }
     self.postMessage(msg)
+  } finally {
+    controllers.delete(id)
   }
 }
 
