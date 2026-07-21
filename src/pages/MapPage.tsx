@@ -719,7 +719,8 @@ function MapPage() {
   const airportLayerRef = useRef<L.LayerGroup | null>(null)
   const airportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const airportKnownIdsRef = useRef<Set<string>>(new Set())
-  const superfundLayerRef = useRef<L.GeoJSON | null>(null)
+  const superfundLayerRef = useRef<L.LayerGroup | null>(null)
+  const superfundKnownIdsRef = useRef<Set<string>>(new Set())
   const superfundLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const floodLayerRef = useRef<L.GeoJSON | null>(null)
   const floodLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
@@ -1770,7 +1771,7 @@ function MapPage() {
     }
   }, [])
 
-  const loadSuperfundData = useCallback(async (map: L.Map, layer: L.GeoJSON) => {
+  const loadSuperfundData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = superfundLoadedBoundsRef.current
     if (loaded && loaded.contains(bounds)) { dbg('superfund', 'Skipping — bounds already loaded'); return }
@@ -1784,8 +1785,41 @@ function MapPage() {
       const bbox = `${padded.getWest()},${padded.getSouth()},${padded.getEast()},${padded.getNorth()}`
       const points = await fetchSuperfundPointsInWorker(bbox)
       dbg('superfund', `Got ${points.features?.length || 0} sites`)
-      layer.clearLayers()
-      layer.addData(points)
+
+      // Lazy-create the cluster group inside the toggle layer on first load, so
+      // dense Superfund fields render as a few cluster bubbles instead of
+      // hundreds of individual DOM markers. (The old clearLayers()+addData path
+      // re-ran Leaflet createIcon for every site on every out-of-bounds pan.)
+      let cluster = layer.getLayers()[0] as L.MarkerClusterGroup | undefined
+      if (!cluster) {
+        cluster = await createClusterGroup('#b71c1c')
+        cluster.addTo(layer)
+      }
+
+      // Diff by EPA_ID (fallback lat,lng): only add sites not already rendered,
+      // so panning keeps existing markers instead of recreating all of them.
+      const known = superfundKnownIdsRef.current
+      for (const feat of points.features || []) {
+        const [lng, lat] = feat.geometry.coordinates
+        const props = feat.properties || {}
+        const key = props.EPA_ID ? String(props.EPA_ID) : `${lat},${lng}`
+        if (known.has(key)) continue
+        known.add(key)
+        const name = (props.SITE_NAME as string | undefined) || 'Superfund Site'
+        const sfCity = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
+        const sfUrl = (props.URL_ALIAS_TXT as string | undefined)
+          || (props.EPA_ID ? `https://cumulis.epa.gov/supercpad/CurSites/csitinfo.cfm?id=${props.EPA_ID}` : null)
+        L.marker([lat, lng], { icon: SUPERFUND_ICON, riseOnHover: true })
+          .bindTooltip(name, { direction: 'top', offset: [0, -16] })
+          .bindPopup(facilityPopupHtml({
+            title: name,
+            badges: [{ text: 'EPA Superfund', color: '#b71c1c' }],
+            rows: [sfCity || null, props.SITE_FEATURE_TYPE ? String(props.SITE_FEATURE_TYPE) : null],
+            linkHref: sfUrl,
+            linkText: 'EPA site report',
+          }), { maxWidth: 320 })
+          .addTo(cluster)
+      }
       superfundLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load Superfund data:', err)
@@ -3288,6 +3322,8 @@ function MapPage() {
           airportLoadedBoundsRef.current = null
           airportKnownIdsRef.current.clear()
           superfundLoadedBoundsRef.current = null
+          superfundKnownIdsRef.current.clear()
+          superfundLayerRef.current?.clearLayers()
           floodLoadedBoundsRef.current = null
           aqiLoadedBoundsRef.current = null
           powerLineLoadedBoundsRef.current = null
@@ -3388,25 +3424,10 @@ function MapPage() {
         // Create airport label layer (shown with noise layer)
         airportLayerRef.current = L.layerGroup()
 
-        // Create Superfund layer (not added to map until toggled on)
-        superfundLayerRef.current = L.geoJSON(undefined, {
-          pointToLayer: (_feat, latlng) => L.marker(latlng, { icon: SUPERFUND_ICON, riseOnHover: true }),
-          onEachFeature: (_feature, layer) => {
-            const props = (_feature as GeoJSON.Feature).properties || {}
-            const name = (props.SITE_NAME as string | undefined) || 'Superfund Site'
-            const sfCity = [props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(', ')
-            const sfUrl = (props.URL_ALIAS_TXT as string | undefined)
-              || (props.EPA_ID ? `https://cumulis.epa.gov/supercpad/CurSites/csitinfo.cfm?id=${props.EPA_ID}` : null)
-            layer.bindTooltip(name, { direction: 'top', offset: [0, -16] })
-            layer.bindPopup(facilityPopupHtml({
-              title: name,
-              badges: [{ text: 'EPA Superfund', color: '#b71c1c' }],
-              rows: [sfCity || null, props.SITE_FEATURE_TYPE ? String(props.SITE_FEATURE_TYPE) : null],
-              linkHref: sfUrl,
-              linkText: 'EPA site report',
-            }), { maxWidth: 320 })
-          },
-        })
+        // Create Superfund layer (not added to map until toggled on). A plain
+        // layer group that holds a lazily-created marker cluster group (built on
+        // first load in loadSuperfundData); markers are diffed in by EPA_ID.
+        superfundLayerRef.current = L.layerGroup()
 
         // Create FEMA flood-zone layer (polygons; not added to map until toggled on)
         floodLayerRef.current = L.geoJSON(undefined, {
@@ -3604,6 +3625,7 @@ function MapPage() {
     // locals rather than ref.current. These refs are created once and only
     // mutated (add/clear), never reassigned, so this is equivalent.
     const airportKnownIds = airportKnownIdsRef.current
+    const superfundKnownIds = superfundKnownIdsRef.current
     const transitLinesKnownIds = transitLinesKnownIdsRef.current
     const busLinesKnownIds = busLinesKnownIdsRef.current
     const transitStopsKnownIds = transitStopsKnownIdsRef.current
@@ -3634,6 +3656,7 @@ function MapPage() {
       airportLoadedBoundsRef.current = null
       airportKnownIds.clear()
       superfundLayerRef.current = null
+      superfundKnownIds.clear()
       superfundLoadedBoundsRef.current = null
       floodLayerRef.current = null
       floodLoadedBoundsRef.current = null
