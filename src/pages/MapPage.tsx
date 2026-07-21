@@ -606,6 +606,8 @@ function MapPage() {
   const dataCenterLayerRef = useRef<L.LayerGroup | null>(null)
   const dataCenterSubLayersRef = useRef<Record<string, L.LayerGroup> | null>(null)
   const dataCenterDataRef = useRef<DataCenter[] | null>(null)
+  const dataCenterLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const dataCenterKnownIdsRef = useRef<Set<string>>(new Set())
   const [dcSubVisible, setDcSubVisible] = useState<Record<string, boolean>>(
     Object.fromEntries(DC_STATUSES.map((s) => [s, true]))
   )
@@ -3445,6 +3447,7 @@ function MapPage() {
     const emsKnownIds = emsKnownIdsRef.current
     const crowdKnownIds = crowdKnownIdsRef.current
     const camerasKnownIds = camerasKnownIdsRef.current
+    const dataCenterKnownIds = dataCenterKnownIdsRef.current
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
@@ -3502,6 +3505,8 @@ function MapPage() {
       dataCenterLayerRef.current = null
       dataCenterSubLayersRef.current = null
       dataCenterDataRef.current = null
+      dataCenterLoadedBoundsRef.current = null
+      dataCenterKnownIds.clear()
       emsLayerRef.current = null
       emsSubLayersRef.current = null
       emsLoadedBoundsRef.current = null
@@ -3709,21 +3714,12 @@ function MapPage() {
         }
       }
     }
+    const subs = subLayers
 
-    for (const s of DC_STATUSES) subLayers[s].clearLayers()
-
-    let inRange: (dc: DataCenter) => boolean
-    if (restrict) {
-      const radiusM = restrict.radiusMi * 1609.34
-      inRange = (dc) => restrict.center.distanceTo(L.latLng(dc.lat, dc.lng)) <= radiusM
-    } else {
-      const bounds = map.getBounds().pad(0.3)
-      inRange = (dc) => bounds.contains([dc.lat, dc.lng])
-    }
-    for (const dc of data) {
-      if (!inRange(dc)) continue
-      const sub = subLayers[dc.status]
-      if (!sub) continue
+    // Build one marker for a data center into its status sub-layer.
+    const paint = (dc: DataCenter) => {
+      const sub = subs[dc.status]
+      if (!sub) return
       const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
       const icon = L.divIcon({
         className: 'dc-label',
@@ -3750,6 +3746,42 @@ function MapPage() {
         }), { maxWidth: 320 })
         .addTo(sub)
     }
+
+    if (restrict) {
+      // One-shot radius paint (analysis highlight): replace the layer's
+      // contents outright and reset the incremental pan state.
+      for (const s of DC_STATUSES) subs[s].clearLayers()
+      dataCenterKnownIdsRef.current.clear()
+      dataCenterLoadedBoundsRef.current = null
+      const radiusM = restrict.radiusMi * 1609.34
+      for (const dc of data) {
+        if (restrict.center.distanceTo(L.latLng(dc.lat, dc.lng)) > radiusM) continue
+        paint(dc)
+      }
+      return
+    }
+
+    // Pan mode: incremental paint like the other overlays. Skip entirely when
+    // the new viewport is already inside the painted extent; otherwise add only
+    // the data centers we haven't drawn yet, never clearing what's on screen.
+    const bounds = map.getBounds()
+    const loaded = dataCenterLoadedBoundsRef.current
+    if (loaded && loaded.contains(bounds)) { dbg('datacenters', 'Skipping — bounds already loaded'); return }
+    const padded = bounds.pad(0.3)
+    const known = dataCenterKnownIdsRef.current
+    let added = 0
+    for (const dc of data) {
+      if (!padded.contains([dc.lat, dc.lng] as L.LatLngTuple)) continue
+      const id = `${dc.lat},${dc.lng},${dc.name}`
+      if (known.has(id)) continue
+      paint(dc)
+      known.add(id)
+      added++
+    }
+    dataCenterLoadedBoundsRef.current = loaded
+      ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
+      : padded
+    dbg('datacenters', `Added ${added} new (total known: ${known.size})`)
   }, [])
 
   const handleDataCenterMove = useMemo(
@@ -3771,6 +3803,8 @@ function MapPage() {
       map.off('moveend', handleDataCenterMove)
       layer.clearLayers()
       dataCenterSubLayersRef.current = null
+      dataCenterLoadedBoundsRef.current = null
+      dataCenterKnownIdsRef.current.clear()
     } else {
       layer.addTo(map)
       loadDataCenters(map, layer)
