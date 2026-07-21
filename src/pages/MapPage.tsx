@@ -2292,6 +2292,51 @@ function MapPage() {
     const timedSignal = (timeoutMs: number) =>
       combineAbortSignals([signal, AbortSignal.timeout(timeoutMs)])
     const isLatestRun = () => analysisRunIdRef.current === runId && !signal.aborted
+
+    // Coalesce the independently-resolving check commits into at most one React
+    // render per ~150ms window. Each check resolves in its own async tick, so
+    // committing directly triggers a separate render per result (~15+/analysis).
+    // Buffering the updaters and flushing them together on a shared timer lets
+    // React batch every result that lands within the window into a single render.
+    const pendingResultUpdaters: Array<(prev: AnalysisResults) => AnalysisResults> = []
+    const pendingProgressUpdaters: Array<(prev: Record<string, 'pending' | 'done'>) => Record<string, 'pending' | 'done'>> = []
+    let analysisFlushHandle: number | null = null
+    const flushAnalysisCommits = () => {
+      analysisFlushHandle = null
+      if (!isLatestRun()) {
+        pendingResultUpdaters.length = 0
+        pendingProgressUpdaters.length = 0
+        return
+      }
+      if (pendingResultUpdaters.length > 0) {
+        const updaters = pendingResultUpdaters.splice(0, pendingResultUpdaters.length)
+        setAnalysisResults((prev) => updaters.reduce((acc, u) => u(acc), prev))
+      }
+      if (pendingProgressUpdaters.length > 0) {
+        const updaters = pendingProgressUpdaters.splice(0, pendingProgressUpdaters.length)
+        setAnalysisProgress((prev) => updaters.reduce((acc, u) => u(acc), prev))
+      }
+    }
+    const scheduleAnalysisFlush = () => {
+      // Flush buffered commits at most once per ~150ms so checks that resolve close
+      // together commit as a single render. 150ms stays under the ~200ms "instant"
+      // perception threshold, so progressive updates still feel immediate. (A tight
+      // rAF window was measured to be a no-op — the check results are spread far
+      // enough apart in time that almost none share a single frame.)
+      if (analysisFlushHandle == null) {
+        analysisFlushHandle = setTimeout(flushAnalysisCommits, 150) as unknown as number
+      }
+    }
+    const commitResults = (updater: (prev: AnalysisResults) => AnalysisResults) => {
+      if (!isLatestRun()) return
+      pendingResultUpdaters.push(updater)
+      scheduleAnalysisFlush()
+    }
+    const commitProgress = (updater: (prev: Record<string, 'pending' | 'done'>) => Record<string, 'pending' | 'done'>) => {
+      if (!isLatestRun()) return
+      pendingProgressUpdaters.push(updater)
+      scheduleAnalysisFlush()
+    }
     const fetchNoiseAnalysis = async () => {
       const finishTiming = startPerformanceSpan('api_noise_pmtiles')
       try {
@@ -2409,7 +2454,7 @@ function MapPage() {
       }
       const markCachedDone = (key: AnalysisCheck, failed = false) => {
         if (!isLatestRun()) return
-        setAnalysisProgress((prev) => ({ ...prev, [key]: 'done' }))
+        commitProgress((prev) => ({ ...prev, [key]: 'done' }))
         completeCheck(key, failed)
       }
       setAnalysisResults({
@@ -2465,7 +2510,7 @@ function MapPage() {
           const noiseLevel = noise?.level ?? null
           const noiseAirport = noise?.airport ?? null
           const noiseAirportCode = noise?.code ?? null
-          setAnalysisResults((prev) => ({
+          commitResults((prev) => ({
             ...prev,
             noiseLevel,
             noiseAirport,
@@ -2478,7 +2523,7 @@ function MapPage() {
         }).catch((err) => {
           dbg('analysis', 'Noise failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({
+          commitResults((prev) => ({
             ...prev,
             noiseLevel: null,
             noiseAirport: null,
@@ -2499,12 +2544,12 @@ function MapPage() {
         dbg('analysis', 'Broadband result:', bb?.summary
           ? `${bb.summary.providerCount} provider(s), max ${bb.summary.maxDownMbps ?? '?'} Mbps down`
           : bb?.block ? 'block-only (index not built)' : 'none')
-        setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
+        commitResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
         markCachedDone('broadband', !bb)
       }).catch((err) => {
         dbg('analysis', 'Broadband failed (cache-hit path):', err)
         if (!isLatestRun()) return
-        setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
+        commitResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
         markCachedDone('broadband', true)
       })
       // Crowd magnets are cached once the Overpass query produced a determined
@@ -2532,13 +2577,13 @@ function MapPage() {
         })().then((hits) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Crowd result (cache-hit path):', `${hits.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`)
-          setAnalysisResults((prev) => ({ ...prev, crowdMagnets: hits, crowdError: false }))
+          commitResults((prev) => ({ ...prev, crowdMagnets: hits, crowdError: false }))
           markCachedDone('crowd')
           patchAnalysisCacheCrowd(lat, lng, hits)
         }).catch((err) => {
           dbg('analysis', 'Crowd failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
+          commitResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
           markCachedDone('crowd', true)
         })
       }
@@ -2549,13 +2594,13 @@ function MapPage() {
         fetchNearestRailroad(L.latLng(lat, lng), signal).then((rr) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Railroad result (cache-hit path):', rr ? `${rr.distanceMi.toFixed(2)} mi` : 'no track within range')
-          setAnalysisResults((prev) => ({ ...prev, nearestRailroad: rr, railroadError: false }))
+          commitResults((prev) => ({ ...prev, nearestRailroad: rr, railroadError: false }))
           markCachedDone('railroad')
           patchAnalysisCacheRailroad(lat, lng, rr)
         }).catch((err) => {
           dbg('analysis', 'Railroad failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
+          commitResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
           markCachedDone('railroad', true)
         })
       }
@@ -2565,13 +2610,13 @@ function MapPage() {
         fetchFloodAtPoint(lat, lng, signal).then((fz) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Flood result (cache-hit path):', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
-          setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+          commitResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
           markCachedDone('flood')
           patchAnalysisCacheFlood(lat, lng, fz)
         }).catch((err) => {
           dbg('analysis', 'Flood failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
+          commitResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
           markCachedDone('flood', true)
         })
       }
@@ -2579,13 +2624,13 @@ function MapPage() {
         fetchWildfireAtPoint(lat, lng, signal).then((wf) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Wildfire result (cache-hit path):', wf ? `${wf.label} (${wf.value})` : 'no mapped hazard')
-          setAnalysisResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
+          commitResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
           markCachedDone('wildfire')
           patchAnalysisCacheWildfire(lat, lng, wf)
         }).catch((err) => {
           dbg('analysis', 'Wildfire failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
+          commitResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
           markCachedDone('wildfire', true)
         })
       }
@@ -2593,13 +2638,13 @@ function MapPage() {
         fetchSeismicAtPoint(lat, lng, signal).then((sq) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Seismic result (cache-hit path):', sq ? `${sq.label} (PGA ${sq.pga}g)` : 'no mapped hazard')
-          setAnalysisResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
+          commitResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
           markCachedDone('seismic')
           patchAnalysisCacheSeismic(lat, lng, sq)
         }).catch((err) => {
           dbg('analysis', 'Seismic failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
+          commitResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
           markCachedDone('seismic', true)
         })
       }
@@ -2607,13 +2652,13 @@ function MapPage() {
         fetchTornadoAtPoint(lat, lng, signal).then((tn) => {
           if (!isLatestRun()) return
           dbg('analysis', 'Tornado result (cache-hit path):', tn ? `${tn.label} (${tn.rating})` : 'no mapped risk')
-          setAnalysisResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
+          commitResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
           markCachedDone('tornado')
           patchAnalysisCacheTornado(lat, lng, tn)
         }).catch((err) => {
           dbg('analysis', 'Tornado failed (cache-hit path):', err)
           if (!isLatestRun()) return
-          setAnalysisResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
+          commitResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
           markCachedDone('tornado', true)
         })
       }
@@ -2628,7 +2673,7 @@ function MapPage() {
     const markDone = (key: AnalysisCheck, failed = false) => {
       if (!isLatestRun()) return
       progress[key] = 'done'
-      setAnalysisProgress({ ...progress })
+      commitProgress(() => ({ ...progress }))
       completeCheck(key, failed)
     }
 
@@ -2898,7 +2943,7 @@ function MapPage() {
     // resolves, so each report tile's progress flag and its data stay in sync.
     noiseP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({
+      commitResults((prev) => ({
         ...prev,
         noiseLevel: r?.level ?? null,
         noiseAirport: r?.airport ?? null,
@@ -2910,7 +2955,7 @@ function MapPage() {
     }).catch((err) => {
       dbg('analysis', 'Noise failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({
+      commitResults((prev) => ({
         ...prev,
         noiseLevel: null,
         noiseAirport: null,
@@ -2922,51 +2967,51 @@ function MapPage() {
     })
     superfundP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, superfunds: r }))
+      commitResults((prev) => ({ ...prev, superfunds: r }))
       markDone('superfund')
     }).catch(() => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, superfunds: [] }))
+      commitResults((prev) => ({ ...prev, superfunds: [] }))
       markDone('superfund', true)
     })
     dataCenterP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, dataCenters: r }))
+      commitResults((prev) => ({ ...prev, dataCenters: r }))
       markDone('datacenters')
     }).catch(() => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, dataCenters: [] }))
+      commitResults((prev) => ({ ...prev, dataCenters: [] }))
       markDone('datacenters', true)
     })
     erP.then((r) => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, nearestER: r, erError: false }))
+      commitResults((prev) => ({ ...prev, nearestER: r, erError: false }))
       markDone('er')
     }).catch(() => {
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, nearestER: null, erError: true }))
+      commitResults((prev) => ({ ...prev, nearestER: null, erError: true }))
       markDone('er', true)
     })
     crowdP.then((r) => {
       if (!isLatestRun()) return
       dbg('analysis', 'Crowd result:', `${r.length} within ${CROWD_ANALYSIS_RADIUS_MI} mi`)
-      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: r, crowdError: false }))
+      commitResults((prev) => ({ ...prev, crowdMagnets: r, crowdError: false }))
       markDone('crowd')
     }).catch((err) => {
       dbg('analysis', 'Crowd failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
+      commitResults((prev) => ({ ...prev, crowdMagnets: [], crowdError: true }))
       markDone('crowd', true)
     })
     railroadP.then((r) => {
       if (!isLatestRun()) return
       dbg('analysis', 'Railroad result:', r ? `${r.distanceMi.toFixed(2)} mi` : 'no track within range')
-      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: r, railroadError: false }))
+      commitResults((prev) => ({ ...prev, nearestRailroad: r, railroadError: false }))
       markDone('railroad')
     }).catch((err) => {
       dbg('analysis', 'Railroad failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
+      commitResults((prev) => ({ ...prev, nearestRailroad: null, railroadError: true }))
       markDone('railroad', true)
     })
 
@@ -2999,7 +3044,7 @@ function MapPage() {
     }
     // All in-batch values were already committed by the per-check chains above;
     // just flip the top-level loading flag so the grade/score section renders.
-    setAnalysisResults((prev) => ({ ...prev, loading: false }))
+    commitResults((prev) => ({ ...prev, loading: false }))
 
     // FCC Broadband fetch runs independently of the other categories. Same
     // pattern as Costco — fire-and-forget, merge result when it lands.
@@ -3011,12 +3056,12 @@ function MapPage() {
       dbg('analysis', 'Broadband result:', bb?.summary
         ? `${bb.summary.providerCount} provider(s), max ${bb.summary.maxDownMbps ?? '?'} Mbps down`
         : bb?.block ? 'block-only (index not built)' : 'none')
-      setAnalysisResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
+      commitResults((prev) => ({ ...prev, broadband: bb, broadbandLoading: false }))
       markDone('broadband', !bb)
     }).catch((err) => {
       dbg('analysis', 'Broadband failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
+      commitResults((prev) => ({ ...prev, broadband: null, broadbandLoading: false }))
       markDone('broadband', true)
     })
 
@@ -3030,14 +3075,14 @@ function MapPage() {
         return
       }
       dbg('analysis', 'Flood result:', fz ? `${fz.bucket} (${fz.zone})` : 'no mapped hazard')
-      setAnalysisResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
+      commitResults((prev) => ({ ...prev, floodZone: fz, floodError: false, floodLoading: false }))
       floodForCache = fz
       patchAnalysisCacheFlood(lat, lng, fz)
       markDone('flood')
     }).catch((err) => {
       dbg('analysis', 'Flood failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
+      commitResults((prev) => ({ ...prev, floodZone: null, floodError: true, floodLoading: false }))
       markDone('flood', true)
     })
 
@@ -3050,14 +3095,14 @@ function MapPage() {
         return
       }
       dbg('analysis', 'Wildfire result:', wf ? `${wf.label} (${wf.value})` : 'no mapped hazard')
-      setAnalysisResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
+      commitResults((prev) => ({ ...prev, wildfireHazard: wf, wildfireError: false, wildfireLoading: false }))
       wildfireForCache = wf
       patchAnalysisCacheWildfire(lat, lng, wf)
       markDone('wildfire')
     }).catch((err) => {
       dbg('analysis', 'Wildfire failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
+      commitResults((prev) => ({ ...prev, wildfireHazard: null, wildfireError: true, wildfireLoading: false }))
       markDone('wildfire', true)
     })
 
@@ -3070,14 +3115,14 @@ function MapPage() {
         return
       }
       dbg('analysis', 'Seismic result:', sq ? `${sq.label} (PGA ${sq.pga}g)` : 'no mapped hazard')
-      setAnalysisResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
+      commitResults((prev) => ({ ...prev, seismicHazard: sq, seismicError: false, seismicLoading: false }))
       seismicForCache = sq
       patchAnalysisCacheSeismic(lat, lng, sq)
       markDone('seismic')
     }).catch((err) => {
       dbg('analysis', 'Seismic failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
+      commitResults((prev) => ({ ...prev, seismicHazard: null, seismicError: true, seismicLoading: false }))
       markDone('seismic', true)
     })
 
@@ -3090,14 +3135,14 @@ function MapPage() {
         return
       }
       dbg('analysis', 'Tornado result:', tn ? `${tn.label} (${tn.rating})` : 'no mapped risk')
-      setAnalysisResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
+      commitResults((prev) => ({ ...prev, tornadoHazard: tn, tornadoError: false, tornadoLoading: false }))
       tornadoForCache = tn
       patchAnalysisCacheTornado(lat, lng, tn)
       markDone('tornado')
     }).catch((err) => {
       dbg('analysis', 'Tornado failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
+      commitResults((prev) => ({ ...prev, tornadoHazard: null, tornadoError: true, tornadoLoading: false }))
       markDone('tornado', true)
     })
 
@@ -3107,7 +3152,7 @@ function MapPage() {
         dbg('analysis', 'Stale run — discarding Costco result')
         return
       }
-      setAnalysisResults((prev) => ({
+      commitResults((prev) => ({
         ...prev,
         costco: data.nearest,
         costcoNearby: data.nearby,
@@ -3145,7 +3190,7 @@ function MapPage() {
     }).catch((err) => {
       dbg('analysis', 'Costco failed:', err)
       if (!isLatestRun()) return
-      setAnalysisResults((prev) => ({
+      commitResults((prev) => ({
         ...prev,
         costco: null,
         costcoNearby: [],
