@@ -7126,7 +7126,7 @@ function MapPage() {
               // Commute Time — opt-in check against a user-entered work address,
               // not a fixed dataset. Lives right above Costco in the convenience
               // tier. When no work address is set yet, the card surfaces in
-              // "Awareness" (severity 'unavailable') to prompt the user to
+              // "Things to Consider" (severity 'unavailable') to prompt the user to
               // add one via the detail popout, rather than showing a permanent
               // spinner (which would reintroduce the progress-count mismatch bug
               // fixed earlier — this card is deliberately excluded from the fixed
@@ -7218,7 +7218,7 @@ function MapPage() {
 
             return (
               <>
-                {problems.length > 0 && <div className="analysis-group-head">Awareness</div>}
+                {problems.length > 0 && <div className="analysis-group-head">Things to Consider</div>}
                 {problems.map((c) => c.node)}
                 {pending.map((c) => c.node)}
                 {cleared.length > 0 && (
