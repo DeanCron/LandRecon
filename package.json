@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "build:districts": "node scripts/build-districts.mjs",
     "build:broadband": "node scripts/build-broadband-index.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "perf:capture": "node scripts/perf-capture.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
@@ -47,6 +48,7 @@
     "globals": "^17.4.0",
     "jsdom": "^29.1.1",
     "mapshaper": "^0.7.21",
+    "playwright": "^1.61.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
     "vite": "^8.0.1",
