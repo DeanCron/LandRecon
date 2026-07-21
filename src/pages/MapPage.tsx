@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, useMemo, memo } from 'react'
 import { useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -6720,7 +6720,338 @@ function MapPage() {
           <p className="analysis-print-date">{new Date().toLocaleDateString()}</p>
         </div>
         <div className="analysis-content">
-          {(() => {
+          <AnalysisReportCards
+            analysisProgress={analysisProgress}
+            analysisResults={analysisResults}
+            analysisDetail={analysisDetail}
+            setAnalysisDetail={setAnalysisDetail}
+            workAddress={workAddress}
+            commuteLoading={commuteLoading}
+            commuteResult={commuteResult}
+            commuteError={commuteError}
+            showClearLayers={showClearLayers}
+            setShowClearLayers={setShowClearLayers}
+            retryCostco={retryCostco}
+          />
+        </div>
+      </aside>
+
+      {showAbout && (
+        <div className="about-overlay" onClick={() => setShowAbout(false)}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="report-about-title">
+            <div className="about-header">
+              <h2 id="report-about-title">About LandRecon</h2>
+              <button className="about-close" onClick={() => setShowAbout(false)} aria-label="Close About">×</button>
+            </div>
+            <div className="about-body">
+              <p>
+                LandRecon helps homebuyers and curious neighbors understand what's really around a property.
+                Enter any U.S. address and instantly see airport noise levels, EPA Superfund sites, nearby
+                data centers, retail proximity, and more — all scored and visualized on an interactive map.
+              </p>
+              <p>
+                Our goal is to surface the hidden factors that affect where you live and work — the kind of
+                details that don't show up in a typical listing but can make all the difference.
+              </p>
+              <h3>What we analyze</h3>
+              <ul>
+                <li>✈️ <strong>Airport Noise</strong> — FAA noise contour data mapped to your address</li>
+                <li>☢️ <strong>Superfund Sites</strong> — EPA hazardous waste sites within 5 miles</li>
+                <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco (a surprisingly strong quality-of-life indicator)</li>
+                <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
+                <li>🏥 <strong>Emergency Rooms</strong> — Distance to the nearest hospital emergency department</li>
+                <li>🎪 <strong>Crowd Magnets</strong> — Stadiums, arenas, and venues that drive seasonal traffic</li>
+                <li>📶 <strong>Broadband</strong> — FCC-reported wired internet providers and speeds at the address</li>
+              </ul>
+              <h3>Optional map layers</h3>
+              <p>
+                Open the <strong>Map Layers</strong> panel to overlay wildfire risk, power transmission lines,
+                FEMA flood zones, EPA industrial facilities, FCC broadband coverage, weather, air quality, and more on top of the map.
+              </p>
+              <h3>How scoring works</h3>
+              <p>
+                Categories are grouped into three tiers based on how much they affect daily life:
+              </p>
+              <ul>
+                <li><strong>Safety</strong> (Airport Noise, Superfund, ER) — weighted heaviest</li>
+                <li><strong>Lifestyle</strong> (Data Centers, Crowd Magnets, Broadband) — moderate weight</li>
+                <li><strong>Convenience</strong> (Costco) — lightest weight</li>
+              </ul>
+              <p>
+                Each category is evaluated and assigned a concern level. Tier weights are combined into
+                an overall letter grade (A through F) so you can compare locations at a glance. Click
+                the score bar for a full breakdown of how each factor contributed.
+              </p>
+              <p className="about-disclaimer">
+                LandRecon is provided for informational purposes only. Data may not be complete or current.
+                Always verify important findings through official sources before making decisions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {analysisDetail && (
+        <LazyLoadErrorBoundary
+          fallback={(
+            <aside className="analysis-popout" role="alert" aria-label="Analysis detail failed to load">
+              <div className="analysis-popout-header">
+                <strong>Couldn't load analysis details</strong>
+                <button
+                  className="analysis-popout-close"
+                  onClick={() => {
+                    if (analysisDetail === 'score') setShowScoreBreakdown(false)
+                    setAnalysisDetail(null)
+                  }}
+                  aria-label="Close detail"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="analysis-popout-body">
+                <button type="button" className="analysis-expand-retry" onClick={() => window.location.reload()}>
+                  Reload LandRecon
+                </button>
+              </div>
+            </aside>
+          )}
+        >
+          <Suspense
+            fallback={(
+              <aside className="analysis-popout" role="status" aria-label="Loading analysis detail">
+                <div className="analysis-popout-header"><strong>Loading details…</strong></div>
+                <div className="analysis-popout-body"><div className="spinner" /></div>
+              </aside>
+            )}
+          >
+            <AnalysisDetailPanel
+              analysisDetail={analysisDetail}
+              analysisResults={analysisResults}
+              address={address}
+              workAddress={workAddress}
+              workAddressEditing={workAddressEditing}
+              workAddressDraft={workAddressDraft}
+              workAddressSaving={workAddressSaving}
+              workAddressInputError={workAddressInputError}
+              commuteLoading={commuteLoading}
+              commuteResult={commuteResult}
+              setAnalysisDetail={setAnalysisDetail}
+              setShowScoreBreakdown={setShowScoreBreakdown}
+              setWorkAddressDraft={setWorkAddressDraft}
+              setWorkAddressInputError={setWorkAddressInputError}
+              setWorkAddressEditing={setWorkAddressEditing}
+              submitWorkAddress={submitWorkAddress}
+              removeWorkAddress={removeWorkAddress}
+              retryCostco={retryCostco}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
+      )}
+
+      {shareModalOpen && (
+        <div className="analysis-detail-overlay" onClick={closeShareModal}>
+          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+            <button className="analysis-detail-close" onClick={closeShareModal} aria-label="Close">×</button>
+            <h3 id="share-modal-title">Share Results</h3>
+            {shareLoading ? (
+              <div className="share-loading"><div className="spinner" /><p>Creating short link…</p></div>
+            ) : (
+              <>
+                <p className="share-description">
+                  Anyone with this link will see the same address and the layers you have active.
+                </p>
+                <input
+                  className="share-modal-input"
+                  type="text"
+                  readOnly
+                  value={shareUrl || shareLongUrl || ''}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                {shareError && (
+                  <p className="share-error">Could not shorten URL ({shareError}); using the full link instead.</p>
+                )}
+                <div className="share-modal-actions">
+                  {canNativeShare && (
+                    <button className="share-copy-button share-native-button" onClick={handleNativeShare}>
+                      Share…
+                    </button>
+                  )}
+                  <button className="share-copy-button" onClick={handleCopyShare}>
+                    {shareCopied ? '✓ Copied!' : 'Copy link'}
+                  </button>
+                  {shareUrl && (
+                    <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-open-link">
+                      Open in new tab →
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {devTodosOpen && (
+        <div className="analysis-detail-overlay" onClick={() => setDevTodosOpen(false)}>
+          <div className="analysis-detail-popup dev-todos-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="dev-todos-title">
+            <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
+            <h3 id="dev-todos-title">📋 To Do</h3>
+            <p className="dev-todos-summary">
+              {devTodoItems.length === 0
+                ? 'No items yet — add one below.'
+                : remainingDevTodos === 0
+                ? 'All caught up — nice.'
+                : `${remainingDevTodos} of ${devTodoItems.length} remaining`}
+            </p>
+            <ul className="dev-todos-list">
+              {devTodoItems.map((t) => {
+                const done = !!devTodoChecks[t.id]
+                return (
+                  <li key={t.id} className={`dev-todo-item${done ? ' done' : ''}`}>
+                    <label>
+                      <input type="checkbox" checked={done} onChange={() => toggleDevTodo(t.id)} />
+                      <span className="dev-todo-label">{t.label}</span>
+                    </label>
+                    {t.note && <div className="dev-todo-note">{t.note}</div>}
+                    <button
+                      type="button"
+                      className="dev-todo-delete"
+                      onClick={() => deleteDevTodo(t.id)}
+                      aria-label={`Delete "${t.label}"`}
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <form
+              className="dev-todos-add"
+              onSubmit={(e) => { e.preventDefault(); addDevTodo() }}
+            >
+              <input
+                type="text"
+                value={newDevTodoText}
+                onChange={(e) => setNewDevTodoText(e.target.value)}
+                placeholder="Add a new todo…"
+                aria-label="New todo text"
+                maxLength={200}
+              />
+              <button type="submit" disabled={!newDevTodoText.trim()}>Add</button>
+            </form>
+            <div className="dev-todos-hint">
+              {devTodoSync === 'loading' && 'Loading from server…'}
+              {devTodoSync === 'saving' && 'Saving…'}
+              {devTodoSync === 'offline' && 'Server unreachable — saved to this browser only.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status === 'ready' && (
+        <Suspense fallback={null}>
+          <GuidedTour
+          key={tourReplayKey}
+          storageKey="lr_tour_done"
+          forceShow={tourReplayKey > 0}
+          delay={tourReplayKey > 0 ? 100 : 2000}
+          steps={[
+            {
+              selector: '.header-address-wrapper',
+              title: '📍 Change Address',
+              content: 'Click here to search a different U.S. address. Start typing and pick from the suggestions to instantly analyze a new location.',
+              position: 'bottom',
+              beforeShow: () => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) },
+            },
+            {
+              selector: '.layer-panel',
+              title: '🗺️ Map Layers',
+              content: 'Toggle map layers on and off — now organized into collapsible groups: Natural hazards (wildfire, seismic, tornado), Water & flooding, Contamination, plus getting around, day-to-day, livability, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
+              position: 'right',
+              beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
+            },
+            {
+              selector: '.analysis-panel',
+              title: '📊 Recon Report',
+              content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout. The × in the header collapses it; reopen it any time with the "Report" chip at the top-right.',
+              position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) },
+            },
+            {
+              selector: '.analysis-score-bar',
+              title: '🏆 Location Score',
+              content: 'Your overall location grade based on all categories combined. Click it to see a full breakdown explaining how each factor contributed to the score.',
+              position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
+            },
+            {
+              selector: '.analysis-card',
+              title: '🔍 Category Details',
+              content: 'Click any category card to open a detailed flyout to the left with findings, recommendations, and links. The chevron indicates it\'s expandable.',
+              position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
+            },
+            {
+              selector: '.analysis-save-btn',
+              title: '⭐ Save & Compare',
+              content: 'Save this location to stack it up against others. Saved spots show up in a Compare pill at the bottom of the map — open it to see every location ranked side-by-side, best match first.',
+              position: 'left',
+              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
+            },
+            {
+              selector: '.map-container',
+              title: '🌍 Interactive Map',
+              content: 'Explore the map freely — zoom, pan, and click on markers for more info. Layer data updates automatically as you navigate.',
+              position: 'top',
+              beforeShow: () => {
+                const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+                setLayerPanelOpen(false)
+                if (isMobile) setAnalysisPanelOpen(false)
+              },
+            },
+          ]}
+        />
+        </Suspense>
+      )}
+
+    </div>
+  )
+}
+
+
+type AnalysisReportCardsProps = {
+  analysisProgress: Record<string, 'pending' | 'done'>
+  analysisResults: AnalysisResults
+  analysisDetail: AnalysisDetail
+  setAnalysisDetail: React.Dispatch<React.SetStateAction<AnalysisDetail>>
+  workAddress: WorkAddress | null
+  commuteLoading: boolean
+  commuteResult: CommuteEstimate | null
+  commuteError: boolean
+  showClearLayers: boolean
+  setShowClearLayers: React.Dispatch<React.SetStateAction<boolean>>
+  retryCostco: () => void
+}
+
+// Extracted from MapPage's render so the report-card tree is a memoized
+// boundary: unrelated MapPage state changes (map-layer toggles, mousemove-
+// driven state, modals) no longer rebuild every analysis card. Re-renders
+// only when one of its props changes reference (all props are stable state
+// values or useCallback/setState identities), so map interactions that don't
+// touch the analysis results leave this subtree untouched.
+function AnalysisReportCardsInner({
+  analysisProgress,
+  analysisResults,
+  analysisDetail,
+  setAnalysisDetail,
+  workAddress,
+  commuteLoading,
+  commuteResult,
+  commuteError,
+  showClearLayers,
+  setShowClearLayers,
+  retryCostco,
+}: AnalysisReportCardsProps) {
             type CardDesc = { key: string; severity: string; node: React.ReactNode }
             const cards: CardDesc[] = []
 
@@ -7237,290 +7568,8 @@ function MapPage() {
                 )}
               </>
             )
-          })()}
-        </div>
-      </aside>
+          }
 
-      {showAbout && (
-        <div className="about-overlay" onClick={() => setShowAbout(false)}>
-          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="report-about-title">
-            <div className="about-header">
-              <h2 id="report-about-title">About LandRecon</h2>
-              <button className="about-close" onClick={() => setShowAbout(false)} aria-label="Close About">×</button>
-            </div>
-            <div className="about-body">
-              <p>
-                LandRecon helps homebuyers and curious neighbors understand what's really around a property.
-                Enter any U.S. address and instantly see airport noise levels, EPA Superfund sites, nearby
-                data centers, retail proximity, and more — all scored and visualized on an interactive map.
-              </p>
-              <p>
-                Our goal is to surface the hidden factors that affect where you live and work — the kind of
-                details that don't show up in a typical listing but can make all the difference.
-              </p>
-              <h3>What we analyze</h3>
-              <ul>
-                <li>✈️ <strong>Airport Noise</strong> — FAA noise contour data mapped to your address</li>
-                <li>☢️ <strong>Superfund Sites</strong> — EPA hazardous waste sites within 5 miles</li>
-                <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco (a surprisingly strong quality-of-life indicator)</li>
-                <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
-                <li>🏥 <strong>Emergency Rooms</strong> — Distance to the nearest hospital emergency department</li>
-                <li>🎪 <strong>Crowd Magnets</strong> — Stadiums, arenas, and venues that drive seasonal traffic</li>
-                <li>📶 <strong>Broadband</strong> — FCC-reported wired internet providers and speeds at the address</li>
-              </ul>
-              <h3>Optional map layers</h3>
-              <p>
-                Open the <strong>Map Layers</strong> panel to overlay wildfire risk, power transmission lines,
-                FEMA flood zones, EPA industrial facilities, FCC broadband coverage, weather, air quality, and more on top of the map.
-              </p>
-              <h3>How scoring works</h3>
-              <p>
-                Categories are grouped into three tiers based on how much they affect daily life:
-              </p>
-              <ul>
-                <li><strong>Safety</strong> (Airport Noise, Superfund, ER) — weighted heaviest</li>
-                <li><strong>Lifestyle</strong> (Data Centers, Crowd Magnets, Broadband) — moderate weight</li>
-                <li><strong>Convenience</strong> (Costco) — lightest weight</li>
-              </ul>
-              <p>
-                Each category is evaluated and assigned a concern level. Tier weights are combined into
-                an overall letter grade (A through F) so you can compare locations at a glance. Click
-                the score bar for a full breakdown of how each factor contributed.
-              </p>
-              <p className="about-disclaimer">
-                LandRecon is provided for informational purposes only. Data may not be complete or current.
-                Always verify important findings through official sources before making decisions.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-      {analysisDetail && (
-        <LazyLoadErrorBoundary
-          fallback={(
-            <aside className="analysis-popout" role="alert" aria-label="Analysis detail failed to load">
-              <div className="analysis-popout-header">
-                <strong>Couldn't load analysis details</strong>
-                <button
-                  className="analysis-popout-close"
-                  onClick={() => {
-                    if (analysisDetail === 'score') setShowScoreBreakdown(false)
-                    setAnalysisDetail(null)
-                  }}
-                  aria-label="Close detail"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="analysis-popout-body">
-                <button type="button" className="analysis-expand-retry" onClick={() => window.location.reload()}>
-                  Reload LandRecon
-                </button>
-              </div>
-            </aside>
-          )}
-        >
-          <Suspense
-            fallback={(
-              <aside className="analysis-popout" role="status" aria-label="Loading analysis detail">
-                <div className="analysis-popout-header"><strong>Loading details…</strong></div>
-                <div className="analysis-popout-body"><div className="spinner" /></div>
-              </aside>
-            )}
-          >
-            <AnalysisDetailPanel
-              analysisDetail={analysisDetail}
-              analysisResults={analysisResults}
-              address={address}
-              workAddress={workAddress}
-              workAddressEditing={workAddressEditing}
-              workAddressDraft={workAddressDraft}
-              workAddressSaving={workAddressSaving}
-              workAddressInputError={workAddressInputError}
-              commuteLoading={commuteLoading}
-              commuteResult={commuteResult}
-              setAnalysisDetail={setAnalysisDetail}
-              setShowScoreBreakdown={setShowScoreBreakdown}
-              setWorkAddressDraft={setWorkAddressDraft}
-              setWorkAddressInputError={setWorkAddressInputError}
-              setWorkAddressEditing={setWorkAddressEditing}
-              submitWorkAddress={submitWorkAddress}
-              removeWorkAddress={removeWorkAddress}
-              retryCostco={retryCostco}
-            />
-          </Suspense>
-        </LazyLoadErrorBoundary>
-      )}
-
-      {shareModalOpen && (
-        <div className="analysis-detail-overlay" onClick={closeShareModal}>
-          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
-            <button className="analysis-detail-close" onClick={closeShareModal} aria-label="Close">×</button>
-            <h3 id="share-modal-title">Share Results</h3>
-            {shareLoading ? (
-              <div className="share-loading"><div className="spinner" /><p>Creating short link…</p></div>
-            ) : (
-              <>
-                <p className="share-description">
-                  Anyone with this link will see the same address and the layers you have active.
-                </p>
-                <input
-                  className="share-modal-input"
-                  type="text"
-                  readOnly
-                  value={shareUrl || shareLongUrl || ''}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                {shareError && (
-                  <p className="share-error">Could not shorten URL ({shareError}); using the full link instead.</p>
-                )}
-                <div className="share-modal-actions">
-                  {canNativeShare && (
-                    <button className="share-copy-button share-native-button" onClick={handleNativeShare}>
-                      Share…
-                    </button>
-                  )}
-                  <button className="share-copy-button" onClick={handleCopyShare}>
-                    {shareCopied ? '✓ Copied!' : 'Copy link'}
-                  </button>
-                  {shareUrl && (
-                    <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-open-link">
-                      Open in new tab →
-                    </a>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {devTodosOpen && (
-        <div className="analysis-detail-overlay" onClick={() => setDevTodosOpen(false)}>
-          <div className="analysis-detail-popup dev-todos-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="dev-todos-title">
-            <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
-            <h3 id="dev-todos-title">📋 To Do</h3>
-            <p className="dev-todos-summary">
-              {devTodoItems.length === 0
-                ? 'No items yet — add one below.'
-                : remainingDevTodos === 0
-                ? 'All caught up — nice.'
-                : `${remainingDevTodos} of ${devTodoItems.length} remaining`}
-            </p>
-            <ul className="dev-todos-list">
-              {devTodoItems.map((t) => {
-                const done = !!devTodoChecks[t.id]
-                return (
-                  <li key={t.id} className={`dev-todo-item${done ? ' done' : ''}`}>
-                    <label>
-                      <input type="checkbox" checked={done} onChange={() => toggleDevTodo(t.id)} />
-                      <span className="dev-todo-label">{t.label}</span>
-                    </label>
-                    {t.note && <div className="dev-todo-note">{t.note}</div>}
-                    <button
-                      type="button"
-                      className="dev-todo-delete"
-                      onClick={() => deleteDevTodo(t.id)}
-                      aria-label={`Delete "${t.label}"`}
-                      title="Delete"
-                    >
-                      ×
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-            <form
-              className="dev-todos-add"
-              onSubmit={(e) => { e.preventDefault(); addDevTodo() }}
-            >
-              <input
-                type="text"
-                value={newDevTodoText}
-                onChange={(e) => setNewDevTodoText(e.target.value)}
-                placeholder="Add a new todo…"
-                aria-label="New todo text"
-                maxLength={200}
-              />
-              <button type="submit" disabled={!newDevTodoText.trim()}>Add</button>
-            </form>
-            <div className="dev-todos-hint">
-              {devTodoSync === 'loading' && 'Loading from server…'}
-              {devTodoSync === 'saving' && 'Saving…'}
-              {devTodoSync === 'offline' && 'Server unreachable — saved to this browser only.'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {status === 'ready' && (
-        <Suspense fallback={null}>
-          <GuidedTour
-          key={tourReplayKey}
-          storageKey="lr_tour_done"
-          forceShow={tourReplayKey > 0}
-          delay={tourReplayKey > 0 ? 100 : 2000}
-          steps={[
-            {
-              selector: '.header-address-wrapper',
-              title: '📍 Change Address',
-              content: 'Click here to search a different U.S. address. Start typing and pick from the suggestions to instantly analyze a new location.',
-              position: 'bottom',
-              beforeShow: () => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) },
-            },
-            {
-              selector: '.layer-panel',
-              title: '🗺️ Map Layers',
-              content: 'Toggle map layers on and off — now organized into collapsible groups: Natural hazards (wildfire, seismic, tornado), Water & flooding, Contamination, plus getting around, day-to-day, livability, and more. On desktop, open it any time from the "Map Layers" chip at the top-left.',
-              position: 'right',
-              beforeShow: () => { setLayerPanelOpen(true); setAnalysisPanelOpen(false) },
-            },
-            {
-              selector: '.analysis-panel',
-              title: '📊 Recon Report',
-              content: 'This panel shows a summary of what was found at this address. Each category card is clickable — tap one to see detailed findings in a flyout. The × in the header collapses it; reopen it any time with the "Report" chip at the top-right.',
-              position: 'left',
-              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false); setSheetHeight(null) },
-            },
-            {
-              selector: '.analysis-score-bar',
-              title: '🏆 Location Score',
-              content: 'Your overall location grade based on all categories combined. Click it to see a full breakdown explaining how each factor contributed to the score.',
-              position: 'left',
-              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
-            },
-            {
-              selector: '.analysis-card',
-              title: '🔍 Category Details',
-              content: 'Click any category card to open a detailed flyout to the left with findings, recommendations, and links. The chevron indicates it\'s expandable.',
-              position: 'left',
-              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
-            },
-            {
-              selector: '.analysis-save-btn',
-              title: '⭐ Save & Compare',
-              content: 'Save this location to stack it up against others. Saved spots show up in a Compare pill at the bottom of the map — open it to see every location ranked side-by-side, best match first.',
-              position: 'left',
-              beforeShow: () => { setAnalysisPanelOpen(true); setLayerPanelOpen(false) },
-            },
-            {
-              selector: '.map-container',
-              title: '🌍 Interactive Map',
-              content: 'Explore the map freely — zoom, pan, and click on markers for more info. Layer data updates automatically as you navigate.',
-              position: 'top',
-              beforeShow: () => {
-                const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-                setLayerPanelOpen(false)
-                if (isMobile) setAnalysisPanelOpen(false)
-              },
-            },
-          ]}
-        />
-        </Suspense>
-      )}
-
-    </div>
-  )
-}
+const AnalysisReportCards = memo(AnalysisReportCardsInner)
 
 export default MapPage
