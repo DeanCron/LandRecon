@@ -7125,13 +7125,14 @@ function MapPage() {
             {
               // Commute Time — opt-in check against a user-entered work address,
               // not a fixed dataset. Lives right above Costco in the convenience
-              // tier. When no work address is set yet, the card just prompts the
-              // user to add one via the detail popout rather than showing a
-              // permanent spinner (which would reintroduce the progress-count
-              // mismatch bug fixed earlier — this card is deliberately excluded
-              // from the fixed analysisProgress check list for that reason).
+              // tier. When no work address is set yet, the card surfaces in
+              // "Needs attention" (severity 'unavailable') to prompt the user to
+              // add one via the detail popout, rather than showing a permanent
+              // spinner (which would reintroduce the progress-count mismatch bug
+              // fixed earlier — this card is deliberately excluded from the fixed
+              // analysisProgress check list for that reason).
               const severity = !workAddress
-                ? 'clear'
+                ? 'unavailable'
                 : commuteLoading
                   ? 'pending'
                   : commuteResult
