@@ -491,13 +491,20 @@ async function createClusterGroup(color?: string): Promise<L.MarkerClusterGroup>
   })
 }
 
+const dotIconCache = new Map<string, L.DivIcon>()
 function makeDotIcon(color: string, size: number): L.DivIcon {
-  return L.divIcon({
-    className: 'cluster-dot',
-    html: `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.15)"></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  })
+  const cacheKey = `${color}:${size}`
+  let icon = dotIconCache.get(cacheKey)
+  if (!icon) {
+    icon = L.divIcon({
+      className: 'cluster-dot',
+      html: `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.15)"></div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    })
+    dotIconCache.set(cacheKey, icon)
+  }
+  return icon
 }
 
 // Camera marker — a colored chip with a camera glyph. Larger than the
@@ -521,6 +528,160 @@ function makeCameraIcon(color: string, direction?: string): L.DivIcon {
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   })
+}
+
+// ── Shared analysis-pin icons ──────────────────────────────────────────────
+// These pins have a small, finite set of appearances, so build each distinct
+// divIcon once and share the instance across markers instead of allocating a
+// fresh one per marker on every analysis/pan. (Leaflet's createIcon still
+// clones a DOM node per marker; sharing the icon object just removes the
+// redundant allocation + GC churn.)
+const ER_PIN_ICON = L.divIcon({
+  className: 'er-label',
+  html: `<div class="er-pin">🚑</div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+})
+
+const COSTCO_PIN_ICON = L.divIcon({
+  className: 'costco-label',
+  html: `<div class="costco-pin">C</div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+})
+
+const dcPinIconCache = new Map<string, L.DivIcon>()
+function dcPinIcon(color: string): L.DivIcon {
+  let icon = dcPinIconCache.get(color)
+  if (!icon) {
+    icon = L.divIcon({
+      className: 'dc-label',
+      html: `<div class="dc-pin" style="background:${color}">🏢</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    })
+    dcPinIconCache.set(color, icon)
+  }
+  return icon
+}
+
+const crowdPinIconCache = new Map<string, L.DivIcon>()
+function crowdPinIcon(type: CrowdType): L.DivIcon {
+  let icon = crowdPinIconCache.get(type)
+  if (!icon) {
+    icon = L.divIcon({
+      className: 'crowd-label',
+      html: `<div class="crowd-pin" style="background:${CROWD_COLORS[type]}">${CROWD_ICONS[type]}</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    })
+    crowdPinIconCache.set(type, icon)
+  }
+  return icon
+}
+
+// ── Diffed analysis-overlay renderer ───────────────────────────────────────
+// Analysis-highlight pins were previously torn down (clearLayers) and rebuilt
+// from scratch on every analysis, re-running Leaflet's per-marker createIcon
+// even for pins that hadn't changed. syncDiffOverlay keeps a keyed registry of
+// live markers and only adds genuinely-new keys / removes ones that are gone.
+// The container is created lazily and can optionally be a marker cluster group
+// so dense in-radius sets (e.g. Superfund sites) don't each render a DOM node.
+interface DiffOverlayState {
+  group: L.LayerGroup | null
+  creating: Promise<L.LayerGroup> | null
+  chain: Promise<void>
+  markers: Map<string, L.Marker>
+}
+
+interface OverlayEntry {
+  key: string
+  build: () => L.Marker
+}
+
+function makeOverlayState(): DiffOverlayState {
+  return { group: null, creating: null, chain: Promise.resolve(), markers: new Map() }
+}
+
+// MarkerClusterGroup adds bulk add/removeLayers; a plain LayerGroup does not.
+type BulkLayerGroup = L.LayerGroup & {
+  addLayers?: (layers: L.Layer[]) => void
+  removeLayers?: (layers: L.Layer[]) => void
+}
+
+async function syncDiffOverlayInner(
+  map: L.Map,
+  state: DiffOverlayState,
+  entries: OverlayEntry[],
+  opts: { clustered?: boolean; color?: string },
+): Promise<void> {
+  if (!state.group) {
+    if (!state.creating) {
+      state.creating = (opts.clustered
+        ? createClusterGroup(opts.color)
+        : Promise.resolve(L.layerGroup())
+      ).then((group) => {
+        group.addTo(map)
+        state.group = group
+        return group
+      })
+    }
+    await state.creating
+  }
+  const group = state.group as BulkLayerGroup
+
+  const nextKeys = new Set(entries.map((e) => e.key))
+  const removals: L.Marker[] = []
+  for (const [key, marker] of state.markers) {
+    if (!nextKeys.has(key)) {
+      removals.push(marker)
+      state.markers.delete(key)
+    }
+  }
+  if (removals.length) {
+    if (group.removeLayers) group.removeLayers(removals)
+    else for (const m of removals) group.removeLayer(m)
+  }
+
+  const additions: L.Marker[] = []
+  for (const entry of entries) {
+    if (state.markers.has(entry.key)) continue
+    const marker = entry.build()
+    state.markers.set(entry.key, marker)
+    additions.push(marker)
+  }
+  if (additions.length) {
+    if (group.addLayers) group.addLayers(additions)
+    else for (const m of additions) group.addLayer(m)
+  }
+}
+
+// Serialize successive syncs per overlay so an in-flight async cluster-group
+// creation can't interleave with a later analysis and corrupt the registry.
+function syncDiffOverlay(
+  map: L.Map,
+  state: DiffOverlayState,
+  entries: OverlayEntry[],
+  opts: { clustered?: boolean; color?: string } = {},
+): void {
+  state.chain = state.chain
+    .then(() => syncDiffOverlayInner(map, state, entries, opts))
+    .catch((err) => { console.error('[LandRecon] analysis overlay sync failed', err) })
+}
+
+// Remove every marker from a diffed overlay (used when the address changes).
+function clearDiffOverlay(state: DiffOverlayState): void {
+  state.chain = state.chain
+    .then(() => {
+      if (state.group && state.markers.size) {
+        const group = state.group as BulkLayerGroup
+        const all = [...state.markers.values()]
+        if (group.removeLayers) group.removeLayers(all)
+        else for (const m of all) group.removeLayer(m)
+      }
+      state.markers.clear()
+    })
+    .catch((err) => { console.error('[LandRecon] analysis overlay clear failed', err) })
 }
 
 interface TomTomSuggestion {
@@ -633,10 +794,10 @@ function MapPage() {
   // map independently of the user-toggleable main layers, so the "Map Layers"
   // checkboxes stay user-controlled while the analysis still gets a visual
   // representation. Re-populated on every successful analysis run.
-  const superfundAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
-  const costcoAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
-  const dataCenterAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
-  const crowdAnalysisLayerRef = useRef<L.LayerGroup | null>(null)
+  const superfundAnalysisStateRef = useRef<DiffOverlayState>(makeOverlayState())
+  const costcoAnalysisStateRef = useRef<DiffOverlayState>(makeOverlayState())
+  const dataCenterAnalysisStateRef = useRef<DiffOverlayState>(makeOverlayState())
+  const crowdAnalysisStateRef = useRef<DiffOverlayState>(makeOverlayState())
   const nearestErMarkerRef = useRef<L.Marker | null>(null)
   const targetLocationRef = useRef<L.LatLng | null>(null)
   const homeMarkerRef = useRef<L.Marker | null>(null)
@@ -3165,10 +3326,10 @@ function MapPage() {
           }
           // Clear analysis-highlight pins from the previous address so the
           // map doesn't show stale markers while the new analysis runs.
-          superfundAnalysisLayerRef.current?.clearLayers()
-          costcoAnalysisLayerRef.current?.clearLayers()
-          dataCenterAnalysisLayerRef.current?.clearLayers()
-          crowdAnalysisLayerRef.current?.clearLayers()
+          clearDiffOverlay(superfundAnalysisStateRef.current)
+          clearDiffOverlay(costcoAnalysisStateRef.current)
+          clearDiffOverlay(dataCenterAnalysisStateRef.current)
+          clearDiffOverlay(crowdAnalysisStateRef.current)
           if (nearestErMarkerRef.current) {
             map.removeLayer(nearestErMarkerRef.current)
             nearestErMarkerRef.current = null
@@ -3183,6 +3344,12 @@ function MapPage() {
         const map = L.map(mapContainer.current!, {
           center: [lat, lng],
           zoom: 13,
+          // Match the base street/satellite tile maxZoom (21). Set explicitly
+          // at creation so a marker cluster group added before the async base
+          // tile layer loads (e.g. the Superfund analysis overlay on the first
+          // analysis) always sees a finite getMaxZoom(); leaflet.markercluster
+          // throws "Map has no maxZoom specified" otherwise.
+          maxZoom: 21,
           zoomControl: false,
           preferCanvas: true,
         })
@@ -3360,13 +3527,10 @@ function MapPage() {
 
         camerasLayerRef.current = L.layerGroup()
 
-        // Analysis-highlight layer groups: added to the map immediately so
-        // the analysis effect can drop pins into them without touching the
-        // user-toggleable main layers above. Empty until analysis runs.
-        superfundAnalysisLayerRef.current = L.layerGroup().addTo(map)
-        costcoAnalysisLayerRef.current = L.layerGroup().addTo(map)
-        dataCenterAnalysisLayerRef.current = L.layerGroup().addTo(map)
-        crowdAnalysisLayerRef.current = L.layerGroup().addTo(map)
+        // Analysis-highlight overlays are created lazily by syncDiffOverlay on
+        // the first analysis (Superfund pins cluster; the others are plain
+        // layer groups) so we don't pre-pay for containers that may never be
+        // used. Each keeps a keyed marker registry and diffs on every analysis.
 
         // Create traffic flow layer (not added to map until toggled on)
         trafficLayerRef.current = L.tileLayer(TRAFFIC_TILE_URL, {
@@ -3518,10 +3682,10 @@ function MapPage() {
       camerasLayerRef.current = null
       camerasLoadedBoundsRef.current = null
       camerasKnownIds.clear()
-      superfundAnalysisLayerRef.current = null
-      costcoAnalysisLayerRef.current = null
-      dataCenterAnalysisLayerRef.current = null
-      crowdAnalysisLayerRef.current = null
+      superfundAnalysisStateRef.current = makeOverlayState()
+      costcoAnalysisStateRef.current = makeOverlayState()
+      dataCenterAnalysisStateRef.current = makeOverlayState()
+      crowdAnalysisStateRef.current = makeOverlayState()
       nearestErMarkerRef.current = null
       homeMarkerRef.current = null
       mapRef.current?.remove()
@@ -3721,12 +3885,7 @@ function MapPage() {
       const sub = subs[dc.status]
       if (!sub) return
       const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
-      const icon = L.divIcon({
-        className: 'dc-label',
-        html: `<div class="dc-pin" style="background:${color}">🏢</div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-      })
+      const icon = dcPinIcon(color)
       const dcTitle = dc.name || 'Data Center'
       const dcTip = [dc.operator ? `${dcTitle} (${dc.operator})` : dcTitle]
       if (dc.city || dc.state) dcTip.push([dc.city, dc.state].filter(Boolean).join(', '))
@@ -4196,13 +4355,7 @@ function MapPage() {
         const sub = subLayers[m.type]
         if (!sub) continue
         const color = CROWD_COLORS[m.type]
-        const emoji = CROWD_ICONS[m.type]
-        const icon = L.divIcon({
-          className: 'crowd-label',
-          html: `<div class="crowd-pin" style="background:${color}">${emoji}</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        })
+        const icon = crowdPinIcon(m.type)
         L.marker([m.lat, m.lng], { icon })
           .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
           .bindPopup(facilityPopupHtml({
@@ -5375,11 +5528,11 @@ function MapPage() {
     if (!map) return
 
     // Superfund highlights — pin every site within the analysis radius.
+    // Clustered so dense industrial areas don't each render a DOM marker.
     {
-      const layer = superfundAnalysisLayerRef.current
-      if (layer) {
-        layer.clearLayers()
-        for (const s of analysisResults.superfunds) {
+      const entries: OverlayEntry[] = analysisResults.superfunds.map((s) => ({
+        key: s.epaId || `${s.lat},${s.lng}`,
+        build: () =>
           L.marker([s.lat, s.lng], { icon: SUPERFUND_ICON, riseOnHover: true })
             .bindTooltip(s.name, { direction: 'top', offset: [0, -16] })
             .bindPopup(facilityPopupHtml({
@@ -5388,10 +5541,9 @@ function MapPage() {
               rows: [s.city || null, `${s.distanceMi} mi away`],
               linkHref: s.url || null,
               linkText: 'EPA site report',
-            }), { maxWidth: 320 })
-            .addTo(layer)
-        }
-      }
+            }), { maxWidth: 320 }),
+      }))
+      syncDiffOverlay(map, superfundAnalysisStateRef.current, entries, { clustered: true, color: '#b71c1c' })
     }
 
     // Costco highlight pins are dropped by a dedicated effect below (Costco
@@ -5408,15 +5560,9 @@ function MapPage() {
         nearestErMarkerRef.current = null
       }
       const er = analysisResults.nearestER
-      const icon = L.divIcon({
-        className: 'er-label',
-        html: `<div class="er-pin">🚑</div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      })
       const tooltipParts = [er.name]
       if (er.address) tooltipParts.push(er.address)
-      const marker = L.marker([er.lat, er.lng], { icon })
+      const marker = L.marker([er.lat, er.lng], { icon: ER_PIN_ICON })
         .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
         .bindPopup(facilityPopupHtml({
           title: er.name,
@@ -5430,63 +5576,48 @@ function MapPage() {
 
     // Data Center highlights — pin every facility within the analysis radius.
     {
-      const layer = dataCenterAnalysisLayerRef.current
-      if (layer) {
-        layer.clearLayers()
-        for (const dc of analysisResults.dataCenters) {
-          const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
-          const icon = L.divIcon({
-            className: 'dc-label',
-            html: `<div class="dc-pin" style="background:${color}">🏢</div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-          })
-          const dcTitle = dc.name || 'Data Center'
-          const dcTip = [dc.operator ? `${dcTitle} (${dc.operator})` : dcTitle]
-          if (dc.city || dc.state) dcTip.push([dc.city, dc.state].filter(Boolean).join(', '))
-          const dcRows: string[] = []
-          if (dc.operator) dcRows.push(`Operator: ${dc.operator}`)
-          const dcLoc = [dc.city, dc.state].filter(Boolean).join(', ')
-          if (dcLoc) dcRows.push(dcLoc)
-          dcRows.push(`${dc.distanceMi} mi away`)
-          if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
-          if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
-          L.marker([dc.lat, dc.lng], { icon })
-            .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
-            .bindPopup(facilityPopupHtml({
-              title: dcTitle,
-              badges: [{ text: `Status: ${dc.status}`, color }],
-              rows: dcRows,
-            }), { maxWidth: 320 })
-            .addTo(layer)
+      const entries: OverlayEntry[] = analysisResults.dataCenters.map((dc) => {
+        const color = DC_STATUS_COLORS[dc.status] || '#6b7280'
+        return {
+          key: `${dc.lat},${dc.lng}:${dc.status}`,
+          build: () => {
+            const dcTitle = dc.name || 'Data Center'
+            const dcTip = [dc.operator ? `${dcTitle} (${dc.operator})` : dcTitle]
+            if (dc.city || dc.state) dcTip.push([dc.city, dc.state].filter(Boolean).join(', '))
+            const dcRows: string[] = []
+            if (dc.operator) dcRows.push(`Operator: ${dc.operator}`)
+            const dcLoc = [dc.city, dc.state].filter(Boolean).join(', ')
+            if (dcLoc) dcRows.push(dcLoc)
+            dcRows.push(`${dc.distanceMi} mi away`)
+            if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
+            if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
+            return L.marker([dc.lat, dc.lng], { icon: dcPinIcon(color) })
+              .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
+              .bindPopup(facilityPopupHtml({
+                title: dcTitle,
+                badges: [{ text: `Status: ${dc.status}`, color }],
+                rows: dcRows,
+              }), { maxWidth: 320 })
+          },
         }
-      }
+      })
+      syncDiffOverlay(map, dataCenterAnalysisStateRef.current, entries)
     }
 
     // Crowd Magnet highlights — pin every magnet within the analysis radius.
     {
-      const layer = crowdAnalysisLayerRef.current
-      if (layer) {
-        layer.clearLayers()
-        for (const m of analysisResults.crowdMagnets) {
-          const color = CROWD_COLORS[m.type]
-          const emoji = CROWD_ICONS[m.type]
-          const icon = L.divIcon({
-            className: 'crowd-label',
-            html: `<div class="crowd-pin" style="background:${color}">${emoji}</div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-          })
-          L.marker([m.lat, m.lng], { icon })
+      const entries: OverlayEntry[] = analysisResults.crowdMagnets.map((m) => ({
+        key: m.id,
+        build: () =>
+          L.marker([m.lat, m.lng], { icon: crowdPinIcon(m.type) })
             .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
             .bindPopup(facilityPopupHtml({
               title: m.name || CROWD_LABEL_SINGULAR[m.type],
-              badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color }],
+              badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color: CROWD_COLORS[m.type] }],
               rows: [`${m.distanceMi} mi away`],
-            }), { maxWidth: 320 })
-            .addTo(layer)
-        }
-      }
+            }), { maxWidth: 320 }),
+      }))
+      syncDiffOverlay(map, crowdAnalysisStateRef.current, entries)
     }
 
     const center = map.getCenter()
@@ -5535,32 +5666,31 @@ function MapPage() {
   // later). It deliberately does NOT re-fit the map — the main effect already
   // framed the viewport, and re-panning a second later would be jarring.
   useEffect(() => {
-    if (!mapRef.current) return
-    const layer = costcoAnalysisLayerRef.current
-    if (!layer) return
-    layer.clearLayers()
-    if (analysisResults.loading) return
+    const map = mapRef.current
+    if (!map) return
+    const state = costcoAnalysisStateRef.current
+    if (analysisResults.loading) {
+      clearDiffOverlay(state)
+      return
+    }
     const auto = analysisResults.costcoNearby.length > 0
       ? analysisResults.costcoNearby
       : (analysisResults.costcoNearestBeyond ? [analysisResults.costcoNearestBeyond] : [])
-    for (const c of auto) {
-      const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
-      if (c.address) tooltipParts.push(c.address)
-      const icon = L.divIcon({
-        className: 'costco-label',
-        html: `<div class="costco-pin">C</div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      })
-      L.marker([c.lat, c.lng], { icon })
-        .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
-        .bindPopup(facilityPopupHtml({
-          title: c.city ? `Costco — ${c.city}` : 'Costco',
-          badges: [{ text: 'Warehouse', color: '#0060a9' }],
-          rows: [c.address || null, `${c.distanceMi} mi away`],
-        }), { maxWidth: 320 })
-        .addTo(layer)
-    }
+    const entries: OverlayEntry[] = auto.map((c) => ({
+      key: c.osmId,
+      build: () => {
+        const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
+        if (c.address) tooltipParts.push(c.address)
+        return L.marker([c.lat, c.lng], { icon: COSTCO_PIN_ICON })
+          .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
+          .bindPopup(facilityPopupHtml({
+            title: c.city ? `Costco — ${c.city}` : 'Costco',
+            badges: [{ text: 'Warehouse', color: '#0060a9' }],
+            rows: [c.address || null, `${c.distanceMi} mi away`],
+          }), { maxWidth: 320 })
+      },
+    }))
+    syncDiffOverlay(map, state, entries)
   }, [analysisResults.loading, analysisResults.costcoNearby, analysisResults.costcoNearestBeyond])
 
   // Stamp the computed grade onto the Recent search entry so the home page
