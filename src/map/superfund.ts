@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import { assertNoApiErrorPayload } from './fetchRetry'
 
 export const SUPERFUND_API =
   'https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/FAC_Superfund_Site_Boundaries_EPA_Public/FeatureServer/0/query'
@@ -78,5 +79,9 @@ export async function fetchSuperfundFeatures(bounds: L.LatLngBounds): Promise<Ge
     resultRecordCount: '500',
   })
   const res = await fetch(`${SUPERFUND_API}?${params}`)
-  return res.json()
+  if (!res.ok) throw new Error(`Superfund query failed: HTTP ${res.status}`)
+  const data = await res.json()
+  assertNoApiErrorPayload(data)
+  if (!Array.isArray(data?.features)) throw new Error('Superfund query returned an invalid response')
+  return data
 }

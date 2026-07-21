@@ -7,6 +7,25 @@ afterEach(() => {
 })
 
 describe('fetchOverpass concurrency', () => {
+  it('falls back when an endpoint returns an HTTP-200 runtime error', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          elements: [],
+          remark: 'runtime error: Query ran out of memory',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ elements: [{ id: 1 }] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchOverpass('query')).resolves.toEqual({ elements: [{ id: 1 }] })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('removes an aborted request while it is waiting for a slot', async () => {
     let resolveFirst!: (value: Response) => void
     let resolveSecond!: (value: Response) => void

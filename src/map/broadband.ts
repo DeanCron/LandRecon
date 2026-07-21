@@ -2,6 +2,7 @@
 // the same-origin /api/broadband sidecar endpoint, so no CSP burn and the
 // FCC API token never reaches the browser. See server/broadband.mjs and
 // scripts/build-broadband-index.mjs for the bootstrap pipeline.
+import { startPerformanceSpan } from '../utils/performanceTelemetry'
 export type BroadbandTech = { code: number; label: string }
 export type BroadbandProvider = { name: string; tech: number; down: number; up: number; br: string }
 export type BroadbandBlock = {
@@ -44,11 +45,18 @@ export function formatBroadbandSpeed(mbps: number | null | undefined): string {
 }
 
 export async function fetchBroadband(lat: number, lng: number, signal?: AbortSignal): Promise<BroadbandResponse | null> {
+  const finishTiming = startPerformanceSpan('api_broadband')
   try {
     const res = await fetch(`/api/broadband?lat=${lat}&lng=${lng}`, { signal })
-    if (!res.ok) return null
-    return await res.json() as BroadbandResponse
+    if (!res.ok) {
+      finishTiming('error', { status: res.status })
+      return null
+    }
+    const data = await res.json() as BroadbandResponse
+    finishTiming('success')
+    return data
   } catch {
+    finishTiming(signal?.aborted ? 'cancelled' : 'error')
     return null
   }
 }

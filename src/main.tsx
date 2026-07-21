@@ -5,7 +5,9 @@ import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
 import { initAnalytics } from './utils/analytics'
+import { scrubMapAddressBeforeAnalytics } from './utils/mapAddressState'
 
+scrubMapAddressBeforeAnalytics()
 initAnalytics()
 
 // Register the auto-update service worker. Workbox precaches the app shell

@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { floodBucket, floodSeverity, floodZoneLabel } from './flood'
+import L from 'leaflet'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { fetchFloodFeatures, floodBucket, floodSeverity, floodZoneLabel } from './flood'
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('floodBucket', () => {
   it('maps high-risk SFHA zones to "high"', () => {
@@ -47,5 +54,24 @@ describe('floodZoneLabel', () => {
     expect(floodZoneLabel({ FLD_ZONE: 'AE', ZONE_SUBTY: 'FLOODWAY' })).toBe('Zone AE — FLOODWAY')
     expect(floodZoneLabel({ FLD_ZONE: 'X' })).toBe('Zone X')
     expect(floodZoneLabel(null)).toBe('Zone Unknown')
+  })
+})
+
+describe('fetchFloodFeatures', () => {
+  it('rejects a root ArcGIS error envelope after retries', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ error: { code: 500 } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = expect(fetchFloodFeatures(
+      L.latLngBounds([40, -105], [40.1, -104.9]),
+    )).rejects.toThrow('API error 500')
+    await vi.runAllTimersAsync()
+
+    await request
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })

@@ -1,4 +1,5 @@
 import { dbg } from '../utils/debug'
+import { startPerformanceSpan, toTelemetryDuration } from '../utils/performanceTelemetry'
 
 // Overpass requests are routed through a same-origin nginx proxy (see
 // nginx.conf and vite.config.ts) that injects a non-Mozilla User-Agent.
@@ -67,6 +68,7 @@ export interface OverpassElement {
 
 export interface OverpassResponse {
   elements?: OverpassElement[]
+  remark?: string
   [key: string]: unknown
 }
 
@@ -76,15 +78,24 @@ export async function fetchOverpass<T = OverpassResponse>(
 ): Promise<T | null> {
   const { timeoutMs = 12000, signal: externalSignal, label } = opts
   const tag = label ? `overpass:${label}` : 'overpass'
+  const operation = label && /^[a-z0-9_-]{1,32}$/i.test(label) ? label : 'generic'
+  const finishTiming = startPerformanceSpan('api_overpass', { operation })
+  const queuedAt = performance.now()
   const body = `data=${encodeURIComponent(query)}`
   const release = await acquireOverpassSlot(externalSignal)
-  if (!release) return null
+  const queueMs = toTelemetryDuration(performance.now() - queuedAt)
+  if (!release) {
+    finishTiming('cancelled', { queue_ms: queueMs, attempts: 0 })
+    return null
+  }
   try {
     let lastErr: unknown = null
+    let attempts = 0
     // One attempt per mirror, failing straight over to the other on a timeout or
     // rate-limit rather than hammering the same overloaded server twice.
-    for (const url of OVERPASS_ENDPOINTS) {
+    for (const [index, url] of OVERPASS_ENDPOINTS.entries()) {
       if (externalSignal?.aborted) break
+      attempts++
       dbg(tag, `${url}`)
       const ctrl = new AbortController()
       const onExternalAbort = () => ctrl.abort()
@@ -107,7 +118,18 @@ export async function fetchOverpass<T = OverpassResponse>(
           lastErr = new Error(`Overpass HTTP ${res.status} at ${url}`)
           continue
         }
-        return (await res.json()) as T
+        const data = (await res.json()) as T
+        const remark = (data as { remark?: unknown }).remark
+        if (typeof remark === 'string' && remark.trim()) {
+          lastErr = new Error(`Overpass returned an error response at ${url}`)
+          continue
+        }
+        finishTiming('success', {
+          queue_ms: queueMs,
+          attempts,
+          mirror: index === 0 ? 'primary' : 'fallback',
+        })
+        return data
       } catch (err) {
         // Network error or per-attempt timeout — try the next mirror.
         lastErr = err
@@ -118,6 +140,10 @@ export async function fetchOverpass<T = OverpassResponse>(
       }
     }
     console.warn('Overpass: all endpoints failed', lastErr)
+    finishTiming(externalSignal?.aborted ? 'cancelled' : 'error', {
+      queue_ms: queueMs,
+      attempts,
+    })
     return null
   } finally {
     release()

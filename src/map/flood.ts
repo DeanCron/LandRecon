@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { fetchJsonWithRetry } from './fetchRetry'
+import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 // ── FEMA National Flood Hazard Layer (NFHL) ─────────────────────────────
 export const FLOOD_API =
@@ -159,6 +159,7 @@ export async function fetchFloodFeatures(
     })
     const url = `${FLOOD_API}?${params}`
     let data: (GeoJSON.FeatureCollection & { exceededTransferLimit?: boolean }) | null = null
+    let lastError: unknown = null
     // Retry transient FEMA failures (intermittent HTTP 500s, connection resets)
     // with a short backoff before giving up on the cell.
     for (let attempt = 0; attempt <= FLOOD_FETCH_RETRIES; attempt++) {
@@ -166,15 +167,20 @@ export async function fetchFloodFeatures(
         const res = await fetch(url, { signal: AbortSignal.timeout(FLOOD_FETCH_TIMEOUT_MS) })
         if (!res.ok) throw new Error(`FEMA NFHL ${res.status}`)
         data = await res.json()
+        assertNoApiErrorPayload(data)
         break
-      } catch {
+      } catch (err) {
+        lastError = err
         data = null
         if (attempt < FLOOD_FETCH_RETRIES) {
           await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
         }
       }
     }
-    if (!data || !Array.isArray(data.features)) return
+    if (!data || !Array.isArray(data.features)) {
+      if (depth === 0) throw lastError ?? new Error('FEMA NFHL returned an invalid response')
+      return
+    }
 
     // Always keep this cell's own features, so we still render something (the
     // same truncated set the API would otherwise return) even if the refining
@@ -226,7 +232,11 @@ export async function fetchFloodAtPoint(
   })
   const data = await fetchJsonWithRetry<GeoJSON.FeatureCollection>(
     `${FLOOD_API}?${params}`,
-    { init: { signal } },
+    {
+      init: { signal },
+      telemetryLabel: 'flood_point',
+      validate: assertNoApiErrorPayload,
+    },
   )
   const feats = data.features ?? []
   let best: FloodPointResult | null = null

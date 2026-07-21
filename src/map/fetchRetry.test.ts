@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { fetchJsonWithRetry } from './fetchRetry'
+import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -23,6 +23,22 @@ describe('fetchJsonWithRetry', () => {
     vi.stubGlobal('fetch', fetchMock)
     const data = await fetchJsonWithRetry('https://x', { retries: 2, backoffMs: 0 })
     expect(data).toEqual({ ok: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries application-level error payloads before reporting success', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ error: { code: 500 } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: [] }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const data = await fetchJsonWithRetry<{ error?: { code: number }; features?: unknown[] }>(
+      'https://x',
+      { retries: 1, backoffMs: 0, validate: assertNoApiErrorPayload },
+    )
+
+    expect(data).toEqual({ features: [] })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

@@ -1,6 +1,7 @@
 import { quantizeCoord } from '../utils/perf'
 
-const ANALYSIS_CACHE_PREFIX = 'lr_analysis_v6:'
+const ANALYSIS_CACHE_VERSION = 7
+const ANALYSIS_CACHE_PREFIX = `lr_analysis_v${ANALYSIS_CACHE_VERSION}:`
 // Persisted in localStorage so a recently-analyzed address is instant on a
 // return visit (even after closing the tab). The underlying data is mostly
 // static infrastructure (flood zones, Superfund sites, data centers, nearest
@@ -72,7 +73,13 @@ function pruneExpiredEntries() {
     const stale: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (!key || !key.startsWith(ANALYSIS_CACHE_PREFIX)) continue
+      if (!key) continue
+      const versionMatch = /^lr_analysis_v(\d+):/.exec(key)
+      if (versionMatch && Number(versionMatch[1]) < ANALYSIS_CACHE_VERSION) {
+        stale.push(key)
+        continue
+      }
+      if (!key.startsWith(ANALYSIS_CACHE_PREFIX)) continue
       try {
         const parsed = JSON.parse(localStorage.getItem(key) ?? 'null') as CachedAnalysisPayload | null
         if (!parsed || now - parsed.ts > ANALYSIS_CACHE_TTL_MS) stale.push(key)
@@ -90,6 +97,7 @@ export function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysi
   if (typeof localStorage === 'undefined') return
   const key = analysisCacheKey(lat, lng)
   const value = JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload)
+  pruneExpiredEntries()
   try {
     localStorage.setItem(key, value)
   } catch {

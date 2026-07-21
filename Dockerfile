@@ -8,6 +8,7 @@ RUN npm ci
 COPY index.html vite.config.ts tsconfig*.json ./
 COPY src/ src/
 COPY public/ public/
+COPY scripts/check-bundle-budget.mjs scripts/check-bundle-budget.mjs
 ARG VITE_NOISE_PMTILES_URL
 ENV VITE_NOISE_PMTILES_URL=$VITE_NOISE_PMTILES_URL
 ARG BUILD_GIT_HASH
@@ -72,4 +73,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:8000/ > /dev/null || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
-

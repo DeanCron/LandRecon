@@ -19,6 +19,7 @@
 //
 // Fail-open: if IndexedDB is unavailable (private browsing, quota errors,
 // SSR), every call falls through to the network unwrapped.
+import { startPerformanceSpan } from './performanceTelemetry'
 
 const DB_NAME = 'landrecon-places-cache'
 const DB_VERSION = 1
@@ -54,6 +55,7 @@ export interface CachedPlacesOpts {
   radiusBucketM?: number
   /** Force-skip the cache (still writes the response back on success). */
   bypassRead?: boolean
+  telemetryLabel?: string
 }
 
 interface CacheEntry {
@@ -262,7 +264,12 @@ export async function cachedPlacesSearchText(opts: CachedPlacesOpts): Promise<{ 
     gridDeg = DEFAULT_GRID_DEG,
     radiusBucketM = DEFAULT_RADIUS_BUCKET_M,
     bypassRead = false,
+    telemetryLabel,
   } = opts
+  const operation = telemetryLabel && /^[a-z0-9_-]{1,32}$/i.test(telemetryLabel)
+    ? telemetryLabel
+    : 'generic'
+  const finishTiming = startPerformanceSpan('api_places', { operation })
 
   const snapped = snapBody(body, gridDeg, radiusBucketM)
   const key = makeKey(snapped, fieldMask)
@@ -276,6 +283,7 @@ export async function cachedPlacesSearchText(opts: CachedPlacesOpts): Promise<{ 
       dbg(`HIT  q="${body.textQuery}" age=${Math.round((now - hit.insertedAt) / 1000)}s`)
       // Update lastReadAt (fire-and-forget so we don't block the caller).
       void idbPut(db, { ...hit, lastReadAt: now })
+      finishTiming('success', { cache: 'hit' })
       return hit.response
     }
   }
@@ -295,11 +303,17 @@ export async function cachedPlacesSearchText(opts: CachedPlacesOpts): Promise<{ 
       body: JSON.stringify(body),
       signal,
     })
-    if (!res.ok) { stats.networkErr++; dbg(`network ${res.status} q="${body.textQuery}"`); return null }
+    if (!res.ok) {
+      stats.networkErr++
+      dbg(`network ${res.status} q="${body.textQuery}"`)
+      finishTiming('error', { cache: 'miss', status: res.status })
+      return null
+    }
     response = await res.json()
   } catch (err) {
     stats.networkErr++
     dbg(`fetch threw q="${body.textQuery}"`, err)
+    finishTiming(signal?.aborted ? 'cancelled' : 'error', { cache: 'miss' })
     return null
   }
 
@@ -314,6 +328,7 @@ export async function cachedPlacesSearchText(opts: CachedPlacesOpts): Promise<{ 
     void idbPut(db, entry).then(() => evictIfNeeded(db))
   }
 
+  finishTiming('success', { cache: 'miss' })
   return response
 }
 

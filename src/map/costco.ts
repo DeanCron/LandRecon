@@ -14,8 +14,12 @@ export async function fetchCostcosViaPlaces(opts: {
   circle?: { lat: number; lng: number; radiusM: number }
   rectangle?: { south: number; west: number; north: number; east: number }
   signal?: AbortSignal
+  throwOnError?: boolean
 }): Promise<CostcoPlace[]> {
-  if (!GOOGLE_MAPS_KEY) return []
+  if (!GOOGLE_MAPS_KEY) {
+    if (opts.throwOnError) throw new Error('Google Maps API key is not configured')
+    return []
+  }
   const body: PlacesSearchTextBody = {
     textQuery: 'Costco Wholesale',
     maxResultCount: 20,
@@ -41,8 +45,14 @@ export async function fetchCostcosViaPlaces(opts: {
     fieldMask: 'places.id,places.displayName,places.location,places.formattedAddress',
     apiKey: GOOGLE_MAPS_KEY,
     signal: opts.signal,
+    telemetryLabel: 'costco',
   })
-  if (!data) return []
+  if (!data) {
+    if (opts.throwOnError) {
+      throw opts.signal?.reason ?? new Error('Costco Places search failed')
+    }
+    return []
+  }
   const out: CostcoPlace[] = []
   for (const raw of (data.places || []) as Record<string, unknown>[]) {
     const loc = raw.location as { latitude: number; longitude: number } | undefined

@@ -105,6 +105,9 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    manifest: true,
+  },
   server: {
     proxy: {
       // Proxy Overpass API through the dev server so the client can use

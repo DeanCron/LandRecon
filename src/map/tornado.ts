@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { fetchJsonWithRetry } from './fetchRetry'
+import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 // ── FEMA National Risk Index — Tornado Risk Index Rating ─────────────────
 // Tornado hazard has no clean raster/tile service, so both the Recon Report
@@ -99,7 +99,11 @@ export async function fetchTornadoAtPoint(
   })
   const data = await fetchJsonWithRetry<{ features?: Array<{ attributes?: { TRND_RISKR?: string; TRND_RISKS?: number } }> }>(
     `${TORNADO_API}?${params}`,
-    { init: { signal } },
+    {
+      init: { signal },
+      telemetryLabel: 'tornado_point',
+      validate: assertNoApiErrorPayload,
+    },
   )
   const attrs = data?.features?.[0]?.attributes
   const rating = String(attrs?.TRND_RISKR ?? '').trim()
@@ -172,20 +176,26 @@ export async function fetchTornadoFeatures(
     })
     const url = `${TORNADO_API}?${params}`
     let data: (GeoJSON.FeatureCollection & { exceededTransferLimit?: boolean }) | null = null
+    let lastError: unknown = null
     for (let attempt = 0; attempt <= TORNADO_FETCH_RETRIES; attempt++) {
       try {
         const res = await fetch(url, { signal: AbortSignal.timeout(TORNADO_FETCH_TIMEOUT_MS) })
         if (!res.ok) throw new Error(`FEMA NRI ${res.status}`)
         data = await res.json()
+        assertNoApiErrorPayload(data)
         break
-      } catch {
+      } catch (err) {
+        lastError = err
         data = null
         if (attempt < TORNADO_FETCH_RETRIES) {
           await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
         }
       }
     }
-    if (!data || !Array.isArray(data.features)) return
+    if (!data || !Array.isArray(data.features)) {
+      if (depth === 0) throw lastError ?? new Error('FEMA NRI returned an invalid response')
+      return
+    }
 
     addFeatures(data)
 

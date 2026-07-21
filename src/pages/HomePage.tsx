@@ -12,6 +12,7 @@ import {
   type SavedAnalysisSnippet,
 } from '../utils/recentSearches'
 import { trackEvent } from '../utils/analytics'
+import { rememberMapAddress } from '../utils/mapAddressState'
 import { prefetchMapAnalysis, prefetchMapPage } from './mapPageLoader'
 import './HomePage.css'
 
@@ -93,7 +94,7 @@ function HomePage() {
     setRecentOpen(false)
     setRecent(pushRecentSearch(trimmed))
     trackEvent('address_search', { source })
-    navigate(`/map?address=${encodeURIComponent(trimmed)}`)
+    navigate('/map', { state: rememberMapAddress(trimmed) })
   }
 
   const handleRemoveRecent = (e: React.MouseEvent, value: string) => {

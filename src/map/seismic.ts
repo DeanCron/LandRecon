@@ -1,4 +1,4 @@
-import { fetchJsonWithRetry } from './fetchRetry'
+import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 // ── USGS Seismic Design (ASCE 7-16) point lookup ────────────────────────
 // There is no clean raster/tile service for point earthquake hazard, so the
@@ -70,7 +70,17 @@ export async function fetchSeismicAtPoint(
   })
   const data = await fetchJsonWithRetry<{ response?: { data?: { pga?: number } } }>(
     `${ASCE7_16_BASE}?${params}`,
-    { init: { signal } },
+    {
+      init: { signal },
+      telemetryLabel: 'seismic_point',
+      validate: (data) => {
+        assertNoApiErrorPayload(data)
+        const request = (data as { request?: { status?: string } }).request
+        if (request?.status?.toLowerCase() === 'error') {
+          throw new Error('USGS returned an error response')
+        }
+      },
+    },
   )
   const pga = data?.response?.data?.pga
   if (typeof pga !== 'number' || !Number.isFinite(pga)) return null

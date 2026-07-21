@@ -1,4 +1,5 @@
 import { combineAbortSignals } from '../utils/abort'
+import { startPerformanceSpan } from '../utils/performanceTelemetry'
 
 // Shared fetch helper for the flaky government GIS endpoints (FEMA NFHL,
 // USFS WHP) behind the Recon Report point lookups. fetch() does not reject on
@@ -29,9 +30,22 @@ export async function fetchJsonWithRetry<T = unknown>(
     retries?: number // extra attempts after the first
     timeoutMs?: number
     backoffMs?: number // base delay; multiplied by (attempt + 1)
+    telemetryLabel?: string
+    validate?: (data: T) => void
   } = {},
 ): Promise<T> {
-  const { init, retries = 2, timeoutMs = 10000, backoffMs = 400 } = opts
+  const {
+    init,
+    retries = 2,
+    timeoutMs = 10000,
+    backoffMs = 400,
+    telemetryLabel,
+    validate,
+  } = opts
+  const operation = telemetryLabel && /^[a-z0-9_-]{1,32}$/i.test(telemetryLabel)
+    ? telemetryLabel
+    : 'generic'
+  const finishTiming = startPerformanceSpan('api_json_retry', { operation })
   let lastErr: unknown = new Error('fetch failed')
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -41,14 +55,35 @@ export async function fetchJsonWithRetry<T = unknown>(
         : timeoutSignal
       const res = await fetch(url, { ...init, signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      return (await res.json()) as T
+      const data = (await res.json()) as T
+      validate?.(data)
+      finishTiming('success', { attempts: attempt + 1 })
+      return data
     } catch (err) {
       lastErr = err
-      if (init?.signal?.aborted) throw err
+      if (init?.signal?.aborted) {
+        finishTiming('cancelled', { attempts: attempt + 1 })
+        throw err
+      }
       if (attempt < retries) {
-        await waitForRetry(backoffMs * (attempt + 1), init?.signal ?? undefined)
+        try {
+          await waitForRetry(backoffMs * (attempt + 1), init?.signal ?? undefined)
+        } catch (backoffErr) {
+          finishTiming('cancelled', { attempts: attempt + 1 })
+          throw backoffErr
+        }
       }
     }
   }
+  finishTiming('error', { attempts: retries + 1 })
   throw lastErr
+}
+
+export function assertNoApiErrorPayload(data: unknown): void {
+  if (!data || typeof data !== 'object' || !('error' in data) || !data.error) return
+  const error = data.error
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String(error.code)
+    : ''
+  throw new Error(code ? `API error ${code}` : 'API returned an error payload')
 }

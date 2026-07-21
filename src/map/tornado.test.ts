@@ -1,5 +1,18 @@
-import { describe, it, expect } from 'vitest'
-import { tornadoBand, tornadoClassLabel, tornadoSeverity, tornadoRatingColor } from './tornado'
+import L from 'leaflet'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import {
+  fetchTornadoFeatures,
+  tornadoBand,
+  tornadoClassLabel,
+  tornadoSeverity,
+  tornadoRatingColor,
+} from './tornado'
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('tornadoBand', () => {
   it('maps NRI rating strings to the 1-5 hazard band', () => {
@@ -54,5 +67,24 @@ describe('tornadoRatingColor', () => {
     expect(tornadoRatingColor('Very High')).toBe('#d73027')
     expect(tornadoRatingColor('Very Low')).toBe('#1a9850')
     expect(tornadoRatingColor('No Rating')).toBe('#9ca3af')
+  })
+})
+
+describe('fetchTornadoFeatures', () => {
+  it('rejects a root ArcGIS error envelope after retries', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ error: { code: 500 } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = expect(fetchTornadoFeatures(
+      L.latLngBounds([40, -105], [40.1, -104.9]),
+    )).rejects.toThrow('API error 500')
+    await vi.runAllTimersAsync()
+
+    await request
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })

@@ -54,6 +54,26 @@ function dbg(...args: unknown[]): void {
   if (GA_DEBUG) console.debug('[LR:analytics]', ...args)
 }
 
+export function sanitizeAnalyticsUrl(value: string, baseUrl?: string): string {
+  if (!value) return ''
+  try {
+    const url = new URL(value, baseUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return ''
+  }
+}
+
+function safePageContext(path = window.location.pathname): Record<string, string> {
+  const pageUrl = new URL(path, window.location.origin)
+  return {
+    page_path: pageUrl.pathname,
+    page_location: sanitizeAnalyticsUrl(pageUrl.href),
+    page_referrer: sanitizeAnalyticsUrl(document.referrer, window.location.origin),
+  }
+}
+
 let initialized = false
 
 function isEnabled(): boolean {
@@ -106,6 +126,8 @@ export function initAnalytics(): void {
   window.gtag('config', MEASUREMENT_ID, {
     send_page_view: false,
     anonymize_ip: true,
+    ignore_referrer: true,
+    ...safePageContext(),
     // debug_mode routes this client's hits into GA4 DebugView so they show
     // up immediately while testing (instead of the 24-48h report lag).
     ...(GA_DEBUG ? { debug_mode: true } : {}),
@@ -116,15 +138,9 @@ export function initAnalytics(): void {
 /** Send a page_view event. Call this on every React Router navigation. */
 export function trackPageView(path: string, title?: string): void {
   if (!isEnabled() || !window.gtag) return
-  // page_location MUST be scrubbed of query/hash because /map?address=…
-  // would otherwise hand the user's typed address to Google Analytics.
-  // We rebuild it from origin + path so GA still gets the canonical URL
-  // (good for grouping) without the PII payload.
-  const sanitizedLocation = window.location.origin + path
   window.gtag('event', 'page_view', {
-    page_path: path,
     page_title: title ?? document.title,
-    page_location: sanitizedLocation,
+    ...safePageContext(path),
   })
   dbg('page_view', path)
 }
@@ -132,6 +148,9 @@ export function trackPageView(path: string, title?: string): void {
 /** Send a custom GA4 event. Names must be snake_case and ≤40 chars. */
 export function trackEvent(name: string, params?: Record<string, unknown>): void {
   if (!isEnabled() || !window.gtag) return
-  window.gtag('event', name, params)
+  // GA4 otherwise derives page_location from the browser URL, which can contain
+  // the address query parameter on /map. Override the page context last so
+  // callers cannot accidentally reintroduce query strings or hashes.
+  window.gtag('event', name, { ...params, ...safePageContext() })
   dbg('event', name, params ?? {})
 }

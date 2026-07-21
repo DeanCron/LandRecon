@@ -39,6 +39,17 @@ describe('analysisCache', () => {
     expect(readAnalysisCache(LAT, LNG)).toEqual(sampleData())
   })
 
+  it('removes older cache namespaces during a v7 write', () => {
+    localStorage.setItem('lr_analysis_v6:legacy', JSON.stringify({
+      ts: Date.now(),
+      data: {},
+    }))
+
+    writeAnalysisCache(LAT, LNG, sampleData())
+
+    expect(localStorage.getItem('lr_analysis_v6:legacy')).toBeNull()
+  })
+
   it('returns null for an un-cached location', () => {
     expect(readAnalysisCache(LAT, LNG)).toBeNull()
   })
@@ -48,7 +59,7 @@ describe('analysisCache', () => {
     const stale = JSON.stringify({ ts: Date.now() - 25 * 60 * 60 * 1000, data: sampleData() })
     // Mirror the key scheme by writing through the public API then overwriting.
     writeAnalysisCache(LAT, LNG, sampleData())
-    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v6:'))!
+    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v7:'))!
     localStorage.setItem(key, stale)
     expect(readAnalysisCache(LAT, LNG)).toBeNull()
   })
