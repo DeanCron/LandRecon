@@ -1,4 +1,4 @@
-import { Fragment, useState, type CSSProperties } from 'react'
+import { Fragment, memo, useMemo, useState, type CSSProperties } from 'react'
 import {
   type SavedAnalysis,
   type SavedFactor,
@@ -82,11 +82,14 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
   }
 
   // Rank best → worst by overall score, keeping each entry's original index so
-  // remove still targets the right store slot.
-  const ranked = saved
-    .map((sa, idx) => ({ sa, idx }))
-    .sort((a, b) => b.sa.pct - a.sa.pct)
-  const topPct = ranked.length > 0 ? ranked[0].sa.pct : 0
+  // remove still targets the right store slot. Memoized so the parent's
+  // frequent re-renders (map moves, analysis updates) don't re-sort the list.
+  const { ranked, topPct } = useMemo(() => {
+    const r = saved
+      .map((sa, idx) => ({ sa, idx }))
+      .sort((a, b) => b.sa.pct - a.sa.pct)
+    return { ranked: r, topPct: r.length > 0 ? r[0].sa.pct : 0 }
+  }, [saved])
 
   if (saved.length === 0) {
     return <p className="compare-rank-empty">No saved locations yet.</p>
@@ -224,4 +227,4 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
   )
 }
 
-export default CompareScorecard
+export default memo(CompareScorecard)
