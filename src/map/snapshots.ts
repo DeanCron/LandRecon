@@ -52,8 +52,17 @@ export interface SnapshotTransitLine { id: string; type: 'rail' | 'subway' | 'tr
 export function makeSnapshotLoader<T>(filename: string, dbgLabel: string) {
   let cache: T | null = null
   let inFlight: Promise<T | null> | null = null
+  // Negative cache: timestamp of the last failed fetch. While within the
+  // cooldown we skip re-fetching and let callers fall back to live Overpass
+  // immediately, rather than re-hitting a slow/broken CDN on every pan.
+  let failedAt = 0
+  const FAILURE_COOLDOWN_MS = 5 * 60 * 1000
   return function load(signal?: AbortSignal): Promise<T | null> {
     if (signal?.aborted) return Promise.resolve(null)
+    if (!cache && failedAt && performance.now() - failedAt < FAILURE_COOLDOWN_MS) {
+      dbg(dbgLabel, `Snapshot ${filename} in failure cooldown — using live fallback`)
+      return Promise.resolve(null)
+    }
     let shared = cache ? Promise.resolve(cache) : inFlight
     if (!shared) {
       const t0 = performance.now()
@@ -63,12 +72,14 @@ export function makeSnapshotLoader<T>(filename: string, dbgLabel: string) {
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           const snap = (await res.json()) as T
           cache = snap
+          failedAt = 0
           const meta = snap as unknown as SnapshotEnvelope
           dbg(dbgLabel, `Snapshot ${filename} loaded in ${(performance.now() - t0).toFixed(0)}ms — ${meta.count} records, generated ${meta.generated_at}`)
           return snap
         } catch (err) {
           dbg(dbgLabel, `Snapshot ${filename} fetch failed; will fall back to live Overpass:`, err)
           inFlight = null
+          failedAt = performance.now()
           return null
         }
       })()
