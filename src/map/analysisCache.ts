@@ -63,9 +63,30 @@ export function readAnalysisCache(lat: number, lng: number): CachedAnalysisPaylo
   }
 }
 
-// Drop expired (or unparseable) entries under our prefix. Called before a
-// retry when a write hits the localStorage quota — since entries now persist
-// across sessions, stale ones would otherwise accumulate until writes fail.
+// Drop entries under a *superseded* version prefix. Key inspection only — no
+// JSON parsing — so this is cheap enough to run on every write (it's what the
+// migration-on-write contract relies on).
+function pruneSupersededVersions() {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const stale: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key) continue
+      const versionMatch = /^lr_analysis_v(\d+):/.exec(key)
+      if (versionMatch && Number(versionMatch[1]) < ANALYSIS_CACHE_VERSION) stale.push(key)
+    }
+    for (const key of stale) localStorage.removeItem(key)
+  } catch {
+    // ignore — pruning is best-effort
+  }
+}
+
+// Drop expired (or unparseable) entries under our prefix. This parses every
+// current-version entry, so it is deliberately *only* called before a retry
+// when a write hits the localStorage quota — running it on every write turned
+// the merge-on-patch flow (a dozen writes per analysis) into a repeated
+// full-store scan.
 function pruneExpiredEntries() {
   if (typeof localStorage === 'undefined') return
   try {
@@ -97,7 +118,10 @@ export function writeAnalysisCache(lat: number, lng: number, data: CachedAnalysi
   if (typeof localStorage === 'undefined') return
   const key = analysisCacheKey(lat, lng)
   const value = JSON.stringify({ ts: Date.now(), data } satisfies CachedAnalysisPayload)
-  pruneExpiredEntries()
+  // Cheap superseded-version sweep on every write; the expensive TTL scan is
+  // deferred to the quota-failure path below so the merge-on-patch flow doesn't
+  // re-parse every cached entry on each of its ~dozen writes per analysis.
+  pruneSupersededVersions()
   try {
     localStorage.setItem(key, value)
   } catch {
