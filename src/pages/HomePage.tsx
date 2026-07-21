@@ -57,6 +57,7 @@ function HomePage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [showAbout, setShowAbout] = useState(false)
+  const [showPrivacy, setShowPrivacy] = useState(false)
   const [recent, setRecent] = useState<RecentSearch[]>(() => loadRecentSearches())
   const [savedSnippets, setSavedSnippets] = useState<SavedAnalysisSnippet[]>(() => loadSavedAnalysisSnippets())
   const [locating, setLocating] = useState(false)
@@ -134,6 +135,15 @@ function HomePage() {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [showAbout])
+
+  useEffect(() => {
+    if (!showPrivacy) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowPrivacy(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showPrivacy])
 
   const fetchSuggestions = (query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -489,7 +499,7 @@ function HomePage() {
         <footer className="home-footer">
           <button className="home-about-link" onClick={() => setShowAbout(true)}>What is LandRecon?</button>
           <span aria-hidden="true" style={{ margin: '0 8px', opacity: 0.4 }}>·</span>
-          <a className="home-about-link" href="/privacy">Privacy</a>
+          <button className="home-about-link" onClick={() => setShowPrivacy(true)}>Privacy</button>
         </footer>
       </div>
 
@@ -510,11 +520,11 @@ function HomePage() {
                 Our goal is to surface the hidden factors that affect where you live and work — the kind of
                 details that don't show up in a typical listing but can make all the difference.
               </p>
-              <h3>What we analyze</h3>
+              <h3>A few of the things we analyze</h3>
               <ul>
                 <li>✈️ <strong>Airport Noise</strong> — FAA noise contour data mapped to your address</li>
                 <li>☢️ <strong>Superfund Sites</strong> — EPA hazardous waste sites within 5 miles</li>
-                <li>🛒 <strong>Retail Proximity</strong> — Distance to the nearest Costco (a surprisingly strong quality-of-life indicator)</li>
+                <li>🛒 <strong>Costco Proximity</strong> — Distance to the nearest Costco, because apparently the fate of civilization hinges on how far you are from a $1.50 hot dog</li>
                 <li>🏢 <strong>Data Centers</strong> — Nearby facilities that may bring noise, traffic, or infrastructure strain</li>
                 <li>🏥 <strong>Emergency Rooms</strong> — Distance to the nearest hospital emergency department</li>
                 <li>🎪 <strong>Crowd Magnets</strong> — Stadiums, arenas, and venues that drive seasonal traffic</li>
@@ -537,6 +547,46 @@ function HomePage() {
               <p className="about-disclaimer">
                 LandRecon is provided for informational purposes only. Data may not be complete or current.
                 Always verify important findings through official sources before making decisions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPrivacy && (
+        <div className="about-overlay" onClick={() => setShowPrivacy(false)}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+            <div className="about-header">
+              <h2 id="privacy-modal-title">Privacy</h2>
+              <button className="about-close" onClick={() => setShowPrivacy(false)} aria-label="Close Privacy">×</button>
+            </div>
+            <div className="about-body">
+              <p>
+                LandRecon is a free tool with no accounts, no ads, and no sign-up. We don't sell your
+                data or set our own tracking cookies.
+              </p>
+              <h3>What stays on your device</h3>
+              <ul>
+                <li>🔎 <strong>Recent searches &amp; saved reports</strong> — kept in your browser's local storage, clearable anytime</li>
+                <li>🗺️ <strong>Cached map data</strong> — stored locally to speed up repeat visits</li>
+                <li>⚙️ <strong>Preferences</strong> — active layers, basemap, and tour state</li>
+              </ul>
+              <h3>What third parties see</h3>
+              <p>
+                To draw the map and run searches, your browser talks directly to Google Maps &amp;
+                Places, TomTom (geocoding), EPA ArcGIS, and OpenStreetMap. They receive map coordinates
+                and search text, each under its own privacy policy. If analytics is enabled, we strip
+                your searched address and honor your browser's Do Not Track signal.
+              </p>
+              <h3>Your controls</h3>
+              <ul>
+                <li>Clear recent searches from the home page or your browser's site settings</li>
+                <li>Deny or revoke the location prompt at any time</li>
+                <li>Enable Do Not Track to skip analytics entirely</li>
+              </ul>
+              <p className="about-disclaimer">
+                Addresses you search are stripped from our server logs and never sent to analytics.
+                Last updated June 2, 2026.
               </p>
             </div>
           </div>
