@@ -7,7 +7,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import './MapPage.css'
 import logo from '../assets/landrecon-logo.webp'
 import LazyLoadErrorBoundary from '../components/LazyLoadErrorBoundary'
-import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker, fetchCamerasInWorker } from '../workers/overpassClient'
+import { fetchStopsInWorker, fetchTransitLinesInWorker, fetchBusLinesInWorker, fetchCamerasInWorker, fetchSuperfundPointsInWorker } from '../workers/overpassClient'
 const GuidedTour = lazy(() => import('../components/GuidedTour'))
 const AnalysisDetailPanel = lazy(() => import('../components/AnalysisDetailPanel'))
 const CompareScorecard = lazy(() => import('../map/CompareScorecard'))
@@ -35,8 +35,6 @@ import {
 import {
   SUPERFUND_API,
   SUPERFUND_ICON,
-  superfundFeaturesToPoints,
-  fetchSuperfundFeatures,
 } from '../map/superfund'
 import {
   broadbandSeverity,
@@ -1620,10 +1618,11 @@ function MapPage() {
     superfundLoadingRef.current = true
     try {
       const padded = bounds.pad(0.5)
-      const geojson = await fetchSuperfundFeatures(padded)
-      dbg('superfund', `Got ${geojson.features?.length || 0} features`)
+      const bbox = `${padded.getWest()},${padded.getSouth()},${padded.getEast()},${padded.getNorth()}`
+      const points = await fetchSuperfundPointsInWorker(bbox)
+      dbg('superfund', `Got ${points.features?.length || 0} sites`)
       layer.clearLayers()
-      layer.addData(superfundFeaturesToPoints(geojson))
+      layer.addData(points)
       superfundLoadedBoundsRef.current = padded
     } catch (err) {
       console.error('Failed to load Superfund data:', err)

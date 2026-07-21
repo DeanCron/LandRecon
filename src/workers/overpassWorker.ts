@@ -11,6 +11,10 @@
 //                returns Array<{ id, type, coords: [lat, lon][] }>
 //     'bus'   — payload: { bbox }
 //                returns Array<{ id, coords: [lat, lon][] }>
+//     'superfund' — payload: { bbox }  (ArcGIS, not Overpass)
+//                returns GeoJSON FeatureCollection of centroid points
+
+import { fetchSuperfundPoints } from '../map/superfundData'
 
 export type TransitStopType = 'rail' | 'subway' | 'tram' | 'bus'
 export type TransitLineType = 'rail' | 'subway' | 'tram'
@@ -30,7 +34,7 @@ export interface CameraResult {
   tags: Record<string, string>
 }
 
-type Kind = 'stops' | 'lines' | 'bus' | 'cameras'
+type Kind = 'stops' | 'lines' | 'bus' | 'cameras' | 'superfund'
 
 interface RequestMsg { id: number; kind: Kind; payload: unknown }
 interface CancelMsg { id: number; kind: 'cancel' }
@@ -182,6 +186,7 @@ self.onmessage = async (ev: MessageEvent<InMsg>) => {
     else if (kind === 'lines') result = await handleLines(payload as { bbox: string }, controller.signal)
     else if (kind === 'bus') result = await handleBus(payload as { bbox: string }, controller.signal)
     else if (kind === 'cameras') result = await handleCameras(payload as { bbox: string }, controller.signal)
+    else if (kind === 'superfund') result = await fetchSuperfundPoints((payload as { bbox: string }).bbox, controller.signal)
     else throw new Error(`Unknown kind: ${String(kind)}`)
     const msg: OutMsg = { id, ok: true, result }
     self.postMessage(msg)

@@ -64,7 +64,7 @@ function getWorker(): Worker {
 }
 
 function call<T>(
-  kind: 'stops' | 'lines' | 'bus' | 'cameras',
+  kind: 'stops' | 'lines' | 'bus' | 'cameras' | 'superfund',
   payload: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -114,4 +114,11 @@ export function fetchBusLinesInWorker(bbox: string, signal?: AbortSignal): Promi
 
 export function fetchCamerasInWorker(bbox: string, signal?: AbortSignal): Promise<CameraResult[]> {
   return call<CameraResult[]>('cameras', { bbox }, signal)
+}
+
+export function fetchSuperfundPointsInWorker(
+  bbox: string,
+  signal?: AbortSignal,
+): Promise<GeoJSON.FeatureCollection<GeoJSON.Point>> {
+  return call<GeoJSON.FeatureCollection<GeoJSON.Point>>('superfund', { bbox }, signal)
 }
