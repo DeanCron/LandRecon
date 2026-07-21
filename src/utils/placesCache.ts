@@ -249,6 +249,83 @@ export interface PlacesCacheStats {
 const stats: PlacesCacheStats = { hit: 0, miss: 0, networkErr: 0 }
 export function getPlacesCacheStats(): Readonly<PlacesCacheStats> { return stats }
 
+type PlacesResponse = { places?: unknown[] } & Record<string, unknown>
+
+// Single-flight registry: while a network call for a given cache key is in
+// flight, concurrent callers for the same key await the same promise instead
+// of firing their own (billed) request. Keyed on the same snapped cache key so
+// the three Places call sites (Costco/ER/EMS) collapse to one request when a
+// pan or layer-toggle fires them together.
+const inFlight = new Map<string, Promise<PlacesResponse | null>>()
+
+// Sentinel returned by raceAbort when the caller's signal fires before the
+// shared request settles. Distinct from a `null` network failure so the caller
+// can report 'cancelled' vs 'error' correctly.
+const ABORTED = Symbol('places-aborted')
+
+function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T | typeof ABORTED> {
+  if (!signal) return promise as Promise<T | typeof ABORTED>
+  if (signal.aborted) return Promise.resolve(ABORTED)
+  return new Promise<T | typeof ABORTED>((resolve, reject) => {
+    const onAbort = () => resolve(ABORTED)
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v) },
+      (e) => { signal.removeEventListener('abort', onAbort); reject(e) },
+    )
+  })
+}
+
+// Shared network + cache-write path. Runs once per in-flight key (the
+// "leader"); coalesced followers reuse its promise. Deliberately takes no
+// AbortSignal — one caller cancelling must not tear down the shared fetch the
+// others (and the cache warm-up) depend on. Returns the parsed body, or `null`
+// on network failure (mirrors the public contract).
+async function runNetworkAndCache(
+  key: string,
+  body: PlacesSearchTextBody,
+  fieldMask: string,
+  apiKey: string,
+  ttlMs: number,
+  db: IDBDatabase | null,
+): Promise<PlacesResponse | null> {
+  let response: PlacesResponse
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': fieldMask,
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      stats.networkErr++
+      dbg(`network ${res.status} q="${body.textQuery}"`)
+      return null
+    }
+    response = await res.json()
+  } catch (err) {
+    stats.networkErr++
+    dbg(`fetch threw q="${body.textQuery}"`, err)
+    return null
+  }
+
+  if (db) {
+    const now = Date.now()
+    const entry: CacheEntry = {
+      key,
+      response,
+      insertedAt: now,
+      expiresAt: now + ttlMs,
+      lastReadAt: now,
+    }
+    void idbPut(db, entry).then(() => evictIfNeeded(db))
+  }
+  return response
+}
+
 /**
  * Make a Google Places searchText request, transparently caching the
  * response in IndexedDB. Returns the parsed response body, or `null` if
@@ -291,45 +368,29 @@ export async function cachedPlacesSearchText(opts: CachedPlacesOpts): Promise<{ 
   stats.miss++
   dbg(`MISS q="${body.textQuery}"${bypassRead ? ' (bypass)' : ''}`)
 
-  let response: { places?: unknown[] } & Record<string, unknown>
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey,
-        'X-Goog-FieldMask': fieldMask,
-      },
-      body: JSON.stringify(body),
-      signal,
-    })
-    if (!res.ok) {
-      stats.networkErr++
-      dbg(`network ${res.status} q="${body.textQuery}"`)
-      finishTiming('error', { cache: 'miss', status: res.status })
-      return null
-    }
-    response = await res.json()
-  } catch (err) {
-    stats.networkErr++
-    dbg(`fetch threw q="${body.textQuery}"`, err)
-    finishTiming(signal?.aborted ? 'cancelled' : 'error', { cache: 'miss' })
+  // Coalesce onto an in-flight request for the same key if one exists,
+  // otherwise become the leader that fires the network call.
+  let shared = inFlight.get(key)
+  const coalesced = shared !== undefined
+  if (!shared) {
+    shared = runNetworkAndCache(key, body, fieldMask, apiKey, ttlMs, db)
+      .finally(() => { inFlight.delete(key) })
+    inFlight.set(key, shared)
+  }
+
+  const raced = await raceAbort(shared, signal)
+  if (raced === ABORTED) {
+    dbg(`cancelled q="${body.textQuery}"`)
+    finishTiming('cancelled', { cache: 'miss', coalesced })
+    return null
+  }
+  if (raced === null) {
+    finishTiming(signal?.aborted ? 'cancelled' : 'error', { cache: 'miss', coalesced })
     return null
   }
 
-  if (db) {
-    const entry: CacheEntry = {
-      key,
-      response,
-      insertedAt: now,
-      expiresAt: now + ttlMs,
-      lastReadAt: now,
-    }
-    void idbPut(db, entry).then(() => evictIfNeeded(db))
-  }
-
-  finishTiming('success', { cache: 'miss' })
-  return response
+  finishTiming('success', { cache: 'miss', coalesced })
+  return raced
 }
 
 /** Drop every cached entry. Exposed so a "Reset cache" UI hook can use it. */
