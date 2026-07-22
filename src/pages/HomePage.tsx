@@ -51,6 +51,74 @@ function formatTomTomResult(r: TomTomResult): string {
   return parts.join(', ') || a.freeformAddress || ''
 }
 
+// Accessible dialog behavior shared by the About and Privacy modals: move
+// focus into the dialog on open, trap Tab within it, lock background scroll,
+// close on Escape, and restore focus to the trigger element on close.
+function useModalDialog(isOpen: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const dialog = dialogRef.current
+    const trigger = document.activeElement as HTMLElement | null
+
+    const focusable = (): HTMLElement[] => {
+      if (!dialog) return []
+      const nodes = dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      )
+      return Array.from(nodes).filter((el) => el.offsetParent !== null)
+    }
+
+    const firstFocusable = focusable()[0] ?? dialog
+    firstFocusable?.focus()
+
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) {
+        e.preventDefault()
+        dialog?.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (!dialog || !dialog.contains(active)) {
+        e.preventDefault()
+        const target = e.shiftKey ? last : first
+        target.focus()
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+      if (trigger && typeof trigger.focus === 'function') trigger.focus()
+    }
+  }, [isOpen])
+
+  return dialogRef
+}
+
 function HomePage() {
   const [address, setAddress] = useState('')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
@@ -127,23 +195,8 @@ function HomePage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!showAbout) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowAbout(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [showAbout])
-
-  useEffect(() => {
-    if (!showPrivacy) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowPrivacy(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [showPrivacy])
+  const aboutDialogRef = useModalDialog(showAbout, () => setShowAbout(false))
+  const privacyDialogRef = useModalDialog(showPrivacy, () => setShowPrivacy(false))
 
   const fetchSuggestions = (query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -505,7 +558,7 @@ function HomePage() {
 
       {showAbout && (
         <div className="about-overlay" onClick={() => setShowAbout(false)}>
-          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+          <div ref={aboutDialogRef} tabIndex={-1} className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
             <div className="about-header">
               <h2 id="about-modal-title">About LandRecon</h2>
               <button className="about-close" onClick={() => setShowAbout(false)} aria-label="Close About">×</button>
@@ -555,7 +608,7 @@ function HomePage() {
 
       {showPrivacy && (
         <div className="about-overlay" onClick={() => setShowPrivacy(false)}>
-          <div className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+          <div ref={privacyDialogRef} tabIndex={-1} className="about-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
             <div className="about-header">
               <h2 id="privacy-modal-title">Privacy</h2>
               <button className="about-close" onClick={() => setShowPrivacy(false)} aria-label="Close Privacy">×</button>
@@ -573,10 +626,13 @@ function HomePage() {
               </ul>
               <h3>What third parties see</h3>
               <p>
-                To draw the map and run searches, your browser talks directly to Google Maps &amp;
-                Places, TomTom (geocoding), EPA ArcGIS, and OpenStreetMap. They receive map coordinates
-                and search text, each under its own privacy policy. If analytics is enabled, we strip
-                your searched address and honor your browser's Do Not Track signal.
+                To draw the map and build your report, your browser contacts third-party data
+                providers directly — Google (Maps &amp; Places) and TomTom for geocoding, plus
+                government and mapping sources such as the EPA, FEMA, USFS, NOAA, ASCE, and Esri.
+                Each receives the coordinates and text you search under its own privacy policy.
+                OpenStreetMap data is relayed through our own server rather than contacted directly.
+                If analytics is enabled, we strip your searched address and honor your browser's
+                Do Not Track signal.
               </p>
               <h3>Your controls</h3>
               <ul>
