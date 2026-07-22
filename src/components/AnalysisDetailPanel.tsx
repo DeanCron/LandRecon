@@ -145,6 +145,17 @@ export default function AnalysisDetailPanel({
           <div className="analysis-popout-body">
             {analysisDetail === 'score' && (() => {
               const grade = computeLocationGrade(analysisResults)
+              const severityOf = (b: (typeof grade.breakdown)[number]): 'clear' | 'warning' | 'danger' => {
+                const ratio = b.max > 0 ? b.score / b.max : 0
+                return b.score === 0 ? 'clear' : ratio >= 0.9 ? 'danger' : 'warning'
+              }
+              // Sort rows worst-first by severity color: red (danger) →
+              // yellow (warning) → green (clear). Array.sort is stable, so
+              // rows sharing a severity keep their canonical tier order.
+              const severityRank: Record<'clear' | 'warning' | 'danger', number> = { danger: 0, warning: 1, clear: 2 }
+              const sortedBreakdown = [...grade.breakdown].sort(
+                (a, b) => severityRank[severityOf(a)] - severityRank[severityOf(b)],
+              )
               return (
                 <>
                   <div className="score-breakdown-grade-summary">
@@ -155,13 +166,11 @@ export default function AnalysisDetailPanel({
                     </div>
                   </div>
                   <div className="score-breakdown-divider" />
-                  {grade.breakdown.map((b) => {
+                  {sortedBreakdown.map((b) => {
                     // Severity is derived from the score/max ratio so the
                     // visual stays correct regardless of which tier weight
                     // (1, 2, or 3) the row uses.
-                    const ratio = b.max > 0 ? b.score / b.max : 0
-                    const sevKey: 'clear' | 'warning' | 'danger' =
-                      b.score === 0 ? 'clear' : ratio >= 0.9 ? 'danger' : 'warning'
+                    const sevKey = severityOf(b)
                     const barColor = sevKey === 'clear' ? '#4caf50' : sevKey === 'warning' ? '#ffb300' : '#ef5350'
                     const statusLabel = sevKey === 'clear' ? 'No concerns' : sevKey === 'warning' ? 'Minor concern' : 'Notable concern'
                     const tierLabel = b.tier === 'safety' ? 'Safety' : b.tier === 'lifestyle' ? 'Lifestyle' : 'Convenience'
