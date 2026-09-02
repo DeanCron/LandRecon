@@ -92,6 +92,12 @@ function buildEvidence(
   }
 }
 
+function evidenceState(unavailable: boolean, caution = false): FactorEvidence['state'] {
+  if (unavailable) return 'unavailable'
+  if (caution) return 'caution'
+  return 'verified'
+}
+
 export function computeLocationGrade(results: LocationGradeInput): LocationGradeResult {
   const breakdown: LocationGradeBreakdownItem[] = []
 
@@ -109,8 +115,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // --- SAFETY (max 3) ---
 
   // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+)
+  const noiseCaution = !!results.noiseLevel && results.noiseLevel < 65
   const noiseEvidence = buildEvidence(
-    !results.noiseLoading && !results.noiseError ? 'verified' : 'unavailable',
+    evidenceState(!!results.noiseLoading || !!results.noiseError, noiseCaution),
     'FAA/BTS Aviation Noise 2020',
     'Outside mapped contours is clear; under 65 dB DNL is moderate; 65+ dB DNL is high.',
     'Aircraft noise affects sleep, outdoor comfort, and long-term livability.',
@@ -131,7 +138,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   const sfDetail = results.superfunds.length === 0 ? `None within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi`
     : `${results.superfunds.length} site${results.superfunds.length > 1 ? 's' : ''} (${results.superfunds.filter(s => s.status !== 'Deleted').length} active)`
   const superfundEvidence = buildEvidence(
-    'verified',
+    evidenceState(false, sfSev === 'warning'),
     'EPA Superfund Enterprise Management System',
     `Any site within ${SUPERFUND_ANALYSIS_RADIUS_MI} mi is a concern; active sites rate worse than deleted sites.`,
     'Nearby Superfund sites can signal contamination risk and future cleanup activity.',
@@ -144,7 +151,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   const erScore = (erSev === 'clear' || erSev === 'good') ? 0 : erSev === 'warning' ? 2 : 3
   const erDetail = erDist !== null ? `${erDist} mi away` : 'None found within search area'
   const erEvidence = buildEvidence(
-    results.erError ? 'unavailable' : 'verified',
+    evidenceState(!!results.erError, erSev === 'warning'),
     'Google Places',
     `ER within 10 mi is clear; 10-15 mi is warning; beyond ${ER_ANALYSIS_RADIUS_MI} mi or none found is danger.`,
     'ER access matters for time-sensitive emergencies when minutes count.',
@@ -154,8 +161,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // Flood zone: clear=0, warning=2 (moderate / 0.2%), danger=3 (SFHA / coastal).
   // Skipped while still loading so the grade isn't penalized before the FEMA
   // point query resolves. On error, included as a neutral 0 with a note.
+  const floodCaution = results.floodZone?.bucket === 'moderate'
   const floodEvidence = buildEvidence(
-    !results.floodLoading && !results.floodError ? 'verified' : 'unavailable',
+    evidenceState(!!results.floodLoading || !!results.floodError, floodCaution),
     'FEMA National Flood Hazard Layer',
     'Coastal and SFHA zones are danger; 0.2% annual-chance zones are warning.',
     'Flood maps help estimate insurance, resale, and stormwater risk.',
@@ -176,8 +184,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // 'clear' for it), but it still carries a grade penalty here. Same
   // loading/error contract as flood — skipped while loading, neutral 0 on
   // error so a flaky USFS lookup doesn't penalize the grade.
+  const wildfireCaution = results.wildfireHazard?.value === 3
   const wildfireEvidence = buildEvidence(
-    !results.wildfireLoading && !results.wildfireError && !!results.wildfireHazard ? 'verified' : 'unavailable',
+    evidenceState(!!results.wildfireLoading || !!results.wildfireError || !results.wildfireHazard, wildfireCaution),
     'USFS Wildfire Hazard Potential',
     'High and Very high classes are danger; Moderate still lowers the score.',
     'Wildfire potential shapes defensible-space needs, smoke risk, and insurability.',
@@ -198,8 +207,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // 'clear' for Moderate), but Moderate still carries a grade penalty here.
   // Same loading/error contract — skipped while loading, neutral 0 on error so
   // a flaky USGS lookup doesn't penalize the grade.
+  const seismicCaution = results.seismicHazard?.value === 3
   const seismicEvidence = buildEvidence(
-    !results.seismicLoading && !results.seismicError && !!results.seismicHazard ? 'verified' : 'unavailable',
+    evidenceState(!!results.seismicLoading || !!results.seismicError || !results.seismicHazard, seismicCaution),
     'USGS ASCE 7-16 Design Maps',
     'High and Very high PGA bands are danger; Moderate still lowers the score.',
     'Seismic hazard affects structural retrofit needs, insurance, and resilience costs.',
@@ -220,8 +230,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // 'clear' for Moderate), but Moderate still carries a grade penalty here.
   // Same loading/error contract — skipped while loading, neutral 0 on error so
   // a flaky FEMA NRI lookup doesn't penalize the grade.
+  const tornadoCaution = results.tornadoHazard?.value === 3
   const tornadoEvidence = buildEvidence(
-    !results.tornadoLoading && !results.tornadoError && !!results.tornadoHazard ? 'verified' : 'unavailable',
+    evidenceState(!!results.tornadoLoading || !!results.tornadoError || !results.tornadoHazard, tornadoCaution),
     'FEMA National Risk Index',
     'High and Very high FEMA NRI bands are danger; Moderate still lowers the score.',
     'Tornado exposure can affect shelter planning, maintenance, and storm risk.',
@@ -247,7 +258,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
     ? `Track ${rr.distanceMi} mi away`
     : `None within ${RAILROAD_ANALYSIS_RADIUS_MI} mi`
   const railroadEvidence = buildEvidence(
-    results.railroadError ? 'unavailable' : 'verified',
+    evidenceState(!!results.railroadError, rrScore > 0),
     'OpenStreetMap / Overpass',
     `A track within ${RAILROAD_ANALYSIS_RADIUS_MI} mi is flagged as a warning.`,
     'Rail lines can bring horn noise, vibration, and overnight freight traffic.',
@@ -261,7 +272,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   const dcScore = dcSev === 'clear' ? 0 : dcSev === 'warning' ? 1 : 2
   const dcDetail = results.dataCenters.length === 0 ? 'None nearby' : `${results.dataCenters.length} nearby`
   const dataCenterEvidence = buildEvidence(
-    'verified',
+    evidenceState(false, dcSev === 'warning'),
     'LandRecon data center dataset',
     `0 nearby is clear; 1-2 within ${DATA_CENTER_ANALYSIS_RADIUS_MI} mi is warning; 3+ is danger.`,
     'Clusters of data centers can correlate with traffic, utility demand, and industrial buildout.',
@@ -276,7 +287,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
     ? `None within ${CROWD_ANALYSIS_RADIUS_MI} mi`
     : `${cmCount} within ${CROWD_ANALYSIS_RADIUS_MI} mi`
   const crowdEvidence = buildEvidence(
-    results.crowdError ? 'unavailable' : 'verified',
+    evidenceState(!!results.crowdError, cmSev === 'warning'),
     'OpenStreetMap / Overpass',
     `0 nearby is clear; 1-2 within ${CROWD_ANALYSIS_RADIUS_MI} mi is warning; 3+ is danger.`,
     'Crowd-heavy venues can mean traffic spikes, parking pressure, and event noise.',
@@ -289,16 +300,17 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // no summary (block-only fallback or no data), include it as 0 with a
   // "data not available" note so it stays neutral.
   const broadbandFreshness = results.broadband?.asOfDate ? `As of ${results.broadband.asOfDate}` : undefined
+  const broadbandSummary = results.broadband?.summary ?? null
+  const bbSev = broadbandSeverity(broadbandSummary?.speedTier)
   const broadbandEvidence = buildEvidence(
-    !results.broadbandLoading && !!results.broadband?.summary ? 'verified' : 'unavailable',
+    evidenceState(!!results.broadbandLoading || !broadbandSummary, bbSev === 'warning' || bbSev === 'danger'),
     results.broadband?.source ?? 'FCC Broadband Data Collection',
     'Gig/fast service is clear; served is warning; underserved is danger.',
     'Home internet quality affects work-from-home reliability, streaming, and resale appeal.',
     broadbandFreshness,
   )
   if (!results.broadbandLoading) {
-    const bbSummary = results.broadband?.summary ?? null
-    const bbSev = broadbandSeverity(bbSummary?.speedTier)
+    const bbSummary = broadbandSummary
     const bbScore = (bbSev === 'clear' || bbSev === 'good') ? 0 : bbSev === 'warning' ? 1 : 2
     let bbDetail = 'No data available'
     if (bbSummary) {
@@ -313,8 +325,9 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   // Costco: good=0, warning=0, danger=1. Only the worst case (no Costco
   // within range, or search timed out) costs a point. Skipped while loading
   // so the grade isn't artificially penalized.
+  const costcoSev = results.costco ? costcoSeverity(results.costco.distanceMi) : 'danger'
   const costcoEvidence = buildEvidence(
-    !results.costcoLoading && (!results.costcoError || !!results.costco) ? 'verified' : 'unavailable',
+    evidenceState(!!results.costcoLoading || (!!results.costcoError && !results.costco), costcoSev === 'warning'),
     'Google Places',
     `Within ${COSTCO_GREEN_RADIUS_MI} mi is ideal; within 50 mi stays neutral; beyond 50 mi or none within ${COSTCO_ANALYSIS_RADIUS_MI} mi costs a point.`,
     'Retail access is a light convenience signal for day-to-day errands and regional amenities.',
@@ -326,8 +339,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
       costcoScore = 1
       costcoDetail = results.costcoError ? 'Search timed out' : 'None within range'
     } else {
-      const cs = costcoSeverity(results.costco.distanceMi)
-      costcoScore = cs === 'danger' ? 1 : 0
+      costcoScore = costcoSev === 'danger' ? 1 : 0
       costcoDetail = `${results.costco.distanceMi} mi away`
     }
     breakdown.push({ label: 'Nearest Costco', icon: '🛒', score: costcoScore, max: 1, detail: costcoDetail, tier: 'convenience' })

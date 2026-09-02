@@ -131,6 +131,36 @@ describe('computeLocationGrade (tier-normalized)', () => {
     expect(result.breakdown.find((factor) => factor.label === 'Wildfire Hazard')?.score).toBe(0)
   })
 
+  it('marks moderate hazards as caution without changing their score math', () => {
+    const result = computeLocationGrade({
+      ...clearResults(),
+      wildfireHazard: { value: 3, label: 'Moderate' },
+    })
+    expect(result.evidence['Wildfire Hazard'].state).toBe('caution')
+    expect(result.quality.state).toBe('caution')
+    expect(result.breakdown.find((factor) => factor.label === 'Wildfire Hazard')?.score).toBe(2)
+    expect(result.pct).toBeCloseTo(0.95, 5)
+  })
+
+  it('marks limited broadband results as caution without changing their score math', () => {
+    const result = computeLocationGrade({
+      ...clearResults(),
+      broadband: {
+        ...clearResults().broadband!,
+        summary: {
+          ...clearResults().broadband!.summary!,
+          maxDownMbps: 100,
+          maxUpMbps: 20,
+          hasFiber: false,
+          speedTier: 'served',
+        },
+      },
+    })
+    expect(result.evidence.Broadband.state).toBe('caution')
+    expect(result.breakdown.find((factor) => factor.label === 'Broadband')?.score).toBe(1)
+    expect(result.pct).toBeCloseTo(0.95, 5)
+  })
+
   it('one safety danger (flood) is a modest drop within the safety tier', () => {
     const g = computeLocationGrade({
       ...clearResults(),
