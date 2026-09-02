@@ -1,3 +1,5 @@
+import type { FactorEvidence, ReportQuality } from './evidence'
+
 // Shared store for "saved analyses" — the locations a user pins from the
 // Recon Report to compare later. Both the map's Save button and the map's
 // Compare slide-in panel read and write this single localStorage list.
@@ -17,6 +19,7 @@ export type SavedFactor = {
   max: number
   detail: string
   tier: 'safety' | 'lifestyle' | 'convenience'
+  evidence?: FactorEvidence
 }
 
 export type SavedAnalysis = {
@@ -34,6 +37,7 @@ export type SavedAnalysis = {
   // Full scoring breakdown. Optional because entries saved before this field
   // existed won't have it — consumers must fall back gracefully.
   breakdown?: SavedFactor[]
+  quality?: ReportQuality
 }
 
 export function loadSavedAnalyses(): SavedAnalysis[] {
