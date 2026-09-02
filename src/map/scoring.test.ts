@@ -60,22 +60,47 @@ function clearResults() {
     costcoLoading: false,
     dataCenters: [] as unknown[],
     nearestER: { distanceMi: 2 },
+    erError: false,
     crowdMagnets: [] as unknown[],
-    broadband: null,
+    crowdError: false,
+    broadband: {
+      block: {
+        blockFips: '420010101001000',
+        county: 'Adams',
+        countyFips: '001',
+        state: 'PA',
+        stateName: 'Pennsylvania',
+        stateFips: '42',
+      },
+      summary: {
+        providerCount: 1,
+        maxDownMbps: 1000,
+        maxUpMbps: 100,
+        bestProvider: 'Fiber Test',
+        hasFiber: true,
+        speedTier: 'gig' as const,
+        technologies: [],
+        providers: null,
+      },
+      source: 'FCC Broadband Data Collection',
+      asOfDate: '2024-12-31',
+      attribution: 'FCC',
+    },
     broadbandLoading: false,
     floodZone: null,
     floodError: false,
     floodLoading: false,
-    wildfireHazard: null,
+    wildfireHazard: { value: 1, label: 'Very low' },
     wildfireError: false,
     wildfireLoading: false,
-    seismicHazard: null,
+    seismicHazard: { value: 1, label: 'Very low', pga: 0.01 },
     seismicError: false,
     seismicLoading: false,
-    tornadoHazard: null,
+    tornadoHazard: { value: 1, label: 'Very low', rating: 'Very low', score: 1 },
     tornadoError: false,
     tornadoLoading: false,
     nearestRailroad: null,
+    railroadError: false,
   }
 }
 
@@ -84,6 +109,26 @@ describe('computeLocationGrade (tier-normalized)', () => {
     const g = computeLocationGrade(clearResults())
     expect(g.pct).toBeCloseTo(1, 5)
     expect(g.letter).toBe('A')
+  })
+
+  it('adds evidence while preserving the resolved grade', () => {
+    const result = computeLocationGrade(clearResults())
+    expect(result.letter).toBe('A')
+    expect(result.pct).toBe(1)
+    expect(result.evidence['Flood Zone'].state).toBe('verified')
+    expect(result.quality.unavailableCount).toBe(0)
+  })
+
+  it('marks loading and failed lookups unavailable without inventing a penalty', () => {
+    const result = computeLocationGrade({
+      ...clearResults(),
+      floodLoading: true,
+      wildfireError: true,
+    })
+    expect(result.evidence['Flood Zone'].state).toBe('unavailable')
+    expect(result.evidence['Wildfire Hazard'].state).toBe('unavailable')
+    expect(result.breakdown.some((factor) => factor.label === 'Flood Zone')).toBe(false)
+    expect(result.breakdown.find((factor) => factor.label === 'Wildfire Hazard')?.score).toBe(0)
   })
 
   it('one safety danger (flood) is a modest drop within the safety tier', () => {
