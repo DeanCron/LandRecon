@@ -9,5 +9,13 @@
 - `npx vitest run src/map/evidence.test.ts`
 - `npx tsc -p tsconfig.app.json --noEmit`
 
+## Follow-up fix
+- Corrected `summarizeReportQuality()` in `src/map/evidence.ts` so an all-unavailable non-empty list now returns `unavailable` instead of `caution`.
+- Added a focused regression test covering two unavailable items in `src/map/evidence.test.ts`.
+
+## Additional verification
+- `npx vitest run src/map/evidence.test.ts`
+- Output: 1 file passed, 4 tests passed
+
 ## Concerns
 - None.

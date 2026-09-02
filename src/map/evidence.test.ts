@@ -21,4 +21,9 @@ describe('summarizeReportQuality', () => {
   it('marks an empty report unavailable', () => {
     expect(summarizeReportQuality([]).state).toBe('unavailable')
   })
+
+  it('marks an all-unavailable report unavailable', () => {
+    expect(summarizeReportQuality([evidence('unavailable'), evidence('unavailable')]))
+      .toEqual({ state: 'unavailable', verifiedCount: 0, cautionCount: 0, unavailableCount: 2 })
+  })
 })
