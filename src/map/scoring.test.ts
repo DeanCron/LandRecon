@@ -196,6 +196,7 @@ describe('computeLocationGrade (tier-normalized)', () => {
   it('omits airport noise when its data could not be loaded', () => {
     const failed = computeLocationGrade({ ...clearResults(), noiseError: true })
     expect(failed.breakdown.find((b) => b.label === 'Airport Noise')).toBeUndefined()
+    expect(failed.evidence['Airport Noise'].state).toBe('unavailable')
     expect(failed.pct).toBeCloseTo(1, 5)
   })
 

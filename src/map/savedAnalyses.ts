@@ -18,7 +18,7 @@ export const MAX_SAVED_ANALYSES = 5
 // detailed comparison page can render a full side-by-side without re-running
 // the analysis. Mirrors the breakdown element shape in src/map/scoring.ts.
 export type SavedFactor = {
-  label: string
+  label: LocationGradeFactorLabel
   icon: string
   score: number
   max: number
@@ -26,6 +26,8 @@ export type SavedFactor = {
   tier: 'safety' | 'lifestyle' | 'convenience'
   evidence?: FactorEvidence
 }
+
+export type SavedEvidenceByFactor = Partial<Record<LocationGradeFactorLabel, FactorEvidence>>
 
 export type SavedAnalysis = {
   address: string
@@ -42,17 +44,38 @@ export type SavedAnalysis = {
   // Full scoring breakdown. Optional because entries saved before this field
   // existed won't have it — consumers must fall back gracefully.
   breakdown?: SavedFactor[]
+  evidence?: SavedEvidenceByFactor
   quality?: ReportQuality
 }
 
 export function attachEvidenceToSavedBreakdown(
-  breakdown: LocationGradeBreakdownItem[],
-  evidenceByFactor: Partial<Record<LocationGradeFactorLabel, FactorEvidence>>,
+  breakdown: Array<LocationGradeBreakdownItem | SavedFactor>,
+  evidenceByFactor?: SavedEvidenceByFactor,
 ): SavedFactor[] {
   return breakdown.map((factor) => ({
     ...factor,
-    evidence: evidenceByFactor[factor.label],
+    evidence: evidenceByFactor?.[factor.label] ?? ('evidence' in factor ? factor.evidence : undefined),
   }))
+}
+
+export function buildSavedAnalysisExplainability(
+  breakdown: LocationGradeBreakdownItem[],
+  evidenceByFactor: SavedEvidenceByFactor,
+  quality: ReportQuality,
+  pendingFactors: LocationGradeFactorLabel[] = [],
+): Pick<SavedAnalysis, 'breakdown' | 'evidence' | 'quality'> {
+  const pending = new Set(pendingFactors)
+  const evidenceEntries = Object.entries(evidenceByFactor).filter(
+    ([label]) => !pending.has(label as LocationGradeFactorLabel),
+  )
+  const evidence = evidenceEntries.length > 0
+    ? Object.fromEntries(evidenceEntries) as SavedEvidenceByFactor
+    : undefined
+  return {
+    breakdown: attachEvidenceToSavedBreakdown(breakdown, evidence),
+    ...(evidence ? { evidence } : {}),
+    ...(pending.size === 0 ? { quality } : {}),
+  }
 }
 
 export function canSaveAnalysis(
@@ -69,22 +92,27 @@ export function canSaveAnalysis(
   >,
   allChecksComplete = true,
 ): boolean {
-  return allChecksComplete && !(
+  void allChecksComplete
+  return !(
     results.loading ||
     results.noiseLoading ||
-    results.costcoLoading ||
-    results.broadbandLoading ||
-    results.floodLoading ||
-    results.wildfireLoading ||
-    results.seismicLoading ||
-    results.tornadoLoading
+    results.costcoLoading
   )
+}
+
+function normalizeSavedAnalysis(entry: SavedAnalysis): SavedAnalysis {
+  return entry.breakdown && entry.evidence
+    ? {
+        ...entry,
+        breakdown: attachEvidenceToSavedBreakdown(entry.breakdown, entry.evidence),
+      }
+    : entry
 }
 
 export function loadSavedAnalyses(): SavedAnalysis[] {
   try {
     const raw = JSON.parse(localStorage.getItem(SAVED_ANALYSES_KEY) ?? '[]')
-    return Array.isArray(raw) ? (raw as SavedAnalysis[]) : []
+    return Array.isArray(raw) ? raw.map((entry) => normalizeSavedAnalysis(entry as SavedAnalysis)) : []
   } catch {
     return []
   }

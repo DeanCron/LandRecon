@@ -66,7 +66,7 @@ import {
   patchAnalysisCacheCrowd,
 } from '../map/analysisCache'
 import {
-  attachEvidenceToSavedBreakdown,
+  buildSavedAnalysisExplainability,
   canSaveAnalysis,
   type SavedAnalysis,
   MAX_SAVED_ANALYSES,
@@ -209,7 +209,7 @@ import {
   ER_ANALYSIS_RADIUS_MI,
   SUPERFUND_ANALYSIS_RADIUS_MI,
 } from '../map/analysisConfig'
-import type { AnalysisDetail, AnalysisResults } from '../map/analysisTypes'
+import type { AnalysisDetail, AnalysisResults, LocationGradeFactorLabel } from '../map/analysisTypes'
 import { NPL_STATUS_INFO } from '../map/analysisPresentation'
 
 // Enforce one consistent map-marker interaction on every device: hover shows
@@ -975,11 +975,19 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (!canSaveAnalysis(analysisResults, analysisComplete)) {
+    if (!canSaveAnalysis(analysisResults)) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
     }
     const grade = computeLocationGrade(analysisResults)
+    const pendingExplainabilityFactors: LocationGradeFactorLabel[] = []
+    if (analysisResults.noiseLoading) pendingExplainabilityFactors.push('Airport Noise')
+    if (analysisResults.floodLoading) pendingExplainabilityFactors.push('Flood Zone')
+    if (analysisResults.wildfireLoading) pendingExplainabilityFactors.push('Wildfire Hazard')
+    if (analysisResults.seismicLoading) pendingExplainabilityFactors.push('Seismic Hazard')
+    if (analysisResults.tornadoLoading) pendingExplainabilityFactors.push('Tornado Risk')
+    if (analysisResults.broadbandLoading) pendingExplainabilityFactors.push('Broadband')
+    if (analysisResults.costcoLoading) pendingExplainabilityFactors.push('Nearest Costco')
     const entry: SavedAnalysis = {
       address: address || 'Unknown',
       date: new Date().toLocaleDateString(),
@@ -992,8 +1000,7 @@ function MapPage() {
       superfundActive: analysisResults.superfunds.filter(s => s.status !== 'Deleted').length,
       costcoMi: analysisResults.costco?.distanceMi ?? null,
       dataCenterCount: analysisResults.dataCenters.length,
-      breakdown: attachEvidenceToSavedBreakdown(grade.breakdown, grade.evidence),
-      quality: grade.quality,
+      ...buildSavedAnalysisExplainability(grade.breakdown, grade.evidence, grade.quality, pendingExplainabilityFactors),
     }
     // De-dupe by address so re-saving the same location refreshes it in place.
     const withoutDupe = savedAnalyses.filter((s) => s.address !== entry.address)
@@ -1001,7 +1008,7 @@ function MapPage() {
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, analysisComplete, analysisResults, savedAnalyses])
+  }, [address, analysisResults, savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -6871,7 +6878,7 @@ function MapPage() {
             <button
               className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
-              disabled={!canSaveAnalysis(analysisResults, analysisComplete)}
+              disabled={!canSaveAnalysis(analysisResults)}
               title="Save for comparison"
               aria-label="Save for comparison"
             >
