@@ -1,4 +1,9 @@
 import type { FactorEvidence, ReportQuality } from './evidence'
+import type {
+  AnalysisResults,
+  LocationGradeBreakdownItem,
+  LocationGradeFactorLabel,
+} from './analysisTypes'
 
 // Shared store for "saved analyses" — the locations a user pins from the
 // Recon Report to compare later. Both the map's Save button and the map's
@@ -38,6 +43,42 @@ export type SavedAnalysis = {
   // existed won't have it — consumers must fall back gracefully.
   breakdown?: SavedFactor[]
   quality?: ReportQuality
+}
+
+export function attachEvidenceToSavedBreakdown(
+  breakdown: LocationGradeBreakdownItem[],
+  evidenceByFactor: Partial<Record<LocationGradeFactorLabel, FactorEvidence>>,
+): SavedFactor[] {
+  return breakdown.map((factor) => ({
+    ...factor,
+    evidence: evidenceByFactor[factor.label],
+  }))
+}
+
+export function canSaveAnalysis(
+  results: Pick<
+    AnalysisResults,
+    | 'loading'
+    | 'noiseLoading'
+    | 'costcoLoading'
+    | 'broadbandLoading'
+    | 'floodLoading'
+    | 'wildfireLoading'
+    | 'seismicLoading'
+    | 'tornadoLoading'
+  >,
+  allChecksComplete = true,
+): boolean {
+  return allChecksComplete && !(
+    results.loading ||
+    results.noiseLoading ||
+    results.costcoLoading ||
+    results.broadbandLoading ||
+    results.floodLoading ||
+    results.wildfireLoading ||
+    results.seismicLoading ||
+    results.tornadoLoading
+  )
 }
 
 export function loadSavedAnalyses(): SavedAnalysis[] {
