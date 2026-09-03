@@ -78,6 +78,32 @@ export function buildSavedAnalysisExplainability(
   }
 }
 
+export function getPendingSavedAnalysisFactors(
+  results: Pick<
+    AnalysisResults,
+    | 'noiseLoading'
+    | 'costcoLoading'
+    | 'broadbandLoading'
+    | 'floodLoading'
+    | 'wildfireLoading'
+    | 'seismicLoading'
+    | 'tornadoLoading'
+  >,
+  analysisProgress: Partial<Record<string, 'pending' | 'done'>>,
+): LocationGradeFactorLabel[] {
+  const pendingExplainabilityFactors: LocationGradeFactorLabel[] = []
+  if (results.noiseLoading) pendingExplainabilityFactors.push('Airport Noise')
+  if (results.floodLoading) pendingExplainabilityFactors.push('Flood Zone')
+  if (results.wildfireLoading) pendingExplainabilityFactors.push('Wildfire Hazard')
+  if (results.seismicLoading) pendingExplainabilityFactors.push('Seismic Hazard')
+  if (results.tornadoLoading) pendingExplainabilityFactors.push('Tornado Risk')
+  if (results.broadbandLoading) pendingExplainabilityFactors.push('Broadband')
+  if (results.costcoLoading) pendingExplainabilityFactors.push('Nearest Costco')
+  if (analysisProgress.crowd !== 'done') pendingExplainabilityFactors.push('Crowd Magnets')
+  if (analysisProgress.railroad !== 'done') pendingExplainabilityFactors.push('Railroad')
+  return pendingExplainabilityFactors
+}
+
 export function canSaveAnalysis(
   results: Pick<
     AnalysisResults,

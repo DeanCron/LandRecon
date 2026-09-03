@@ -4,6 +4,7 @@ import {
   attachEvidenceToSavedBreakdown,
   buildSavedAnalysisExplainability,
   canSaveAnalysis,
+  getPendingSavedAnalysisFactors,
   loadSavedAnalyses,
   writeSavedAnalyses,
   type SavedAnalysis,
@@ -100,6 +101,82 @@ describe('savedAnalyses', () => {
       ],
       evidence: {
         'Airport Noise': sampleEvidence('unavailable'),
+        'Flood Zone': sampleEvidence('verified'),
+      },
+    })
+  })
+
+  it('treats crowd and railroad as pending for persisted explainability until analysis progress marks them done', () => {
+    const breakdown: LocationGradeBreakdownItem[] = [
+      {
+        label: 'Flood Zone',
+        icon: '🌊',
+        score: 0,
+        max: 3,
+        detail: 'Very low risk',
+        tier: 'safety',
+      },
+      {
+        label: 'Railroad',
+        icon: '🚂',
+        score: 0,
+        max: 3,
+        detail: 'No track within range',
+        tier: 'safety',
+      },
+      {
+        label: 'Crowd Magnets',
+        icon: '🎟️',
+        score: 0,
+        max: 2,
+        detail: 'None nearby',
+        tier: 'lifestyle',
+      },
+    ]
+    const quality: ReportQuality = {
+      state: 'verified',
+      verifiedCount: 3,
+      cautionCount: 0,
+      unavailableCount: 0,
+    }
+
+    const pendingFactors = getPendingSavedAnalysisFactors(
+      {
+        noiseLoading: false,
+        costcoLoading: false,
+        broadbandLoading: false,
+        floodLoading: false,
+        wildfireLoading: false,
+        seismicLoading: false,
+        tornadoLoading: false,
+      },
+      {
+        crowd: 'pending',
+        railroad: 'pending',
+      },
+    )
+
+    expect(
+      buildSavedAnalysisExplainability(
+        breakdown,
+        {
+          'Flood Zone': sampleEvidence('verified'),
+          Railroad: sampleEvidence('verified'),
+          'Crowd Magnets': sampleEvidence('verified'),
+        },
+        quality,
+        pendingFactors,
+      ),
+    ).toEqual({
+      breakdown: [
+        {
+          ...breakdown[0],
+          evidence: sampleEvidence('verified'),
+        },
+        breakdown[1],
+        breakdown[2],
+      ],
+      evidence: {
         'Flood Zone': sampleEvidence('verified'),
       },
     })

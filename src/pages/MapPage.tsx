@@ -68,6 +68,7 @@ import {
 import {
   buildSavedAnalysisExplainability,
   canSaveAnalysis,
+  getPendingSavedAnalysisFactors,
   type SavedAnalysis,
   MAX_SAVED_ANALYSES,
   loadSavedAnalyses,
@@ -209,7 +210,7 @@ import {
   ER_ANALYSIS_RADIUS_MI,
   SUPERFUND_ANALYSIS_RADIUS_MI,
 } from '../map/analysisConfig'
-import type { AnalysisDetail, AnalysisResults, LocationGradeFactorLabel } from '../map/analysisTypes'
+import type { AnalysisDetail, AnalysisResults } from '../map/analysisTypes'
 import { NPL_STATUS_INFO } from '../map/analysisPresentation'
 
 // Enforce one consistent map-marker interaction on every device: hover shows
@@ -980,14 +981,7 @@ function MapPage() {
       return
     }
     const grade = computeLocationGrade(analysisResults)
-    const pendingExplainabilityFactors: LocationGradeFactorLabel[] = []
-    if (analysisResults.noiseLoading) pendingExplainabilityFactors.push('Airport Noise')
-    if (analysisResults.floodLoading) pendingExplainabilityFactors.push('Flood Zone')
-    if (analysisResults.wildfireLoading) pendingExplainabilityFactors.push('Wildfire Hazard')
-    if (analysisResults.seismicLoading) pendingExplainabilityFactors.push('Seismic Hazard')
-    if (analysisResults.tornadoLoading) pendingExplainabilityFactors.push('Tornado Risk')
-    if (analysisResults.broadbandLoading) pendingExplainabilityFactors.push('Broadband')
-    if (analysisResults.costcoLoading) pendingExplainabilityFactors.push('Nearest Costco')
+    const pendingExplainabilityFactors = getPendingSavedAnalysisFactors(analysisResults, analysisProgress)
     const entry: SavedAnalysis = {
       address: address || 'Unknown',
       date: new Date().toLocaleDateString(),
@@ -1008,7 +1002,7 @@ function MapPage() {
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, analysisResults, savedAnalyses])
+  }, [address, analysisProgress, analysisResults, savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
