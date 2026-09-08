@@ -976,7 +976,7 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (!canSaveAnalysis(analysisResults)) {
+    if (!canSaveAnalysis(analysisResults, analysisComplete)) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
     }
@@ -1002,7 +1002,7 @@ function MapPage() {
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, analysisProgress, analysisResults, savedAnalyses])
+  }, [address, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -6872,7 +6872,7 @@ function MapPage() {
             <button
               className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
-              disabled={!canSaveAnalysis(analysisResults)}
+              disabled={!canSaveAnalysis(analysisResults, analysisComplete)}
               title="Save for comparison"
               aria-label="Save for comparison"
             >

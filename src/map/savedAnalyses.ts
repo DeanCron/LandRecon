@@ -104,6 +104,9 @@ export function getPendingSavedAnalysisFactors(
   return pendingExplainabilityFactors
 }
 
+// Save only once every analysis check has resolved and the original core
+// blocking lookups have finished, so persisted grades/evidence reflect the
+// final snapshot shown in the Recon Report.
 export function canSaveAnalysis(
   results: Pick<
     AnalysisResults,
@@ -118,8 +121,8 @@ export function canSaveAnalysis(
   >,
   allChecksComplete = true,
 ): boolean {
-  void allChecksComplete
   return !(
+    !allChecksComplete ||
     results.loading ||
     results.noiseLoading ||
     results.costcoLoading

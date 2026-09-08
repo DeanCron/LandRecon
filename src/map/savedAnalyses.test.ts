@@ -182,7 +182,7 @@ describe('savedAnalyses', () => {
     })
   })
 
-  it('allows saving once the original blocking lookups finish even if later factor checks are still running', () => {
+  it('returns false when analysis checks are not complete even if loading flags are clear', () => {
     expect(
       canSaveAnalysis({
         loading: false,
@@ -191,13 +191,13 @@ describe('savedAnalyses', () => {
         broadbandLoading: false,
         floodLoading: false,
         wildfireLoading: false,
-        seismicLoading: true,
+        seismicLoading: false,
         tornadoLoading: false,
-      }),
-    ).toBe(true)
+      }, false),
+    ).toBe(false)
   })
 
-  it('does not require the derived analysis-complete flag once the original blocking lookups finish', () => {
+  it('returns true only when loading guards pass and analysis checks are complete', () => {
     expect(
       canSaveAnalysis(
         {
@@ -210,9 +210,27 @@ describe('savedAnalyses', () => {
           seismicLoading: false,
           tornadoLoading: false,
         },
-        false,
+        true,
       ),
     ).toBe(true)
+  })
+
+  it('returns false when a core loading flag is still set even if analysis checks are complete', () => {
+    expect(
+      canSaveAnalysis(
+        {
+          loading: false,
+          noiseLoading: false,
+          costcoLoading: true,
+          broadbandLoading: false,
+          floodLoading: false,
+          wildfireLoading: false,
+          seismicLoading: false,
+          tornadoLoading: false,
+        },
+        true,
+      ),
+    ).toBe(false)
   })
 
   it('round-trips quality and factor evidence', () => {
