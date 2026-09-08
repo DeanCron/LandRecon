@@ -3,6 +3,7 @@ import {
   type SavedAnalysis,
   type SavedFactor,
 } from './savedAnalyses'
+import { FactorEvidence } from '../components/FactorEvidence'
 import './CompareScorecard.css'
 
 // Tier grouping + canonical factor order for the expandable breakdown. Mirrors
@@ -158,6 +159,12 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     })}
                   </div>
 
+                  {sa.quality && (
+                    <div className={`report-quality report-quality-${sa.quality.state}`}>
+                      Data quality: {sa.quality.unavailableCount > 0 ? 'Some data unavailable' : sa.quality.cautionCount > 0 ? 'Review cautions' : 'All checks verified'}
+                    </div>
+                  )}
+
                   <div className="compare-rank-footer">
                     <button
                       className="compare-expand-toggle"
@@ -195,6 +202,9 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                                     />
                                   </div>
                                   <span className="compare-factor-detail">{f.detail}</span>
+                                  {f.evidence && (
+                                    <FactorEvidence label={f.label} evidence={f.evidence} compact />
+                                  )}
                                 </div>
                               )
                             })}

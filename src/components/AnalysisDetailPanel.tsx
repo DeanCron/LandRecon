@@ -12,6 +12,7 @@ import { wildfireSeverity } from '../map/wildfire'
 import { COSTCO_ANALYSIS_RADIUS_MI, ER_ANALYSIS_RADIUS_MI, SUPERFUND_ANALYSIS_RADIUS_MI } from '../map/analysisConfig'
 import { NPL_STATUS_INFO } from '../map/analysisPresentation'
 import type { AnalysisDetail, AnalysisResults } from '../map/analysisTypes'
+import { FactorEvidence } from './FactorEvidence'
 
 const GRADE_DESCRIPTIONS: Record<string, string> = {
   A: 'This location has minimal environmental or infrastructure concerns. All categories show favorable conditions, making it well-suited for residential or commercial use without significant risk factors.',
@@ -165,6 +166,9 @@ export default function AnalysisDetailPanel({
                       <p>{GRADE_DESCRIPTIONS[grade.letter]}</p>
                     </div>
                   </div>
+                  <div className={`report-quality report-quality-${grade.quality.state}`}>
+                    Data quality: {grade.quality.unavailableCount > 0 ? 'Some data unavailable' : grade.quality.cautionCount > 0 ? 'Review cautions' : 'All checks verified'}
+                  </div>
                   <div className="score-breakdown-divider" />
                   {sortedBreakdown.map((b) => {
                     // Severity is derived from the score/max ratio so the
@@ -187,6 +191,7 @@ export default function AnalysisDetailPanel({
                         </div>
                         <p className="score-breakdown-detail">{b.detail}</p>
                         <p className="score-breakdown-explanation">{SCORE_EXPLANATIONS[b.label]?.[sevKey] || ''}</p>
+                        <FactorEvidence label={b.label} evidence={grade.evidence[b.label]} />
                       </div>
                     )
                   })}
