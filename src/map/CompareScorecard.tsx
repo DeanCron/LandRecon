@@ -3,7 +3,8 @@ import {
   type SavedAnalysis,
   type SavedFactor,
 } from './savedAnalyses'
-import { FactorEvidence } from '../components/FactorEvidence'
+import { FactorEvidence, LEGACY_MESSAGE } from '../components/FactorEvidence'
+import { qualitySummaryText, qualitySummaryTone } from './evidence'
 import './CompareScorecard.css'
 
 // Tier grouping + canonical factor order for the expandable breakdown. Mirrors
@@ -160,8 +161,8 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                   </div>
 
                   {sa.quality && (
-                    <div className={`report-quality report-quality-${sa.quality.state}`}>
-                      Data quality: {sa.quality.unavailableCount > 0 ? 'Some data unavailable' : sa.quality.cautionCount > 0 ? 'Review cautions' : 'All checks verified'}
+                    <div className={`report-quality report-quality-${qualitySummaryTone(sa.quality)}`}>
+                      Data quality: {qualitySummaryText(sa.quality)}
                     </div>
                   )}
 
@@ -185,7 +186,7 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     <div className="compare-factors">
                       {!sa.breakdown!.some((f) => f.evidence) && (
                         <p className="compare-factor-legacy" role="note">
-                          Evidence details unavailable for this saved analysis. Re-analyze to refresh.
+                          {LEGACY_MESSAGE}
                         </p>
                       )}
                       {TIER_ORDER.map(({ tier, label }) => {

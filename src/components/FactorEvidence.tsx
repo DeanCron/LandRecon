@@ -7,7 +7,7 @@ type Props = {
   compact?: boolean
 }
 
-const LEGACY_MESSAGE =
+export const LEGACY_MESSAGE =
   'Evidence details unavailable for this saved analysis. Re-analyze to refresh.'
 
 const STATE_LABELS: Record<EvidenceState, string> = {

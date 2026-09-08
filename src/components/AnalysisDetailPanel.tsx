@@ -6,6 +6,7 @@ import { DATA_CENTER_ANALYSIS_RADIUS_MI, DC_STATUSES, DC_STATUS_COLORS, DC_STATU
 import { FLOOD_ZONE_COLORS, FLOOD_ZONE_LABELS, floodSeverity } from '../map/flood'
 import { RAILROAD_ANALYSIS_RADIUS_MI } from '../map/railroad'
 import { costcoSeverity, erSeverity, computeLocationGrade } from '../map/scoring'
+import { qualitySummaryText, qualitySummaryTone } from '../map/evidence'
 import { seismicSeverity } from '../map/seismic'
 import { tornadoSeverity } from '../map/tornado'
 import { wildfireSeverity } from '../map/wildfire'
@@ -166,8 +167,8 @@ export default function AnalysisDetailPanel({
                       <p>{GRADE_DESCRIPTIONS[grade.letter]}</p>
                     </div>
                   </div>
-                  <div className={`report-quality report-quality-${grade.quality.state}`}>
-                    Data quality: {grade.quality.unavailableCount > 0 ? 'Some data unavailable' : grade.quality.cautionCount > 0 ? 'Review cautions' : 'All checks verified'}
+                  <div className={`report-quality report-quality-${qualitySummaryTone(grade.quality)}`}>
+                    Data quality: {qualitySummaryText(grade.quality)}
                   </div>
                   <div className="score-breakdown-divider" />
                   {sortedBreakdown.map((b) => {
