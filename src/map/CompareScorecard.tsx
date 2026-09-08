@@ -3,6 +3,8 @@ import {
   type SavedAnalysis,
   type SavedFactor,
 } from './savedAnalyses'
+import { FactorEvidence, LEGACY_MESSAGE } from '../components/FactorEvidence'
+import { qualitySummaryText, qualitySummaryTone } from './evidence'
 import './CompareScorecard.css'
 
 // Tier grouping + canonical factor order for the expandable breakdown. Mirrors
@@ -158,6 +160,12 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     })}
                   </div>
 
+                  {sa.quality && (
+                    <div className={`report-quality report-quality-${qualitySummaryTone(sa.quality)}`}>
+                      Data quality: {qualitySummaryText(sa.quality)}
+                    </div>
+                  )}
+
                   <div className="compare-rank-footer">
                     <button
                       className="compare-expand-toggle"
@@ -176,6 +184,11 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
 
                   {isOpen && (
                     <div className="compare-factors">
+                      {!sa.breakdown!.some((f) => f.evidence) && (
+                        <p className="compare-factor-legacy" role="note">
+                          {LEGACY_MESSAGE}
+                        </p>
+                      )}
                       {TIER_ORDER.map(({ tier, label }) => {
                         const items = orderedBreakdown(sa.breakdown!.filter((f) => f.tier === tier))
                         if (items.length === 0) return null
@@ -195,6 +208,9 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                                     />
                                   </div>
                                   <span className="compare-factor-detail">{f.detail}</span>
+                                  {f.evidence && (
+                                    <FactorEvidence label={f.label} evidence={f.evidence} compact />
+                                  )}
                                 </div>
                               )
                             })}

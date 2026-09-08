@@ -1,5 +1,6 @@
 import type { BroadbandResponse } from './broadband'
 import type { CrowdType } from './crowd'
+import type { FactorEvidence, ReportQuality } from './evidence'
 import type { FloodPointResult } from './flood'
 import type { NearestRailroad } from './railroad'
 import type { SeismicPointResult } from './seismic'
@@ -115,4 +116,72 @@ export interface AnalysisResults {
   tornadoHazard: TornadoPointResult | null
   tornadoError: boolean
   tornadoLoading: boolean
+}
+
+export type LocationGradeFactorLabel =
+  | 'Airport Noise'
+  | 'Superfund Sites'
+  | 'Emergency Room'
+  | 'Flood Zone'
+  | 'Wildfire Hazard'
+  | 'Seismic Hazard'
+  | 'Tornado Risk'
+  | 'Railroad'
+  | 'Data Centers'
+  | 'Crowd Magnets'
+  | 'Broadband'
+  | 'Nearest Costco'
+
+export type LocationGradeTier = 'safety' | 'lifestyle' | 'convenience'
+
+export type LocationGradeSeverity = 'clear' | 'good' | 'warning' | 'danger'
+
+export type LocationGradeInput = {
+  noiseLevel: number | null
+  noiseLoading?: boolean
+  noiseError?: boolean
+  superfunds: { status: string }[]
+  costco: { distanceMi: number } | null
+  costcoError: boolean
+  costcoLoading?: boolean
+  dataCenters: unknown[]
+  nearestER: { distanceMi: number } | null
+  erError?: boolean
+  crowdMagnets: unknown[]
+  crowdError?: boolean
+  broadband?: BroadbandResponse | null
+  broadbandLoading?: boolean
+  floodZone?: FloodPointResult | null
+  floodError?: boolean
+  floodLoading?: boolean
+  wildfireHazard?: WildfirePointResult | null
+  wildfireError?: boolean
+  wildfireLoading?: boolean
+  seismicHazard?: SeismicPointResult | null
+  seismicError?: boolean
+  seismicLoading?: boolean
+  tornadoHazard?: TornadoPointResult | null
+  tornadoError?: boolean
+  tornadoLoading?: boolean
+  nearestRailroad?: NearestRailroad | null
+  railroadError?: boolean
+}
+
+export type LocationGradeBreakdownItem = {
+  label: LocationGradeFactorLabel
+  icon: string
+  score: number
+  max: number
+  detail: string
+  tier: LocationGradeTier
+}
+
+export type LocationGradeResult = {
+  letter: string
+  color: string
+  severity: LocationGradeSeverity
+  pct: number
+  breakdown: LocationGradeBreakdownItem[]
+  evidence: Record<LocationGradeFactorLabel, FactorEvidence>
+  quality: ReportQuality
 }

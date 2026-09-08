@@ -66,6 +66,9 @@ import {
   patchAnalysisCacheCrowd,
 } from '../map/analysisCache'
 import {
+  buildSavedAnalysisExplainability,
+  canSaveAnalysis,
+  getPendingSavedAnalysisFactors,
   type SavedAnalysis,
   MAX_SAVED_ANALYSES,
   loadSavedAnalyses,
@@ -910,6 +913,12 @@ function MapPage() {
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
+  const analysisDoneCount = ANALYSIS_CHECKS.reduce(
+    (count, key) => count + (analysisProgress[key] === 'done' ? 1 : 0),
+    0,
+  )
+  const analysisHasStarted = ANALYSIS_CHECKS.some((key) => analysisProgress[key] !== undefined)
+  const analysisComplete = analysisDoneCount >= ANALYSIS_CHECKS.length
   const [analysisDetail, setAnalysisDetail] = useState<AnalysisDetail>(null)
 
   // Commute Time — an opt-in check against a work address the user enters,
@@ -967,11 +976,12 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading) {
+    if (!canSaveAnalysis(analysisResults, analysisComplete)) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
     }
     const grade = computeLocationGrade(analysisResults)
+    const pendingExplainabilityFactors = getPendingSavedAnalysisFactors(analysisResults, analysisProgress)
     const entry: SavedAnalysis = {
       address: address || 'Unknown',
       date: new Date().toLocaleDateString(),
@@ -984,7 +994,7 @@ function MapPage() {
       superfundActive: analysisResults.superfunds.filter(s => s.status !== 'Deleted').length,
       costcoMi: analysisResults.costco?.distanceMi ?? null,
       dataCenterCount: analysisResults.dataCenters.length,
-      breakdown: grade.breakdown,
+      ...buildSavedAnalysisExplainability(grade.breakdown, grade.evidence, grade.quality, pendingExplainabilityFactors),
     }
     // De-dupe by address so re-saving the same location refreshes it in place.
     const withoutDupe = savedAnalyses.filter((s) => s.address !== entry.address)
@@ -992,7 +1002,7 @@ function MapPage() {
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, analysisResults, savedAnalyses])
+  }, [address, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -5777,13 +5787,6 @@ function MapPage() {
     }
   }, [address, analysisResults])
 
-  const analysisDoneCount = ANALYSIS_CHECKS.reduce(
-    (count, key) => count + (analysisProgress[key] === 'done' ? 1 : 0),
-    0,
-  )
-  const analysisHasStarted = ANALYSIS_CHECKS.some((key) => analysisProgress[key] !== undefined)
-  const analysisComplete = analysisDoneCount >= ANALYSIS_CHECKS.length
-
   return (
     <div className="map-page">
       <header className="map-header">
@@ -6869,7 +6872,7 @@ function MapPage() {
             <button
               className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
-              disabled={analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading}
+              disabled={!canSaveAnalysis(analysisResults, analysisComplete)}
               title="Save for comparison"
               aria-label="Save for comparison"
             >
