@@ -45,7 +45,7 @@ describe('FactorEvidence', () => {
         }}
       />,
     )
-    expect(screen.getByText(/Limited data/i)).toBeInTheDocument()
+    expect(screen.getByText(/Caution: limited data/i)).toBeInTheDocument()
     expect(screen.getByText(/Updated 2024/i)).toBeInTheDocument()
   })
 

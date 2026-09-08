@@ -12,7 +12,7 @@ const LEGACY_MESSAGE =
 
 const STATE_LABELS: Record<EvidenceState, string> = {
   verified: 'Verified',
-  caution: 'Limited data',
+  caution: 'Caution: limited data',
   unavailable: 'Data unavailable',
 }
 

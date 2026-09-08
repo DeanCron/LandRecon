@@ -183,6 +183,11 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
 
                   {isOpen && (
                     <div className="compare-factors">
+                      {!sa.breakdown!.some((f) => f.evidence) && (
+                        <p className="compare-factor-legacy" role="note">
+                          Evidence details unavailable for this saved analysis. Re-analyze to refresh.
+                        </p>
+                      )}
                       {TIER_ORDER.map(({ tier, label }) => {
                         const items = orderedBreakdown(sa.breakdown!.filter((f) => f.tier === tier))
                         if (items.length === 0) return null

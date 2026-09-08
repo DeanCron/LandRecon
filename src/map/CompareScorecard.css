@@ -273,6 +273,13 @@
   font-style: italic;
 }
 
+.compare-factor-legacy {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* Compact per-factor evidence state chip in the Compare breakdown.
    Text conveys the state; the left border colour is supplementary. */
 .factor-evidence-chip {
