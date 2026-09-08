@@ -45,6 +45,27 @@ Dockerfile              # Multi-stage; runtime installs sharp + DejaVu fonts on 
 entrypoint.sh           # Launches og.mjs + dev-todos.mjs, execs nginx as PID 1
 ```
 
+## Recon Report Evidence
+
+Each factor in the Recon Report carries **explainability evidence** alongside its
+A–F grade. The grade math is unchanged — evidence is purely additive and never
+alters scores. For every factor the report shows:
+
+- **State** — `Verified` (a definitive provider result), `Caution: limited data`
+  (a usable-but-limited result, e.g. moderate wildfire hazard or `served`-only
+  broadband), or `Data unavailable` (the lookup failed or is still loading).
+  State is conveyed with text and `aria-label`, not colour alone.
+- **Source and rule** — which provider answered and how the point was evaluated.
+- **Freshness** — the data vintage where the provider exposes one.
+- **Why it matters** — a short note on the factor's real-world impact.
+
+A compact **Data quality** summary sits next to the grade ("All checks verified",
+"Review cautions", or "Some data unavailable"). Saving is gated until every
+analysis check completes, so each saved snapshot's grade, breakdown, and evidence
+are trustworthy. Saved evidence persists with the analysis; legacy records saved
+before this feature show "Evidence details unavailable for this saved analysis.
+Re-analyze to refresh." and are refreshed on re-analysis.
+
 ## Share Previews (Open Graph)
 
 Sharing a `/map?address=…&layers=…&base=…` URL on iMessage, Slack, Discord,
