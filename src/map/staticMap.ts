@@ -40,11 +40,12 @@ export async function fetchStaticMapDataUrl(
   deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<string | null> {
   if (!opts.key) return null
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const timeoutMs = deps.timeoutMs ?? 8000
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    const fetchImpl = deps.fetchImpl ?? fetch
+    const timeoutMs = deps.timeoutMs ?? 8000
+    const controller = new AbortController()
+    timer = setTimeout(() => controller.abort(), timeoutMs)
     const res = await fetchImpl(buildStaticMapUrl(opts), { signal: controller.signal })
     if (!res.ok) return null
     const buffer = await res.arrayBuffer()

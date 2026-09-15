@@ -48,4 +48,10 @@ describe('fetchStaticMapDataUrl', () => {
     const result = await fetchStaticMapDataUrl({ lat: 1, lng: 2, key: 'K' }, { fetchImpl })
     expect(result).toBeNull()
   })
+
+  it('returns null when fetch setup throws synchronously', async () => {
+    const fetchImpl = (() => { throw new Error('sync boom') }) as unknown as typeof fetch
+    const result = await fetchStaticMapDataUrl({ lat: 1, lng: 2, key: 'K' }, { fetchImpl })
+    expect(result).toBeNull()
+  })
 })
