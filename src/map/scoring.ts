@@ -329,8 +329,8 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   const costcoEvidence = buildEvidence(
     evidenceState(!!results.costcoLoading || (!!results.costcoError && !results.costco), costcoSev === 'warning'),
     'Google Places',
-    `Within ${COSTCO_GREEN_RADIUS_MI} mi is ideal; within 50 mi stays neutral; beyond 50 mi or none within ${COSTCO_ANALYSIS_RADIUS_MI} mi costs a point.`,
-    'Retail access is a light convenience signal for day-to-day errands and regional amenities.',
+    `Within ${COSTCO_GREEN_RADIUS_MI} mi and you're basically Costco royalty; within 50 mi we'll grudgingly call it neutral; beyond 50 mi or none within ${COSTCO_ANALYSIS_RADIUS_MI} mi and yes, that costs you a whole point. Devastating.`,
+    'Because nothing says "sound life decision" like ranking a home by its proximity to discounted bulk mayonnaise and a $1.50 hot dog. Weighted lightest, for reasons that should be obvious.',
   )
   if (!results.costcoLoading) {
     let costcoScore = 0
