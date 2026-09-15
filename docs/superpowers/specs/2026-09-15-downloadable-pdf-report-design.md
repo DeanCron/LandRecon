@@ -132,8 +132,15 @@ Single-column, print-friendly (A4/Letter, ~40pt margins):
 ## Dependencies
 
 - Add `pdfmake` (runtime) and `@types/pdfmake` (dev).
-- The bundle-budget check must still pass: pdfmake must appear only in its own
-  async chunk, never in the Home entry, map-route, or analysis-detail budgets.
+- The bundle-budget check (`scripts/check-bundle-budget.mjs`) is updated to add a
+  dedicated, documented budget bucket for the on-demand PDF generator chunk(s)
+  (pdfmake core + its font VFS), with an explicit ~1.2 MB gzipped limit. The
+  Home entry, map-route, analysis-detail, and the generic 55 KiB per-async-chunk
+  caps remain strict and unchanged for every other chunk. Rationale, recorded in
+  a code comment: the PDF generator is a user-initiated, on-demand download that
+  never touches initial or route load (it is reached only via dynamic
+  `import()`), so it is a different class from the feature async chunks the
+  55 KiB cap protects.
 
 ## Acceptance Criteria
 
@@ -143,6 +150,9 @@ Single-column, print-friendly (A4/Letter, ~40pt margins):
 2. Grade and per-factor scores in the PDF match the on-screen report exactly.
 3. A map failure still downloads the report (without a map); a library failure
    shows a dismissible error and never crashes the app.
-4. The bundle-budget check passes and initial/route bundle sizes are unchanged
-   (pdfmake is confined to a lazy async chunk).
+4. The bundle-budget check passes. Initial-load, map-route, and analysis-detail
+   bundle sizes are unchanged (pdfmake is confined to a lazy async chunk); the
+   pdfmake chunk is covered only by the new dedicated PDF-chunk bucket, and the
+   generic 55 KiB per-async-chunk cap still applies strictly to all other
+   chunks.
 5. `npm test`, `npm run lint`, and `npm run build` all pass.
