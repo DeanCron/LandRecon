@@ -3695,6 +3695,26 @@
   .analysis-expand {
     display: block !important;
   }
+
+  .analysis-score-bar,
+  .analysis-card,
+  .analysis-item,
+  .analysis-expand {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Undo mobile compact-grid for print: full width, no ellipsis */
+  .analysis-content {
+    display: block;
+  }
+  .analysis-detail strong,
+  .analysis-detail p {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
 }
 
 .analysis-action-spinner {
@@ -3732,26 +3752,6 @@
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-
-  .analysis-score-bar,
-  .analysis-card,
-  .analysis-item,
-  .analysis-expand {
-    color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* Undo mobile compact-grid for print: full width, no ellipsis */
-  .analysis-content {
-    display: block;
-  }
-  .analysis-detail strong,
-  .analysis-detail p {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-  }
 }
 
 /* Highlight pin for analysis flyto */
