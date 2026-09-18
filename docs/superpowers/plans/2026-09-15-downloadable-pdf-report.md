@@ -304,7 +304,7 @@ Expected: FAIL — `reconPdf.ts` does not exist.
 
 ```ts
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces'
-import type { LocationGradeResult, LocationGradeBreakdownItem } from './analysisTypes'
+import type { LocationGradeResult } from './analysisTypes'
 import { qualitySummaryText, qualitySummaryTone } from './evidence'
 
 export type ReconPdfInput = {
