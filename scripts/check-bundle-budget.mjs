@@ -15,6 +15,11 @@ const budgets = {
   mapCss: 20 * 1024,
   analysisDetailJs: 15 * 1024,
   asyncJs: 55 * 1024,
+  // On-demand, user-initiated PDF generator (pdfmake core + embedded font VFS).
+  // Reached ONLY via dynamic import(), so it never affects initial or route
+  // load. It is a heavyweight download the user explicitly triggers, so it gets
+  // its own generous bucket rather than the strict 55 KiB per-async-chunk cap.
+  pdfChunkJs: 1200 * 1024,
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
@@ -125,11 +130,12 @@ const asyncFiles = (await listJavaScriptFiles(distDir))
   .filter((file) => !homeJsFiles.has(file))
   .sort()
 
+const isPdfChunk = (file) => /pdfmake|vfs_fonts/i.test(file)
 for (const file of asyncFiles) {
   checks.push({
     label: `Async chunk ${file}`,
     actual: await transferBytes(new Set([file])),
-    limit: budgets.asyncJs,
+    limit: isPdfChunk(file) ? budgets.pdfChunkJs : budgets.asyncJs,
   })
 }
 
