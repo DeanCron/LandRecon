@@ -46,8 +46,19 @@ describe('buildReconPdfDocDefinition', () => {
     const json = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade() }))
     expect(json).toContain('Flood Zone')
     expect(json).toContain('Nearest Costco')
+    expect(json).toContain('Zone X')
+    expect(json).toContain('4 mi away')
     expect(json).toContain('FEMA')
     expect(json).toContain('Bulk mayonnaise proximity, obviously.')
+  })
+
+  it('renders factor detail verbatim without invented status labels', () => {
+    const json = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade() }))
+    expect(json).toContain('Zone X')
+    expect(json).toContain('4 mi away')
+    expect(json).not.toContain('No concerns')
+    expect(json).not.toContain('Minor concern')
+    expect(json).not.toContain('Notable concern')
   })
 
   it('omits the caveats block when all checks are verified', () => {

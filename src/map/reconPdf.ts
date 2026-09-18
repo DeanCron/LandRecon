@@ -1,5 +1,5 @@
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces'
-import type { LocationGradeResult, LocationGradeBreakdownItem } from './analysisTypes'
+import type { LocationGradeResult } from './analysisTypes'
 import { qualitySummaryText, qualitySummaryTone } from './evidence'
 
 export type ReconPdfInput = {
@@ -31,18 +31,12 @@ function gradeLabel(letter: string): string {
   return GRADE_LABELS[letter] ?? 'Critical'
 }
 
-function factorStatus(item: LocationGradeBreakdownItem): string {
-  const ratio = item.max > 0 ? item.score / item.max : 0
-  if (item.score === 0) return 'No concerns'
-  return ratio >= 0.9 ? 'Notable concern' : 'Minor concern'
-}
-
 function factorBlocks(grade: LocationGradeResult): Content[] {
   return grade.breakdown.map((item) => {
     const evidence = grade.evidence[item.label]
     const stack: Content[] = [
       { text: item.label, style: 'factorLabel' },
-      { text: `${factorStatus(item)} — ${item.detail}`, style: 'factorDetail' },
+      { text: item.detail, style: 'factorDetail' },
     ]
 
     if (evidence) {
