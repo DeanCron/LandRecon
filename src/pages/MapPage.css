@@ -3667,7 +3667,8 @@
   .costco-directions-link,
   .analysis-chevron,
   .analysis-error-banner,
-  .analysis-popout-close {
+  .analysis-popout-close,
+  .analysis-pdf-error {
     display: none !important;
   }
 
@@ -3714,6 +3715,43 @@
     overflow: visible;
     text-overflow: clip;
   }
+}
+
+.analysis-action-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: analysis-action-spin 0.7s linear infinite;
+}
+
+@keyframes analysis-action-spin {
+  to { transform: rotate(360deg); }
+}
+
+.analysis-pdf-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  color: #c62828;
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  border-radius: 4px;
+}
+
+.analysis-pdf-error button {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* Highlight pin for analysis flyto */

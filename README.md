@@ -66,6 +66,17 @@ are trustworthy. Saved evidence persists with the analysis; legacy records saved
 before this feature show "Evidence details unavailable for this saved analysis.
 Re-analyze to refresh." and are refreshed on re-analysis.
 
+## Downloadable PDF Report
+
+The Recon Report panel has a **Download PDF** action that generates a
+self-contained PDF of the current address — the overall grade, the data-quality
+summary, every factor with its evidence (source, rule, why-it-matters,
+freshness), a prominent "Incomplete data" callout for any checks that couldn't
+complete, and a static map snapshot of the location. The PDF library is
+lazy-loaded on first use, so it never affects initial page load. If the map
+snapshot can't be fetched the report still downloads without it; scores in the
+PDF always match the on-screen report.
+
 ## Share Previews (Open Graph)
 
 Sharing a `/map?address=…&layers=…&base=…` URL on iMessage, Slack, Discord,

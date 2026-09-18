@@ -203,6 +203,9 @@ import {
   erSeverity,
   computeLocationGrade,
 } from '../map/scoring'
+import { fetchStaticMapDataUrl } from '../map/staticMap'
+import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
+import { downloadReconPdf } from '../map/pdfExport'
 import { patchTooltipClickBehavior } from '../map/tooltipFix'
 import { loadAirportNoiseModule } from '../noise/loadAirportNoise'
 import {
@@ -937,6 +940,8 @@ function MapPage() {
   const [workAddressInputError, setWorkAddressInputError] = useState<string | null>(null)
 
   const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
   const [shareLoading, setShareLoading] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [shareLongUrl, setShareLongUrl] = useState<string | null>(null)
@@ -1348,6 +1353,28 @@ function MapPage() {
       layer_count: [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible].filter(Boolean).length,
     })
   }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (generatingPdf) return
+    setGeneratingPdf(true)
+    setPdfError(null)
+    try {
+      const grade = computeLocationGrade(analysisResults)
+      const loc = targetLocationRef.current
+      const mapDataUrl = loc
+        ? await fetchStaticMapDataUrl({ lat: loc.lat, lng: loc.lng, key: GOOGLE_MAPS_KEY })
+        : null
+      const now = new Date()
+      const doc = buildReconPdfDocDefinition({ address, date: now, grade, mapDataUrl })
+      await downloadReconPdf(doc, reconPdfFilename(address, now))
+      trackEvent('report_pdf_download', { grade: grade.letter })
+    } catch (err) {
+      dbg('analysis', `PDF export failed: ${String(err)}`)
+      setPdfError('Couldn’t generate PDF — try again.')
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }, [generatingPdf, analysisResults, address])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -6870,6 +6897,23 @@ function MapPage() {
               </svg>
             </button>
             <button
+              className="analysis-action-btn"
+              onClick={handleDownloadPdf}
+              disabled={analysisResults.loading || generatingPdf}
+              title="Download PDF report"
+              aria-label="Download PDF report"
+            >
+              {generatingPdf ? (
+                <span className="analysis-action-spinner" aria-hidden="true" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              )}
+            </button>
+            <button
               className="analysis-action-btn analysis-save-btn"
               onClick={saveCurrentAnalysis}
               disabled={!canSaveAnalysis(analysisResults, analysisComplete)}
@@ -6888,6 +6932,12 @@ function MapPage() {
               aria-label="Close analysis"
             >×</button>
           </div>
+          {pdfError && (
+            <div className="analysis-pdf-error" role="alert">
+              <span>{pdfError}</span>
+              <button type="button" onClick={() => setPdfError(null)} aria-label="Dismiss">×</button>
+            </div>
+          )}
         </div>
         {!analysisResults.loading && (() => {
           const grade = computeLocationGrade(analysisResults)
