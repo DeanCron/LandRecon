@@ -78,16 +78,10 @@ import {
   writeSavedAnalyses,
   savedAnalysisState,
 } from '../map/savedAnalyses'
-import {
-  type DevTodo,
-  DEV_TODOS,
-  readDevTodoItems,
-  writeDevTodoItems,
-  readDevTodoChecks,
-  writeDevTodoChecks,
-  fetchDevTodosFromServer,
-  saveDevTodosToServer,
-} from '../map/devTodos'
+import { useAddressSuggestions, formatTomTomAddress, type TomTomSuggestion } from '../hooks/useAddressSuggestions'
+import { ShareModal } from '../components/ShareModal'
+import { useDevTodos } from '../hooks/useDevTodos'
+import { DevTodosModal } from '../components/DevTodosModal'
 import { fetchOverpass } from '../map/overpass'
 import {
   POWER_MIN_ZOOM,
@@ -694,29 +688,6 @@ function clearDiffOverlay(state: DiffOverlayState): void {
     .catch((err) => { console.error('[LandRecon] analysis overlay clear failed', err) })
 }
 
-interface TomTomSuggestion {
-  id: string
-  type: string
-  address: {
-    streetNumber?: string
-    streetName?: string
-    municipality?: string
-    countrySubdivision?: string
-    postalCode?: string
-    freeformAddress?: string
-  }
-  position?: { lat: number; lon: number }
-}
-
-function formatTomTomAddress(s: TomTomSuggestion): string {
-  const a = s.address
-  if (!a) return ''
-  const street = [a.streetNumber, a.streetName].filter(Boolean).join(' ')
-  const parts = [street, a.municipality, a.countrySubdivision].filter(Boolean)
-  if (a.postalCode) parts.push(a.postalCode)
-  return parts.join(', ') || a.freeformAddress || ''
-}
-
 function MapPage() {
   const routeLocation = useLocation()
   const [searchParams] = useSearchParams()
@@ -959,7 +930,6 @@ function MapPage() {
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [shareLongUrl, setShareLongUrl] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
-  const [shareCopied, setShareCopied] = useState(false)
 
   // Saved analyses for comparison (shared store, surfaced in the Compare panel)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => loadSavedAnalyses())
@@ -1025,11 +995,15 @@ function MapPage() {
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
-  const [addressSuggestions, setAddressSuggestions] = useState<TomTomSuggestion[]>([])
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
-  const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const addressSuggestAbortRef = useRef<AbortController | null>(null)
+  const {
+    suggestions: addressSuggestions,
+    showSuggestions: showAddressSuggestions,
+    setShowSuggestions: setShowAddressSuggestions,
+    activeIndex: activeSuggestionIndex,
+    setActiveIndex: setActiveSuggestionIndex,
+    fetchSuggestions: fetchAddressSuggestions,
+    clearSuggestions: clearAddressSuggestions,
+  } = useAddressSuggestions()
   const addressWrapperRef = useRef<HTMLDivElement>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
 
@@ -1184,93 +1158,15 @@ function MapPage() {
   }, [expUnlocked])
 
   const [devTodosOpen, setDevTodosOpen] = useState(false)
-  const [devTodoItems, setDevTodoItems] = useState<DevTodo[]>(() => readDevTodoItems())
-  const [devTodoChecks, setDevTodoChecks] = useState<Record<string, boolean>>(() => readDevTodoChecks())
-  const [newDevTodoText, setNewDevTodoText] = useState('')
-  const [devTodoSync, setDevTodoSync] = useState<'idle' | 'loading' | 'saving' | 'offline'>('idle')
-  const devTodoSaveTimer = useRef<number | null>(null)
-  const shareCopiedTimer = useRef<number | null>(null)
-
-  useEffect(() => () => {
-    if (devTodoSaveTimer.current != null) window.clearTimeout(devTodoSaveTimer.current)
-    if (shareCopiedTimer.current != null) window.clearTimeout(shareCopiedTimer.current)
-  }, [])
-  // Push the current items + checks to the server, debounced so a burst of
-  // edits collapses into a single PUT. Falls back to localStorage-only mode
-  // if the server can't be reached (e.g. running the SPA outside the
-  // container, or sidecar down).
-  const persistDevTodos = useCallback((items: DevTodo[], checks: Record<string, boolean>) => {
-    if (devTodoSaveTimer.current != null) window.clearTimeout(devTodoSaveTimer.current)
-    devTodoSaveTimer.current = window.setTimeout(async () => {
-      setDevTodoSync('saving')
-      dbg('devtodos', `Saving to server: ${items.length} item(s)…`)
-      const ok = await saveDevTodosToServer({ items, checks })
-      dbg('devtodos', ok ? 'Server save OK' : 'Server save failed — falling back to localStorage-only')
-      setDevTodoSync(ok ? 'idle' : 'offline')
-    }, 400)
-  }, [])
-
-  // When the modal opens, refresh from the server. If the server is
-  // reachable, its data is the source of truth and we also mirror it to
-  // localStorage for next-load speed + offline fallback.
-  useEffect(() => {
-    if (!devTodosOpen) return
-    let cancelled = false
-    setDevTodoSync('loading')
-    dbg('devtodos', 'Modal opened — fetching from server…')
-    fetchDevTodosFromServer().then((data) => {
-      if (cancelled) return
-      if (data) {
-        dbg('devtodos', `Server returned ${data.items.length} item(s); using server as source of truth`)
-        setDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
-        setDevTodoChecks(data.checks)
-        writeDevTodoItems(data.items.length > 0 ? data.items : DEV_TODOS)
-        writeDevTodoChecks(data.checks)
-        setDevTodoSync('idle')
-      } else {
-        dbg('devtodos', 'Server unreachable or no token — staying in localStorage-only mode')
-        setDevTodoSync('offline')
-      }
-    })
-    return () => { cancelled = true }
-  }, [devTodosOpen])
-
-  const toggleDevTodo = (id: string) => {
-    dbg('devtodos', `Toggle "${id}"`)
-    setDevTodoChecks((prev) => {
-      const next = { ...prev, [id]: !prev[id] }
-      writeDevTodoChecks(next)
-      persistDevTodos(devTodoItems, next)
-      return next
-    })
-  }
-  const addDevTodo = () => {
-    const label = newDevTodoText.trim()
-    if (!label) return
-    const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-    dbg('devtodos', `Add "${label}" (${id})`)
-    setDevTodoItems((prev) => {
-      const next = [...prev, { id, label }]
-      writeDevTodoItems(next)
-      persistDevTodos(next, devTodoChecks)
-      return next
-    })
-    setNewDevTodoText('')
-  }
-  const deleteDevTodo = (id: string) => {
-    dbg('devtodos', `Delete "${id}"`)
-    const nextChecks = { ...devTodoChecks }
-    delete nextChecks[id]
-    setDevTodoItems((prev) => {
-      const next = prev.filter((t) => t.id !== id)
-      writeDevTodoItems(next)
-      writeDevTodoChecks(nextChecks)
-      persistDevTodos(next, nextChecks)
-      return next
-    })
-    setDevTodoChecks(nextChecks)
-  }
-  const remainingDevTodos = devTodoItems.filter((t) => !devTodoChecks[t.id]).length
+  const {
+    items: devTodoItems,
+    checks: devTodoChecks,
+    sync: devTodoSync,
+    remaining: remainingDevTodos,
+    toggle: toggleDevTodo,
+    add: addDevTodo,
+    remove: deleteDevTodo,
+  } = useDevTodos(devTodosOpen)
   const [debugEnabled, setDebugEnabled] = useState(() => getExpFlag('LR_DEBUG', false))
   const [baseMapSwitcherEnabled, setBaseMapSwitcherEnabled] = useState(() => getExpFlag('lr_exp_basemap', false))
   // Bumped to remount the GuidedTour and replay it from step 1.
@@ -1367,7 +1263,6 @@ function MapPage() {
     setShareModalOpen(true)
     setShareLoading(false)
     setShareError(null)
-    setShareCopied(false)
     setShareLongUrl(url)
     setShareUrl(url)
     trackEvent('share_click', {
@@ -1450,47 +1345,8 @@ function MapPage() {
     prevLayerStateRef.current = next
   }, [noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
-  const handleCopyShare = useCallback(async () => {
-    const value = shareUrl || shareLongUrl
-    if (!value) return
-    try {
-      await navigator.clipboard.writeText(value)
-      setShareCopied(true)
-      trackEvent('share_copy', { result: 'success' })
-      if (shareCopiedTimer.current != null) window.clearTimeout(shareCopiedTimer.current)
-      shareCopiedTimer.current = window.setTimeout(() => setShareCopied(false), 2000)
-    } catch {
-      setShareError('Clipboard access denied — please copy manually.')
-    }
-  }, [shareUrl, shareLongUrl])
-
-  // Native Web Share — only available on secure contexts with a system
-  // share sheet (iOS Safari, most modern Android Chromes). Silently ignore
-  // user-cancellation; report any other error as a fallback to copy.
-  const handleNativeShare = useCallback(async () => {
-    const value = shareUrl || shareLongUrl
-    if (!value || typeof navigator.share !== 'function') return
-    try {
-      await navigator.share({
-        title: 'Land Recon',
-        text: address ? `Land Recon — ${address}` : 'Land Recon map view',
-        url: value,
-      })
-      trackEvent('share_native', { result: 'success' })
-    } catch (err) {
-      // AbortError = user cancelled; don't surface that as an error.
-      if (err instanceof Error && err.name !== 'AbortError') {
-        trackEvent('share_native', { result: 'error' })
-        setShareError('Native share failed — copy the link instead.')
-      }
-    }
-  }, [shareUrl, shareLongUrl, address])
-
-  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
-
   const closeShareModal = useCallback(() => {
     setShareModalOpen(false)
-    setShareCopied(false)
     setShareError(null)
   }, [])
 
@@ -1545,54 +1401,14 @@ function MapPage() {
 
   const cancelEditingAddress = useCallback(() => {
     setEditingAddress(false)
-    setAddressSuggestions([])
-    setShowAddressSuggestions(false)
-    setActiveSuggestionIndex(-1)
-    if (addressDebounceRef.current) {
-      clearTimeout(addressDebounceRef.current)
-      addressDebounceRef.current = null
-    }
-    addressSuggestAbortRef.current?.abort()
-  }, [])
+    clearAddressSuggestions()
+  }, [clearAddressSuggestions])
 
   const startEditingAddress = useCallback(() => {
     setAddressInputValue(address)
-    setAddressSuggestions([])
-    setShowAddressSuggestions(false)
-    setActiveSuggestionIndex(-1)
+    clearAddressSuggestions()
     setEditingAddress(true)
-  }, [address])
-
-  const fetchAddressSuggestions = useCallback((query: string) => {
-    if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
-    addressSuggestAbortRef.current?.abort()
-    if (query.length < 3) {
-      setAddressSuggestions([])
-      setShowAddressSuggestions(false)
-      return
-    }
-    addressDebounceRef.current = setTimeout(async () => {
-      const controller = new AbortController()
-      addressSuggestAbortRef.current = controller
-      dbg('geocode', 'Fetching suggestions for:', query)
-      try {
-        const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
-        const res = await fetch(url, { signal: controller.signal })
-        if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`)
-        const data = await res.json()
-        if (controller.signal.aborted) return
-        const results: TomTomSuggestion[] = data.results || []
-        dbg('geocode', `Got ${results.length} suggestions`)
-        setAddressSuggestions(results)
-        setShowAddressSuggestions(results.length > 0)
-        setActiveSuggestionIndex(-1)
-      } catch {
-        if (controller.signal.aborted) return
-        setAddressSuggestions([])
-        setShowAddressSuggestions(false)
-      }
-    }, 300)
-  }, [])
+  }, [address, clearAddressSuggestions])
 
   const submitAddressChange = useCallback((newAddress: string) => {
     cancelLocate()
@@ -1641,7 +1457,7 @@ function MapPage() {
       e.preventDefault()
       cancelEditingAddress()
     }
-  }, [showAddressSuggestions, addressSuggestions, activeSuggestionIndex, addressInputValue, selectAddressSuggestion, submitAddressChange, cancelEditingAddress])
+  }, [showAddressSuggestions, addressSuggestions, activeSuggestionIndex, addressInputValue, selectAddressSuggestion, submitAddressChange, cancelEditingAddress, setActiveSuggestionIndex])
 
   const useMyLocation = useCallback(async () => {
     const target = await locate()
@@ -1668,13 +1484,6 @@ function MapPage() {
       addressInputRef.current.select()
     }
   }, [editingAddress])
-
-  useEffect(() => {
-    return () => {
-      if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
-      addressSuggestAbortRef.current?.abort()
-    }
-  }, [])
 
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
@@ -7148,106 +6957,29 @@ function MapPage() {
       )}
 
       {shareModalOpen && (
-        <div className="analysis-detail-overlay" onClick={closeShareModal}>
-          <div className="analysis-detail-popup share-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
-            <button className="analysis-detail-close" onClick={closeShareModal} aria-label="Close">×</button>
-            <h3 id="share-modal-title">Share Results</h3>
-            {shareLoading ? (
-              <div className="share-loading"><div className="spinner" /><p>Creating short link…</p></div>
-            ) : (
-              <>
-                <p className="share-description">
-                  {gpsTarget
-                    ? 'This link reveals the analyzed GPS location, its accuracy, and capture time. Anyone with the link can open that location.'
-                    : 'Anyone with this link will see the same address and the layers you have active.'}
-                </p>
-                <input
-                  className="share-modal-input"
-                  type="text"
-                  readOnly
-                  value={shareUrl || shareLongUrl || ''}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                {shareError && (
-                  <p className="share-error">Could not shorten URL ({shareError}); using the full link instead.</p>
-                )}
-                <div className="share-modal-actions">
-                  {canNativeShare && (
-                    <button className="share-copy-button share-native-button" onClick={handleNativeShare}>
-                      Share…
-                    </button>
-                  )}
-                  <button className="share-copy-button" onClick={handleCopyShare}>
-                    {shareCopied ? '✓ Copied!' : 'Copy link'}
-                  </button>
-                  {shareUrl && (
-                    <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-open-link">
-                      Open in new tab →
-                    </a>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ShareModal
+          shareUrl={shareUrl}
+          shareLongUrl={shareLongUrl}
+          loading={shareLoading}
+          error={shareError}
+          onError={setShareError}
+          isGps={!!gpsTarget}
+          address={address}
+          onClose={closeShareModal}
+        />
       )}
 
       {devTodosOpen && (
-        <div className="analysis-detail-overlay" onClick={() => setDevTodosOpen(false)}>
-          <div className="analysis-detail-popup dev-todos-popup" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="dev-todos-title">
-            <button className="analysis-detail-close" onClick={() => setDevTodosOpen(false)} aria-label="Close">×</button>
-            <h3 id="dev-todos-title">📋 To Do</h3>
-            <p className="dev-todos-summary">
-              {devTodoItems.length === 0
-                ? 'No items yet — add one below.'
-                : remainingDevTodos === 0
-                ? 'All caught up — nice.'
-                : `${remainingDevTodos} of ${devTodoItems.length} remaining`}
-            </p>
-            <ul className="dev-todos-list">
-              {devTodoItems.map((t) => {
-                const done = !!devTodoChecks[t.id]
-                return (
-                  <li key={t.id} className={`dev-todo-item${done ? ' done' : ''}`}>
-                    <label>
-                      <input type="checkbox" checked={done} onChange={() => toggleDevTodo(t.id)} />
-                      <span className="dev-todo-label">{t.label}</span>
-                    </label>
-                    {t.note && <div className="dev-todo-note">{t.note}</div>}
-                    <button
-                      type="button"
-                      className="dev-todo-delete"
-                      onClick={() => deleteDevTodo(t.id)}
-                      aria-label={`Delete "${t.label}"`}
-                      title="Delete"
-                    >
-                      ×
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-            <form
-              className="dev-todos-add"
-              onSubmit={(e) => { e.preventDefault(); addDevTodo() }}
-            >
-              <input
-                type="text"
-                value={newDevTodoText}
-                onChange={(e) => setNewDevTodoText(e.target.value)}
-                placeholder="Add a new todo…"
-                aria-label="New todo text"
-                maxLength={200}
-              />
-              <button type="submit" disabled={!newDevTodoText.trim()}>Add</button>
-            </form>
-            <div className="dev-todos-hint">
-              {devTodoSync === 'loading' && 'Loading from server…'}
-              {devTodoSync === 'saving' && 'Saving…'}
-              {devTodoSync === 'offline' && 'Server unreachable — saved to this browser only.'}
-            </div>
-          </div>
-        </div>
+        <DevTodosModal
+          items={devTodoItems}
+          checks={devTodoChecks}
+          sync={devTodoSync}
+          remaining={remainingDevTodos}
+          onToggle={toggleDevTodo}
+          onAdd={addDevTodo}
+          onDelete={deleteDevTodo}
+          onClose={() => setDevTodosOpen(false)}
+        />
       )}
 
       {status === 'ready' && (
