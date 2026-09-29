@@ -196,3 +196,15 @@ describe('commuteSeverity', () => {
 beforeEach(() => {
   window.localStorage.clear()
 })
+
+describe('work address validation', () => {
+  it.each([
+    [{ address: 'x', lat: 91, lng: 0 }],
+    [{ address: 'x', lat: 0, lng: 181 }],
+    [{ address: '', lat: 1, lng: 2 }],
+    [{ address: 'x', lat: null, lng: 2 }],
+  ])('rejects out-of-range or malformed stored coordinates %#', (bad) => {
+    window.localStorage.setItem('lr_work_address', JSON.stringify(bad))
+    expect(loadSavedWorkAddress()).toBeNull()
+  })
+})

@@ -56,7 +56,9 @@ export function readAnalysisCache(lat: number, lng: number): CachedAnalysisPaylo
     const raw = localStorage.getItem(analysisCacheKey(lat, lng))
     if (!raw) return null
     const parsed = JSON.parse(raw) as CachedAnalysisPayload
-    if (Date.now() - parsed.ts > ANALYSIS_CACHE_TTL_MS) return null
+    const age = Date.now() - parsed?.ts
+    if (!Number.isFinite(age) || age < 0 || age > ANALYSIS_CACHE_TTL_MS) return null
+    if (!parsed.data || typeof parsed.data !== 'object') return null
     return parsed.data
   } catch {
     return null

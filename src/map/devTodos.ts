@@ -43,7 +43,12 @@ export function writeDevTodoItems(items: DevTodo[]) {
 export function readDevTodoChecks(): Record<string, boolean> {
   try {
     const raw = localStorage.getItem(DEV_TODOS_CHECKS_KEY)
-    return raw ? JSON.parse(raw) as Record<string, boolean> : {}
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, v]) => typeof v === 'boolean'),
+    ) as Record<string, boolean>
   } catch { return {} }
 }
 export function writeDevTodoChecks(state: Record<string, boolean>) {

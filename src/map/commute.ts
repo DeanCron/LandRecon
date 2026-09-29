@@ -28,7 +28,13 @@ export function loadSavedWorkAddress(): WorkAddress | null {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (typeof parsed?.address === 'string' && typeof parsed?.lat === 'number' && typeof parsed?.lng === 'number') {
+    if (
+      typeof parsed?.address === 'string'
+      && parsed.address.length > 0
+      && parsed.address.length <= 300
+      && Number.isFinite(parsed.lat) && Math.abs(parsed.lat) <= 90
+      && Number.isFinite(parsed.lng) && Math.abs(parsed.lng) <= 180
+    ) {
       return { address: parsed.address, lat: parsed.lat, lng: parsed.lng }
     }
     return null

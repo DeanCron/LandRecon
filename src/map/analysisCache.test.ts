@@ -95,3 +95,26 @@ describe('analysisCache', () => {
     expect(readAnalysisCache(LAT, LNG)).toBeNull()
   })
 })
+
+describe('cache entry validation', () => {
+  function tamper(mutate: (entry: Record<string, unknown>) => void) {
+    writeAnalysisCache(LAT, LNG, sampleData())
+    const key = Object.keys(localStorage).find((k) => k.startsWith('lr_analysis_v'))!
+    const entry = JSON.parse(localStorage.getItem(key)!)
+    mutate(entry)
+    localStorage.setItem(key, JSON.stringify(entry))
+  }
+
+  it('ignores future-dated entries', () => {
+    tamper((e) => { e.ts = Date.now() + 3_600_000 })
+    expect(readAnalysisCache(LAT, LNG)).toBeNull()
+  })
+
+  it('ignores entries with a missing timestamp or payload', () => {
+    tamper((e) => { delete e.ts })
+    expect(readAnalysisCache(LAT, LNG)).toBeNull()
+    localStorage.clear()
+    tamper((e) => { e.data = null })
+    expect(readAnalysisCache(LAT, LNG)).toBeNull()
+  })
+})

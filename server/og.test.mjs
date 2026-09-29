@@ -1,8 +1,21 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { request } from 'node:http'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
+
+function get(path, headers) {
+  return new Promise((done, reject) => {
+    const req = request(`${origin}${path}`, { headers }, (res) => {
+      let body = ''
+      res.on('data', (c) => { body += c })
+      res.on('end', () => done(body))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
 
 let child
 let origin
@@ -42,4 +55,13 @@ test('invalid GPS parameters never become an address report', async () => {
   const html = await (await fetch(`${origin}/share?address=MisleadingStreet&lat=999&lng=-122`)).text()
   assert.doesNotMatch(html, /MisleadingStreet/)
   assert.doesNotMatch(html, /lat=999/)
+})
+
+test('spoofed forwarded host is never echoed into share metadata', async () => {
+  const path = '/share?address=123%20Main%20St%20Seattle%20WA'
+  const spoofed = await get(path, { 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https' })
+  assert.doesNotMatch(spoofed, /evil\.example/)
+  assert.match(spoofed, /https:\/\/landrecon\.com\//)
+  const trusted = await get(path, { 'x-forwarded-host': 'www.landrecon.com' })
+  assert.match(trusted, /www\.landrecon\.com/)
 })

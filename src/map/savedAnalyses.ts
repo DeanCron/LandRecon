@@ -157,7 +157,12 @@ export function savedAnalysisState(entry: Pick<SavedAnalysis, 'address' | 'gps' 
 export function loadSavedAnalyses(): SavedAnalysis[] {
   try {
     const raw = JSON.parse(localStorage.getItem(SAVED_ANALYSES_KEY) ?? '[]')
-    return Array.isArray(raw) ? raw.map((entry) => normalizeSavedAnalysis(entry as SavedAnalysis)) : []
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((entry): entry is SavedAnalysis => (
+        !!entry && typeof entry === 'object' && typeof entry.address === 'string'
+      ))
+      .map(normalizeSavedAnalysis)
   } catch {
     return []
   }
