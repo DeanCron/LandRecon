@@ -1029,6 +1029,7 @@ function MapPage() {
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addressSuggestAbortRef = useRef<AbortController | null>(null)
   const addressWrapperRef = useRef<HTMLDivElement>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
 
@@ -1188,7 +1189,12 @@ function MapPage() {
   const [newDevTodoText, setNewDevTodoText] = useState('')
   const [devTodoSync, setDevTodoSync] = useState<'idle' | 'loading' | 'saving' | 'offline'>('idle')
   const devTodoSaveTimer = useRef<number | null>(null)
+  const shareCopiedTimer = useRef<number | null>(null)
 
+  useEffect(() => () => {
+    if (devTodoSaveTimer.current != null) window.clearTimeout(devTodoSaveTimer.current)
+    if (shareCopiedTimer.current != null) window.clearTimeout(shareCopiedTimer.current)
+  }, [])
   // Push the current items + checks to the server, debounced so a burst of
   // edits collapses into a single PUT. Falls back to localStorage-only mode
   // if the server can't be reached (e.g. running the SPA outside the
@@ -1451,7 +1457,8 @@ function MapPage() {
       await navigator.clipboard.writeText(value)
       setShareCopied(true)
       trackEvent('share_copy', { result: 'success' })
-      setTimeout(() => setShareCopied(false), 2000)
+      if (shareCopiedTimer.current != null) window.clearTimeout(shareCopiedTimer.current)
+      shareCopiedTimer.current = window.setTimeout(() => setShareCopied(false), 2000)
     } catch {
       setShareError('Clipboard access denied — please copy manually.')
     }
@@ -1545,6 +1552,7 @@ function MapPage() {
       clearTimeout(addressDebounceRef.current)
       addressDebounceRef.current = null
     }
+    addressSuggestAbortRef.current?.abort()
   }, [])
 
   const startEditingAddress = useCallback(() => {
@@ -1557,23 +1565,29 @@ function MapPage() {
 
   const fetchAddressSuggestions = useCallback((query: string) => {
     if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
+    addressSuggestAbortRef.current?.abort()
     if (query.length < 3) {
       setAddressSuggestions([])
       setShowAddressSuggestions(false)
       return
     }
     addressDebounceRef.current = setTimeout(async () => {
+      const controller = new AbortController()
+      addressSuggestAbortRef.current = controller
       dbg('geocode', 'Fetching suggestions for:', query)
       try {
         const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
-        const res = await fetch(url)
+        const res = await fetch(url, { signal: controller.signal })
+        if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`)
         const data = await res.json()
+        if (controller.signal.aborted) return
         const results: TomTomSuggestion[] = data.results || []
         dbg('geocode', `Got ${results.length} suggestions`)
         setAddressSuggestions(results)
         setShowAddressSuggestions(results.length > 0)
         setActiveSuggestionIndex(-1)
       } catch {
+        if (controller.signal.aborted) return
         setAddressSuggestions([])
         setShowAddressSuggestions(false)
       }
@@ -1658,6 +1672,7 @@ function MapPage() {
   useEffect(() => {
     return () => {
       if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
+      addressSuggestAbortRef.current?.abort()
     }
   }, [])
 
@@ -3440,6 +3455,7 @@ function MapPage() {
         })
 
         createBaseLayer('street').then((baseLayer) => {
+          if (mapRef.current !== map) return
           dbg('init', 'Base layer created (Google Tiles)')
           baseLayer.addTo(map)
           baseLayerRef.current = baseLayer

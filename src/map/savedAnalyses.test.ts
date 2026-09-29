@@ -334,3 +334,10 @@ describe('savedAnalyses', () => {
     expect(loaded.breakdown?.[0].evidence?.state).toBe('verified')
   })
 })
+
+describe('corrupted saved analyses', () => {
+  it('drops entries that are not objects with an address', () => {
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([null, 5, 'x', { address: 1 }, { address: 'ok', grade: 'B' }]))
+    expect(loadSavedAnalyses().map((e) => e.address)).toEqual(['ok'])
+  })
+})

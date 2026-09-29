@@ -26,7 +26,7 @@ export function loadRecentSearches(): RecentSearch[] {
     const cleaned = parsed
       .filter(
         (r): r is RecentSearch =>
-          r && typeof r.address === 'string' && typeof r.timestamp === 'number',
+          r && typeof r.address === 'string' && Number.isFinite(r.timestamp) && r.timestamp <= Date.now() + 60_000,
       )
       .map((r) => ({
         address: r.address,

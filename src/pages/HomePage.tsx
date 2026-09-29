@@ -175,6 +175,7 @@ function HomePage() {
     setRecent([])
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suggestAbortRef = useRef<AbortController | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const recentRef = useRef<HTMLDivElement>(null)
 
@@ -191,6 +192,7 @@ function HomePage() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      suggestAbortRef.current?.abort()
     }
   }, [])
 
@@ -199,16 +201,21 @@ function HomePage() {
 
   const fetchSuggestions = (query: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    suggestAbortRef.current?.abort()
     if (query.length < 3 || !TOMTOM_API_KEY) {
       setSuggestions([])
       setShowSuggestions(false)
       return
     }
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController()
+      suggestAbortRef.current = controller
       try {
         const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json?key=${TOMTOM_API_KEY}&countrySet=US&typeahead=true&limit=5&language=en-US`
-        const res = await fetch(url)
+        const res = await fetch(url, { signal: controller.signal })
+        if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`)
         const data = await res.json()
+        if (controller.signal.aborted) return
         const results: TomTomResult[] = data.results || []
         const mapped: Suggestion[] = results.map((r) => ({
           id: r.id,
@@ -219,6 +226,7 @@ function HomePage() {
         setShowSuggestions(mapped.length > 0)
         setActiveIndex(-1)
       } catch {
+        if (controller.signal.aborted) return
         setSuggestions([])
         setShowSuggestions(false)
       }

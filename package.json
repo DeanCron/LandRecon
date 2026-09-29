@@ -28,8 +28,8 @@
     "protomaps-leaflet": "^5.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.17.0",
-    "sharp": "^0.34.5"
+    "react-router-dom": "^7.18.4",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

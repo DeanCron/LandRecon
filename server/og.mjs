@@ -28,10 +28,29 @@ function dbg(...args) { if (LR_DEBUG) console.debug('[og]', ...args) }
 // og:image always match the host the crawler hit (works the moment a
 // custom domain is wired up — no redeploy needed). nginx is configured
 // to forward Host + X-Forwarded-Proto headers.
+const ALLOWED_HOSTS = new Set([
+  new URL(FALLBACK_ORIGIN).host,
+  'www.landrecon.com',
+  'localhost',
+  '127.0.0.1',
+  ...(process.env.OG_ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
+])
+const ALLOWED_HOST_SUFFIXES = ['.azurecontainerapps.io']
+
+function isAllowedHost(host) {
+  const h = host.toLowerCase()
+  const bare = h.replace(/:\d+$/, '')
+  return ALLOWED_HOSTS.has(h) || ALLOWED_HOSTS.has(bare)
+    || ALLOWED_HOST_SUFFIXES.some((s) => bare.endsWith(s) && /^[a-z0-9.-]+$/.test(bare))
+}
+
+// Only echo a request-derived origin when the host is one of ours; otherwise
+// a spoofed Host/X-Forwarded-Host would be baked into cached og:url values.
 function originFromReq(req) {
-  const proto = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  if (host) return `${proto}://${host}`.replace(/\/$/, '')
+  const rawProto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim()
+  const proto = rawProto === 'http' ? 'http' : 'https'
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+  if (host && isAllowedHost(host)) return `${proto}://${host}`.replace(/\/$/, '')
   return FALLBACK_ORIGIN
 }
 
