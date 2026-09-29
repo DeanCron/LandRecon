@@ -6,11 +6,14 @@ import {
   canSaveAnalysis,
   getPendingSavedAnalysisFactors,
   loadSavedAnalyses,
+  savedAnalysisState,
   writeSavedAnalyses,
   type SavedAnalysis,
 } from './savedAnalyses'
 import type { LocationGradeBreakdownItem, LocationGradeFactorLabel } from './analysisTypes'
 import type { FactorEvidence, ReportQuality } from './evidence'
+import { resolveMapGps, resolveMapLocationError } from '../utils/mapAddressState'
+import { loadSavedAnalysisSnippets, removeSavedAnalysisSnippet } from '../utils/recentSearches'
 
 function sampleEvidence(state: FactorEvidence['state']): FactorEvidence {
   return {
@@ -30,6 +33,26 @@ beforeEach(() => {
 })
 
 describe('savedAnalyses', () => {
+  it('preserves two GPS fixes with the same address through snippets and targeted removal', () => {
+    const gps = { kind: 'gps', lat: 47, lng: -122, accuracy: 20, capturedAt: 1790680000000 }
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([
+      { address: 'Nearby', grade: 'A', gradeColor: 'green', gps },
+      { address: 'Nearby', grade: 'B', gradeColor: 'yellow', gps: { ...gps, lat: 48 } },
+    ]))
+    const snippets = loadSavedAnalysisSnippets()
+    expect(resolveMapGps(savedAnalysisState(snippets[0]))).toEqual(gps)
+    const remaining = removeSavedAnalysisSnippet(snippets[0])
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].gps?.lat).toBe(48)
+  })
+
+  it('refuses malformed saved GPS metadata rather than reanalyzing its address', () => {
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([{ address: 'Nearby', gps: { lat: 999 } }]))
+    const saved = loadSavedAnalyses()[0]
+    expect(resolveMapLocationError(savedAnalysisState(saved))).toContain('invalid')
+    expect(saved.gps).toBeUndefined()
+  })
+
   it('loads legacy records without evidence fields', () => {
     localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([{ address: '1 Main St' }]))
 

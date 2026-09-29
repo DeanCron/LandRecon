@@ -1,12 +1,14 @@
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces'
 import type { LocationGradeResult } from './analysisTypes'
 import { qualitySummaryText, qualitySummaryTone } from './evidence'
+import { gpsAccuracyText, gpsTargetLabel, type GpsTarget } from '../utils/locationTarget'
 
 export type ReconPdfInput = {
   address: string
   date: Date
   grade: LocationGradeResult
   mapDataUrl?: string | null
+  gps?: GpsTarget
 }
 
 const BRAND = '#2e7d32'
@@ -97,6 +99,14 @@ export function buildReconPdfDocDefinition(input: ReconPdfInput): TDocumentDefin
       margin: [0, 6, 0, 12],
     },
   ]
+
+  if (input.gps) {
+    content.push({
+      text: `${gpsTargetLabel(input.gps)}\n${gpsAccuracyText(input.gps)}\nLocation captured: ${new Date(input.gps.capturedAt).toISOString()}`,
+      style: 'evidence',
+      margin: [0, 0, 0, 10],
+    })
+  }
 
   if (mapDataUrl) {
     content.push({ image: mapDataUrl, width: 515, margin: [0, 0, 0, 14] })

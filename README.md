@@ -77,6 +77,41 @@ lazy-loaded on first use, so it never affects initial page load. If the map
 snapshot can't be fetched the report still downloads without it; scores in the
 PDF always match the on-screen report.
 
+## Score My Location
+
+The location button on home and map runs a one-shot, high-accuracy browser
+location request. Permission is requested only when you tap **Score my location**;
+LandRecon does not continuously track your device. You can enter an address
+instead, or retry after a permission, connection, or timeout error.
+
+GPS reports analyze the measured coordinates, not the nearest street address.
+The nearby address is context only. An accuracy circle and report text show the
+device-reported uncertainty: this is an approximate location, **not a verified
+property boundary**. US coverage must be confirmed before analysis; a confirmed
+US location without a street address can still be scored.
+
+Explicitly saved reports retain their coordinates, accuracy, and capture time
+for reopening, comparison, and re-analysis. PDF and print reports include this
+context. Sharing a GPS report reveals its analyzed location and capture
+metadata; the share dialog warns before copying or sharing. Location parameters
+are removed from the browser URL before analytics starts, and coordinates are
+not sent in analytics events. Location/data providers still receive the point
+needed to perform your requested lookup. Existing address-only saved reports
+continue to work.
+
+The mobile report uses scrollable content, wrapping actions, 44-pixel touch
+targets, and bottom safe-area spacing. To exercise the GPS flow with mocked
+providers and browser geolocation (no paid API calls), start the dev server with
+`VITE_TOMTOM_API_KEY=test-key` on port 5179, then run:
+
+```bash
+node scripts/location-report-check.mjs
+node --test server/og.test.mjs
+```
+
+`LOCATION_TEST_URL` overrides the dev-server URL. `LOCATION_TEST_ARTIFACTS`
+optionally selects a directory for phone/desktop screenshots.
+
 ## Share Previews (Open Graph)
 
 Sharing a `/map?address=…&layers=…&base=…` URL on iMessage, Slack, Discord,
