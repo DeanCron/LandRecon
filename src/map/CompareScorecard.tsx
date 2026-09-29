@@ -6,6 +6,7 @@ import {
 import { FactorEvidence, LEGACY_MESSAGE } from '../components/FactorEvidence'
 import { qualitySummaryText, qualitySummaryTone } from './evidence'
 import './CompareScorecard.css'
+import { gpsAccuracyText, locationIdentity } from '../utils/locationTarget'
 
 // Tier grouping + canonical factor order for the expandable breakdown. Mirrors
 // the breakdown produced by computeLocationGrade() so factors read top-to-bottom
@@ -58,13 +59,13 @@ function orderedBreakdown(breakdown: SavedFactor[]): SavedFactor[] {
 }
 
 function keyOf(sa: SavedAnalysis): string {
-  return `${sa.address}|${sa.date}`
+  return `${locationIdentity(sa.address, sa.gps)}|${sa.date}`
 }
 
 type Props = {
   saved: SavedAnalysis[]
   onRemove: (idx: number) => void
-  onReanalyze: (address: string) => void
+  onReanalyze: (saved: SavedAnalysis) => void
 }
 
 // Presentational ranked scorecard — locations sorted best → worst by overall
@@ -121,6 +122,8 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                 >×</button>
               </div>
               <div className="compare-rank-addr" title={sa.address}>{sa.address}</div>
+              {sa.gps && <p className="compare-gps-context">{gpsAccuracyText(sa.gps)}</p>}
+              {sa.locationError && <p role="alert">{sa.locationError}</p>}
               <div className="compare-rank-sub">
                 <span className="compare-loc-date">{sa.date}</span>
                 {isWinner && <span className="compare-best-tag">Best match</span>}
@@ -176,7 +179,7 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                     </button>
                     <button
                       className="compare-loc-reanalyze"
-                      onClick={() => onReanalyze(sa.address)}
+                      onClick={() => onReanalyze(sa)}
                     >
                       Re-analyze
                     </button>
@@ -224,7 +227,7 @@ function CompareScorecard({ saved, onRemove, onReanalyze }: Props) {
                 <div className="compare-rank-footer">
                   <button
                     className="compare-loc-reanalyze"
-                    onClick={() => onReanalyze(sa.address)}
+                    onClick={() => onReanalyze(sa)}
                   >
                     Re-analyze
                   </button>

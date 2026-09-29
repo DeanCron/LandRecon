@@ -78,7 +78,7 @@
 
 .home-input {
   width: 100%;
-  padding: 16px 52px 16px 48px;
+  padding: 16px 62px 16px 48px;
   font-size: 1rem;
   font-family: inherit;
   background: var(--color-surface);
@@ -109,8 +109,8 @@
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -130,6 +130,28 @@
 .home-input-locate:disabled {
   cursor: progress;
   opacity: 0.7;
+}
+
+.home-location-hint {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.home-input-locate:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.home-input-locate[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+
+.home-input-locate[data-tooltip]:hover::after,
+.home-input-locate[data-tooltip]:focus-visible::after {
+  transform: translateY(0);
 }
 
 .home-locate-spinner {
@@ -243,8 +265,8 @@
   }
 
   .home-input {
-    padding: 14px 14px 14px 44px;
-    font-size: 0.95rem;
+    padding: 14px 62px 14px 44px;
+    font-size: 1rem;
   }
 
   .input-icon {
@@ -407,6 +429,9 @@
 }
 
 .home-recent-remove {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
   background: none;
   border: none;
   color: var(--color-text-muted);
@@ -496,6 +521,7 @@
 
 .home-saved-go {
   flex: 1;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;

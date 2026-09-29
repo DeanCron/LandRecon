@@ -7,13 +7,14 @@ export interface RecentSearch {
 
 export interface SavedAnalysisSnippet {
   address: string
+  gps?: GpsTarget
+  locationError?: string
   grade: string
   gradeColor: string
   date?: string
 }
 
 const RECENT_KEY = 'lr_recent_searches'
-const SAVED_KEY = 'lr_saved_analyses'
 const RECENT_MAX = 5
 
 export function loadRecentSearches(): RecentSearch[] {
@@ -118,12 +119,7 @@ export function clearRecentSearches(): void {
 }
 
 export function loadSavedAnalysisSnippets(): SavedAnalysisSnippet[] {
-  try {
-    const raw = localStorage.getItem(SAVED_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
+    return loadSavedAnalyses()
       .filter(
         (r) =>
           r &&
@@ -133,37 +129,18 @@ export function loadSavedAnalysisSnippets(): SavedAnalysisSnippet[] {
       )
       .map((r) => ({
         address: r.address,
+        gps: r.gps,
+        locationError: r.locationError,
         grade: r.grade,
         gradeColor: r.gradeColor,
         date: typeof r.date === 'string' ? r.date : undefined,
       }))
-  } catch {
-    return []
-  }
 }
 
-export function removeSavedAnalysisSnippet(address: string): SavedAnalysisSnippet[] {
-  try {
-    const raw = localStorage.getItem(SAVED_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    const next = parsed.filter(
-      (r) =>
-        r &&
-        typeof r.address === 'string' &&
-        r.address.toLowerCase() !== address.toLowerCase(),
-    )
-    localStorage.setItem(SAVED_KEY, JSON.stringify(next))
-    return next.map((r) => ({
-      address: r.address,
-      grade: r.grade,
-      gradeColor: r.gradeColor,
-      date: typeof r.date === 'string' ? r.date : undefined,
-    }))
-  } catch {
-    return []
-  }
+export function removeSavedAnalysisSnippet(entry: SavedAnalysisSnippet): SavedAnalysisSnippet[] {
+  const key = locationIdentity(entry.address, entry.gps)
+  writeSavedAnalyses(loadSavedAnalyses().filter((r) => locationIdentity(r.address, r.gps) !== key))
+  return loadSavedAnalysisSnippets()
 }
 
 export function formatRelativeTime(ts: number, now: number = Date.now()): string {
@@ -180,3 +157,5 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
   const diffYr = Math.floor(diffMo / 12)
   return `${diffYr}y ago`
 }
+import { loadSavedAnalyses, writeSavedAnalyses } from '../map/savedAnalyses'
+import { locationIdentity, type GpsTarget } from './locationTarget'

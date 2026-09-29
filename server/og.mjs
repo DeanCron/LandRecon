@@ -64,18 +64,37 @@ function esc(s) {
 
 function parseParams(url) {
   const u = new URL(url, 'http://x')
-  const address = (u.searchParams.get('address') || '').slice(0, 300)
+  let address = (u.searchParams.get('address') || '').slice(0, 300)
+  const gpsKeys = ['lat', 'lng', 'accuracy', 'capturedAt', 'locationLabel']
+  let gpsQuery = ''
+  if (gpsKeys.some((key) => u.searchParams.has(key))) {
+    address = ''
+    const read = (key) => u.searchParams.get(key)?.trim() ? Number(u.searchParams.get(key)) : NaN
+    const lat = read('lat')
+    const lng = read('lng')
+    const accuracy = read('accuracy')
+    const capturedAt = read('capturedAt')
+    if ([lat, lng, accuracy, capturedAt].every(Number.isFinite)
+      && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && accuracy >= 0
+      && capturedAt > 0 && capturedAt <= 8.64e15) {
+      const gps = new URLSearchParams({ lat: String(lat), lng: String(lng), accuracy: String(accuracy), capturedAt: String(capturedAt) })
+      const label = u.searchParams.get('locationLabel')?.trim().slice(0, 300)
+      if (label) gps.set('locationLabel', label)
+      gpsQuery = gps.toString()
+      address = `Approximate GPS location (${lat.toFixed(5)}, ${lng.toFixed(5)}; accuracy radius ${Math.ceil(accuracy)} m)`
+    }
+  }
   const layers = (u.searchParams.get('layers') || '')
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s && LAYER_LABELS[s])
   const base = BASE_LABELS[u.searchParams.get('base') || ''] ? u.searchParams.get('base') : 'street'
-  return { address, layers, base }
+  return { address, layers, base, gpsQuery }
 }
 
-function buildQuery({ address, layers, base }) {
-  const qs = new URLSearchParams()
-  if (address) qs.set('address', address)
+function buildQuery({ address, layers, base, gpsQuery }) {
+  const qs = new URLSearchParams(gpsQuery)
+  if (address && !gpsQuery) qs.set('address', address)
   if (layers.length) qs.set('layers', layers.join(','))
   if (base && base !== 'street') qs.set('base', base)
   return qs.toString()
@@ -229,7 +248,7 @@ const server = createServer(async (req, res) => {
 
     if (url.startsWith('/og.png')) {
       const params = parseParams(url)
-      const key = `${params.address}|${params.layers.join(',')}|${params.base}`
+      const key = buildQuery(params)
       let png = lruGet(pngCache, key)
       const cacheHit = !!png
       if (!png) {
@@ -250,7 +269,7 @@ const server = createServer(async (req, res) => {
     if (url.startsWith('/share')) {
       const params = parseParams(url)
       const origin = originFromReq(req)
-      const key = `${origin}|${params.address}|${params.layers.join(',')}|${params.base}`
+      const key = `${origin}|${buildQuery(params)}`
       let html = lruGet(htmlCache, key)
       const cacheHit = !!html
       if (!html) {

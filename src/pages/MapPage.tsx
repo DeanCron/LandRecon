@@ -16,7 +16,10 @@ import { debounce } from '../utils/perf'
 import { combineAbortSignals } from '../utils/abort'
 import { trackEvent } from '../utils/analytics'
 import { startPerformanceSpan } from '../utils/performanceTelemetry'
-import { rememberMapAddress, resolveMapAddress } from '../utils/mapAddressState'
+import { rememberMapAddress, rememberMapGps, resolveMapAddress, resolveMapGps, resolveMapLocationError } from '../utils/mapAddressState'
+import { gpsAccuracyText, locationIdentity, setGpsTargetParams } from '../utils/locationTarget'
+import { resolveLocation } from '../utils/resolveLocation'
+import { useCurrentLocation } from '../hooks/useCurrentLocation'
 import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
 import type { DistrictLayerId } from '../utils/districtsLayer'
@@ -73,6 +76,7 @@ import {
   MAX_SAVED_ANALYSES,
   loadSavedAnalyses,
   writeSavedAnalyses,
+  savedAnalysisState,
 } from '../map/savedAnalyses'
 import {
   type DevTodo,
@@ -718,6 +722,12 @@ function MapPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const address = resolveMapAddress(routeLocation.state) || searchParams.get('address') || ''
+  const gpsTarget = useMemo(() => resolveMapGps(routeLocation.state), [routeLocation.state])
+  const locationError = resolveMapLocationError(routeLocation.state)
+  const locationKey = gpsTarget
+    ? `${locationIdentity(address, gpsTarget)}:${gpsTarget.capturedAt}:${gpsTarget.accuracy}`
+    : address
+  const { locating, error: locateError, locate, cancel: cancelLocate } = useCurrentLocation(TOMTOM_API_KEY)
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const baseLayerRef = useRef<L.TileLayer | null>(null)
@@ -844,6 +854,9 @@ function MapPage() {
   } | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
+  const [locationAttempt, setLocationAttempt] = useState(0)
+  const [resolvedLocationKey, setResolvedLocationKey] = useState<string | null>(null)
+  const reportReady = status === 'ready' && resolvedLocationKey === locationKey
   const [noiseVisible, setNoiseVisible] = useState(false)
   const [superfundVisible, setSuperfundVisible] = useState(false)
   const [superfundLoading, setSuperfundLoading] = useState(false)
@@ -969,19 +982,20 @@ function MapPage() {
     setCompareOpen(false)
   }, [])
 
-  const reanalyzeSaved = useCallback((addr: string) => {
+  const reanalyzeSaved = useCallback((saved: SavedAnalysis) => {
+    cancelLocate()
     const params = new URLSearchParams(searchParams)
     params.delete('address')
-    dbg('compare', `Re-analyzing "${addr}" from Compare panel`)
     setCompareOpen(false)
     const query = params.toString()
-    navigate(`/map${query ? `?${query}` : ''}`, { state: rememberMapAddress(addr) })
-  }, [searchParams, navigate])
+    navigate(`/map${query ? `?${query}` : ''}`, { state: savedAnalysisState(saved) })
+    setLocationAttempt((attempt) => attempt + 1)
+  }, [searchParams, navigate, cancelLocate])
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false)
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
-    if (!canSaveAnalysis(analysisResults, analysisComplete)) {
+    if (!reportReady || !canSaveAnalysis(analysisResults, analysisComplete)) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
     }
@@ -989,6 +1003,7 @@ function MapPage() {
     const pendingExplainabilityFactors = getPendingSavedAnalysisFactors(analysisResults, analysisProgress)
     const entry: SavedAnalysis = {
       address: address || 'Unknown',
+      ...(gpsTarget ? { gps: gpsTarget } : {}),
       date: new Date().toLocaleDateString(),
       grade: grade.letter,
       gradeColor: grade.color,
@@ -1001,13 +1016,12 @@ function MapPage() {
       dataCenterCount: analysisResults.dataCenters.length,
       ...buildSavedAnalysisExplainability(grade.breakdown, grade.evidence, grade.quality, pendingExplainabilityFactors),
     }
-    // De-dupe by address so re-saving the same location refreshes it in place.
-    const withoutDupe = savedAnalyses.filter((s) => s.address !== entry.address)
+    const withoutDupe = savedAnalyses.filter((s) => locationIdentity(s.address, s.gps) !== locationIdentity(entry.address, entry.gps))
     const next = [entry, ...withoutDupe].slice(0, MAX_SAVED_ANALYSES)
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
+  }, [address, gpsTarget, reportReady, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -1316,7 +1330,8 @@ function MapPage() {
   // Show FAB tooltip hints once on mobile, dismiss on first tap
   const buildShareUrl = useCallback((): string => {
     const params = new URLSearchParams()
-    if (address) params.set('address', address)
+    if (gpsTarget) setGpsTargetParams(params, gpsTarget)
+    else if (address) params.set('address', address)
     const active: ShareLayerId[] = []
     if (noiseVisible) active.push('noise')
     if (superfundVisible) active.push('superfund')
@@ -1339,7 +1354,7 @@ function MapPage() {
     if (active.length > 0) params.set('layers', active.join(','))
     if (activeBaseMap !== 'street') params.set('base', activeBaseMap)
     return `${window.location.origin}/map?${params.toString()}`
-  }, [address, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
+  }, [address, gpsTarget, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible, activeBaseMap])
 
   const handleShare = useCallback(() => {
     const url = buildShareUrl()
@@ -1355,7 +1370,7 @@ function MapPage() {
   }, [buildShareUrl, noiseVisible, superfundVisible, floodVisible, wildfireVisible, seismicVisible, tornadoVisible, aqiVisible, transitVisible, trafficVisible, costcoVisible, dataCenterVisible, powerLineVisible, emsVisible, crowdVisible, camerasVisible, industrialVisible, surgeVisible, slrVisible])
 
   const handleDownloadPdf = useCallback(async () => {
-    if (generatingPdf) return
+    if (generatingPdf || !reportReady || analysisResults.loading) return
     setGeneratingPdf(true)
     setPdfError(null)
     try {
@@ -1365,7 +1380,7 @@ function MapPage() {
         ? await fetchStaticMapDataUrl({ lat: loc.lat, lng: loc.lng, key: GOOGLE_MAPS_KEY })
         : null
       const now = new Date()
-      const doc = buildReconPdfDocDefinition({ address, date: now, grade, mapDataUrl })
+      const doc = buildReconPdfDocDefinition({ address, date: now, grade, mapDataUrl, gps: gpsTarget ?? undefined })
       await downloadReconPdf(doc, reconPdfFilename(address, now))
       trackEvent('report_pdf_download', { grade: grade.letter })
     } catch (err) {
@@ -1374,7 +1389,7 @@ function MapPage() {
     } finally {
       setGeneratingPdf(false)
     }
-  }, [generatingPdf, analysisResults, address])
+  }, [generatingPdf, reportReady, analysisResults, address, gpsTarget])
 
   // GA4: emit one `layer_toggle` event per layer that changed state since
   // the last render. Keeps the analytics call sites out of every toggle
@@ -1566,6 +1581,7 @@ function MapPage() {
   }, [])
 
   const submitAddressChange = useCallback((newAddress: string) => {
+    cancelLocate()
     const trimmed = newAddress.trim()
     if (!trimmed) {
       cancelEditingAddress()
@@ -1580,7 +1596,7 @@ function MapPage() {
     cancelEditingAddress()
     const query = params.toString()
     navigate(`/map${query ? `?${query}` : ''}`, { state: rememberMapAddress(trimmed) })
-  }, [address, searchParams, navigate, cancelEditingAddress])
+  }, [address, searchParams, navigate, cancelEditingAddress, cancelLocate])
 
   const selectAddressSuggestion = useCallback((suggestion: TomTomSuggestion) => {
     submitAddressChange(formatTomTomAddress(suggestion))
@@ -1613,52 +1629,13 @@ function MapPage() {
     }
   }, [showAddressSuggestions, addressSuggestions, activeSuggestionIndex, addressInputValue, selectAddressSuggestion, submitAddressChange, cancelEditingAddress])
 
-  const [locating, setLocating] = useState(false)
-
-  const useMyLocation = useCallback(() => {
-    if (!('geolocation' in navigator)) return
-    dbg('geocode', 'useMyLocation: requesting browser position…')
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude, longitude } = pos.coords
-          dbg('geocode', `useMyLocation: got coords ${latitude.toFixed(4)},${longitude.toFixed(4)}`)
-          let resolved: string | null = null
-          if (TOMTOM_API_KEY) {
-            // countrySet=US makes TomTom return zero addresses for
-            // coordinates outside the US so we can fail fast instead of
-            // resolving a foreign address that will then fail the main
-            // (US-restricted) geocode anyway.
-            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100&countrySet=US`
-            const res = await fetch(url)
-            const data = await res.json()
-            resolved = data?.addresses?.[0]?.address?.freeformAddress ?? null
-            dbg('geocode', `useMyLocation: reverseGeocode(US) ${resolved ? 'resolved to "' + resolved + '"' : 'returned no US address'}`)
-          }
-          setLocating(false)
-          if (!resolved) {
-            dbg('geocode', 'useMyLocation: refusing — no US address at those coords')
-            trackEvent('locate_use', { result: 'no_us_address' })
-            setErrorMsg('Land Recon currently supports US addresses only.')
-            return
-          }
-          trackEvent('locate_use', { result: 'success' })
-          submitAddressChange(resolved)
-        } catch (err) {
-          dbg('geocode', 'useMyLocation: reverseGeocode threw', err)
-          trackEvent('locate_use', { result: 'error' })
-          setLocating(false)
-        }
-      },
-      (err) => {
-        dbg('geocode', 'useMyLocation: geolocation rejected', err)
-        trackEvent('locate_use', { result: 'denied' })
-        setLocating(false)
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
-    )
-  }, [submitAddressChange])
+  const useMyLocation = useCallback(async () => {
+    const target = await locate()
+    if (!target) return
+    trackEvent('locate_use', { result: 'success' })
+    cancelEditingAddress()
+    navigate(`/map${searchParams.size ? `?${searchParams}` : ''}`, { state: rememberMapGps(target) })
+  }, [locate, cancelEditingAddress, navigate, searchParams])
 
   useEffect(() => {
     if (!editingAddress) return
@@ -3313,21 +3290,24 @@ function MapPage() {
 
   // Retry the full location analysis (used by the inline error overlay).
   const retryAnalysis = useCallback(() => {
-    const target = targetLocationRef.current
-    if (target) {
-      setStatus('ready')
-      setErrorMsg('')
-      runLocationAnalysis(target.lat, target.lng)
-    } else {
-      // No geocoded location yet — re-trigger the address effect by setting
-      // status back to loading; the geocode will retry via React's normal
-      // effect re-run on remount of the error overlay state.
-      setStatus('loading')
-      setErrorMsg('')
-    }
-  }, [runLocationAnalysis])
+    setLocationAttempt((attempt) => attempt + 1)
+  }, [])
 
   useEffect(() => {
+    cancelLocate()
+    setShareModalOpen(false)
+    setAnalysisDetail(null)
+    setResolvedLocationKey(null)
+    analysisRunIdRef.current++
+    analysisAbortRef.current?.abort()
+    analysisAbortRef.current = null
+    targetLocationRef.current = null
+    setPropertyCoords(null)
+    if (locationError) {
+      setStatus('error')
+      setErrorMsg(locationError)
+      return
+    }
     if (!address) {
       navigate('/')
       return
@@ -3338,9 +3318,6 @@ function MapPage() {
     // Stop the old report as soon as a different address is requested. Waiting
     // for the new geocode to finish would leave the previous address's network
     // checks running (and still considered current) during a slow/failed lookup.
-    analysisRunIdRef.current++
-    analysisAbortRef.current?.abort()
-    analysisAbortRef.current = null
     analysisPerformanceRef.current?.end('cancelled')
     analysisPerformanceRef.current = null
     transitInitRunIdRef.current++
@@ -3355,29 +3332,19 @@ function MapPage() {
     setCamerasStatus(null)
     setStatus('loading')
     setErrorMsg('')
-    dbg('init', 'Geocoding address:', address)
     const abortController = new AbortController()
     const finishGeocode = startPerformanceSpan('property_geocode')
-    const geocodeUrl = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(address)}.json?key=${TOMTOM_API_KEY}&countrySet=US&limit=1`
-
-    fetch(geocodeUrl, {
-      signal: abortController.signal,
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        const results = data.results
-        if (!results || results.length === 0) {
-          finishGeocode('success', { matched: false })
-          setStatus('error')
-          setErrorMsg('Address not found. Make sure it’s a valid US address — Land Recon currently supports US addresses only.')
-          return
-        }
+    resolveLocation(address, gpsTarget, TOMTOM_API_KEY, abortController.signal)
+      .then(({ lat, lng }) => {
+        if (abortController.signal.aborted) return
+        setResolvedLocationKey(locationKey)
         finishGeocode('success', { matched: true })
-
-        const lat = results[0].position.lat
-        const lng = results[0].position.lon
-        dbg('init', `Geocoded to ${lat}, ${lng}`)
-        pushRecentSearch(address)
+        if (!gpsTarget) pushRecentSearch(address)
+        else {
+          setAnalysisPanelOpen(true)
+          setLayerPanelOpen(false)
+          setSheetHeight(null)
+        }
         targetLocationRef.current = L.latLng(lat, lng)
         setPropertyCoords({ lat, lng })
 
@@ -3655,13 +3622,13 @@ function MapPage() {
         requestAnimationFrame(() => map.invalidateSize())
       })
       .catch((err) => {
-        if (err instanceof DOMException && err.name === 'AbortError') {
+        if (abortController.signal.aborted) {
           finishGeocode('cancelled')
           return
         }
         finishGeocode('error')
         setStatus('error')
-        setErrorMsg('Failed to geocode the address.')
+        setErrorMsg(err instanceof Error ? err.message : 'Location lookup failed. Retry or enter an address.')
       })
 
     return () => {
@@ -3672,7 +3639,16 @@ function MapPage() {
     // runLocationAnalysis, loadIndustrialData, or industrialVisible would
     // re-init the entire map on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, navigate])
+  }, [address, gpsTarget, locationError, locationKey, locationAttempt, navigate])
+
+  useEffect(() => {
+    if (status !== 'ready' || !gpsTarget || !mapRef.current) return
+    const circle = L.circle([gpsTarget.lat, gpsTarget.lng], {
+      radius: gpsTarget.accuracy, color: '#0072b2', fillOpacity: 0.08,
+      weight: 2, interactive: false,
+    }).addTo(mapRef.current)
+    return () => { circle.remove() }
+  }, [gpsTarget, status])
 
   // Tear the map down only on actual unmount, not on every address change.
   // This keeps layer toggle state and zoom intact when the user changes the
@@ -5807,12 +5783,12 @@ function MapPage() {
     if (analysisResults.loading || analysisResults.noiseLoading || analysisResults.costcoLoading) return
     if (!address) return
     const g = computeLocationGrade(analysisResults)
-    updateRecentSearchGrade(address, g.letter, g.color)
+    if (!gpsTarget) updateRecentSearchGrade(address, g.letter, g.color)
     if (lastGradedAddrRef.current !== address) {
       lastGradedAddrRef.current = address
       trackEvent('location_grade', { grade: g.letter, pct: Math.round(g.pct * 100) })
     }
-  }, [address, analysisResults])
+  }, [address, gpsTarget, analysisResults])
 
   return (
     <div className="map-page">
@@ -5859,6 +5835,7 @@ function MapPage() {
                 className="header-address-input"
                 value={addressInputValue}
                 onChange={(e) => {
+                  cancelLocate()
                   setAddressInputValue(e.target.value)
                   fetchAddressSuggestions(e.target.value)
                 }}
@@ -5873,8 +5850,8 @@ function MapPage() {
                 className="header-address-locate"
                 onClick={useMyLocation}
                 disabled={locating}
-                title="Use my current location"
-                aria-label="Use my current location"
+                title="Score my location"
+                aria-label="Score my location"
               >
                 {locating ? (
                   <span className="header-address-locate-spinner" aria-hidden="true" />
@@ -5910,6 +5887,15 @@ function MapPage() {
             </div>
           )}
         </div>
+        {!editingAddress && (
+          <button type="button" className="map-score-location" onClick={useMyLocation}
+            disabled={locating} aria-label="Score my location" title="Score my location">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" />
+              <path d="M12 1v3m0 16v3M1 12h3m16 0h3" />
+            </svg>
+          </button>
+        )}
         <div className="map-header-logo-wrapper" ref={expMenuRef}>
           <button
             type="button"
@@ -5975,6 +5961,13 @@ function MapPage() {
         </div>
       </header>
 
+      {(locating || locateError) && (
+        <div className="location-feedback" role={locateError ? 'alert' : 'status'}>
+          <span>{locateError || 'Locating... You can enter an address to cancel.'}</span>
+          {locateError && <button type="button" onClick={useMyLocation}>Retry location</button>}
+          <button type="button" onClick={() => { cancelLocate(); startEditingAddress() }}>Enter address</button>
+        </div>
+      )}
       <div className="map-area">
         <div className="map-container" ref={mapContainer} />
         {status === 'ready' && (() => {
@@ -6163,7 +6156,7 @@ function MapPage() {
       )}
 
       {/* Mobile backdrop */}
-      {(layerPanelOpen || analysisPanelOpen) && (
+      {(layerPanelOpen || (analysisPanelOpen && reportReady)) && (
         <div className="mobile-panel-backdrop" onClick={() => { setLayerPanelOpen(false); setAnalysisPanelOpen(false) }} />
       )}
 
@@ -6828,7 +6821,7 @@ function MapPage() {
       <aside
         ref={sheetRef}
         className={`analysis-panel${analysisPanelOpen ? ' is-open' : ''}`}
-        style={analysisPanelOpen && sheetHeight != null ? { maxHeight: `${sheetHeight}vh` } as React.CSSProperties : undefined}
+        style={{ ...(analysisPanelOpen && sheetHeight != null ? { maxHeight: `${sheetHeight}vh` } : {}), ...(!reportReady ? { display: 'none' } : {}) }}
       >
         <div
           className="analysis-drag-handle"
@@ -6939,6 +6932,13 @@ function MapPage() {
             </div>
           )}
         </div>
+        {gpsTarget && (
+          <div className="analysis-location-context">
+            <strong>{address}</strong>
+            <p>{gpsAccuracyText(gpsTarget)}</p>
+            <p>Location captured: {new Date(gpsTarget.capturedAt).toLocaleString()}</p>
+          </div>
+        )}
         {!analysisResults.loading && (() => {
           const grade = computeLocationGrade(analysisResults)
           return (
@@ -7074,7 +7074,7 @@ function MapPage() {
           </div>
         </div>
       )}
-      {analysisDetail && (
+      {reportReady && analysisDetail && (
         <LazyLoadErrorBoundary
           fallback={(
             <aside className="analysis-popout" role="alert" aria-label="Analysis detail failed to load">
@@ -7141,7 +7141,9 @@ function MapPage() {
             ) : (
               <>
                 <p className="share-description">
-                  Anyone with this link will see the same address and the layers you have active.
+                  {gpsTarget
+                    ? 'This link reveals the analyzed GPS location, its accuracy, and capture time. Anyone with the link can open that location.'
+                    : 'Anyone with this link will see the same address and the layers you have active.'}
                 </p>
                 <input
                   className="share-modal-input"

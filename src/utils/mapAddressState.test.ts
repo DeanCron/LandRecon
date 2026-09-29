@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   MAP_ADDRESS_STATE_KEY,
   rememberMapAddress,
+  rememberMapGps,
   resolveMapAddress,
+  resolveMapGps,
+  resolveMapLocationError,
   scrubMapAddressBeforeAnalytics,
 } from './mapAddressState'
 
@@ -15,6 +18,36 @@ afterEach(() => {
 })
 
 describe('map address navigation state', () => {
+  it('scrubs GPS metadata and preserves the exact fix and router state', () => {
+    window.history.replaceState({ key: 'router', usr: { other: true } }, '',
+      '/map?lat=47.61&lng=-122.33&accuracy=18&capturedAt=1790680000000&locationLabel=Nearby&layers=noise#report')
+    scrubMapAddressBeforeAnalytics()
+    expect(window.location.search).toBe('?layers=noise')
+    expect(window.location.hash).toBe('#report')
+    expect(window.history.state.key).toBe('router')
+    expect(window.history.state.usr.other).toBe(true)
+    const fix = { kind: 'gps', lat: 47.61, lng: -122.33, accuracy: 18, capturedAt: 1790680000000, label: 'Nearby' }
+    expect(resolveMapGps(window.history.state.usr)).toEqual(fix)
+    expect(resolveMapGps(rememberMapGps(fix as Parameters<typeof rememberMapGps>[0]))).toEqual(fix)
+  })
+
+  it('scrubs invalid GPS links and marks them as errors rather than falling back to an address', () => {
+    window.history.replaceState(null, '', '/map?address=Nearby&lat=nope&lng=-122&locationLabel=Private')
+    scrubMapAddressBeforeAnalytics()
+    expect(window.location.search).toBe('')
+    expect(resolveMapGps(window.history.state.usr)).toBeNull()
+    expect(resolveMapAddress(window.history.state.usr)).toBe('')
+    expect(resolveMapLocationError(window.history.state.usr)).toContain('invalid')
+  })
+
+  it('a new address link replaces stale GPS route state', () => {
+    const gps = { kind: 'gps' as const, lat: 47, lng: -122, accuracy: 5, capturedAt: 1790680000000 }
+    window.history.replaceState({ usr: rememberMapGps(gps) }, '', '/map?address=New%20address')
+    scrubMapAddressBeforeAnalytics()
+    expect(resolveMapGps(window.history.state.usr)).toBeNull()
+    expect(resolveMapAddress(window.history.state.usr)).toBe('New address')
+  })
+
   it('scrubs a shared address before analytics while preserving other options', () => {
     window.history.replaceState(
       { existing: true },

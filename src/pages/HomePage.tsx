@@ -12,14 +12,12 @@ import {
   type SavedAnalysisSnippet,
 } from '../utils/recentSearches'
 import { trackEvent } from '../utils/analytics'
-import { rememberMapAddress } from '../utils/mapAddressState'
+import { rememberMapAddress, rememberMapGps } from '../utils/mapAddressState'
+import { useCurrentLocation } from '../hooks/useCurrentLocation'
+import { locationIdentity } from '../utils/locationTarget'
+import { savedAnalysisState } from '../map/savedAnalyses'
 import { prefetchMapAnalysis, prefetchMapPage } from './mapPageLoader'
 import './HomePage.css'
-
-// Debug logging — enable in console: localStorage.setItem('LR_DEBUG','1'); location.reload()
-// Mirrors MapPage's pattern so flipping the flag once instruments both pages.
-const LR_DEBUG = typeof localStorage !== 'undefined' && localStorage.getItem('LR_DEBUG') === '1'
-function dbg(tag: string, ...args: unknown[]) { if (LR_DEBUG) console.debug(`[LR:${tag}]`, ...args) }
 
 const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 
@@ -128,21 +126,21 @@ function HomePage() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [recent, setRecent] = useState<RecentSearch[]>(() => loadRecentSearches())
   const [savedSnippets, setSavedSnippets] = useState<SavedAnalysisSnippet[]>(() => loadSavedAnalysisSnippets())
-  const [locating, setLocating] = useState(false)
-  const [locateError, setLocateError] = useState<string | null>(null)
+  const { locating, error: locateError, locate, cancel: cancelLocate } = useCurrentLocation(TOMTOM_API_KEY)
   const [recentOpen, setRecentOpen] = useState(false)
   const navigate = useNavigate()
 
   const gradeByAddress = useMemo(() => {
     const m = new Map<string, { grade: string; gradeColor: string }>()
     for (const s of savedSnippets) {
+      if (s.gps || s.locationError) continue
       m.set(s.address.toLowerCase(), { grade: s.grade, gradeColor: s.gradeColor })
     }
     return m
   }, [savedSnippets])
 
   const visibleRecent = useMemo(() => {
-    const savedSet = new Set(savedSnippets.map((s) => s.address.toLowerCase()))
+    const savedSet = new Set(savedSnippets.filter((s) => !s.gps && !s.locationError).map((s) => s.address.toLowerCase()))
     return recent.filter((r) => !savedSet.has(r.address.toLowerCase()))
   }, [recent, savedSnippets])
 
@@ -158,6 +156,7 @@ function HomePage() {
   const goToAddress = (value: string, source: 'typed' | 'suggestion' | 'locate' | 'recent' | 'saved' = 'typed') => {
     const trimmed = value.trim()
     if (!trimmed) return
+    cancelLocate()
     prefetchMapAnalysis()
     setShowSuggestions(false)
     setRecentOpen(false)
@@ -227,6 +226,7 @@ function HomePage() {
   }
 
   const handleInputChange = (value: string) => {
+    cancelLocate()
     setAddress(value)
     if (value.trim().length >= 3) prefetchMapAnalysis()
     fetchSuggestions(value)
@@ -259,57 +259,12 @@ function HomePage() {
     goToAddress(address)
   }
 
-  const handleUseMyLocation = () => {
-    if (!('geolocation' in navigator)) {
-      setLocateError('Your browser does not support geolocation.')
-      return
-    }
+  const handleUseMyLocation = async () => {
     prefetchMapAnalysis()
-    setLocateError(null)
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude, longitude } = pos.coords
-          dbg('geocode', `useMyLocation: got coords ${latitude.toFixed(4)},${longitude.toFixed(4)}`)
-          if (TOMTOM_API_KEY) {
-            // countrySet=US makes TomTom return zero addresses for
-            // coordinates outside the US so we can refuse fast with a
-            // clear message instead of routing the user into a geocode
-            // that will fail anyway.
-            const url = `https://api.tomtom.com/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&radius=100&countrySet=US`
-            const res = await fetch(url)
-            const data = await res.json()
-            const addr = data?.addresses?.[0]?.address?.freeformAddress
-            dbg('geocode', `useMyLocation: reverseGeocode(US) ${addr ? 'resolved to "' + addr + '"' : 'returned no US address'}`)
-            if (addr) {
-              setLocating(false)
-              goToAddress(addr, 'locate')
-              return
-            }
-            setLocating(false)
-            dbg('geocode', 'useMyLocation: refusing — no US address at those coords')
-            setLocateError('Land Recon currently supports US addresses only.')
-            return
-          }
-          setLocating(false)
-          setLocateError('Could not look up your address. Try entering it manually.')
-        } catch (err) {
-          dbg('geocode', 'useMyLocation: reverseGeocode threw', err)
-          setLocating(false)
-          setLocateError('Could not look up your address. Try entering it manually.')
-        }
-      },
-      (err) => {
-        setLocating(false)
-        if (err.code === err.PERMISSION_DENIED) {
-          setLocateError('Location access was blocked. Enable it in your browser to use this feature.')
-        } else {
-          setLocateError('Could not get your location. Try entering an address manually.')
-        }
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
-    )
+    const target = await locate()
+    if (!target) return
+    trackEvent('locate_use', { result: 'success' })
+    navigate('/map', { state: rememberMapGps(target) })
   }
 
   return (
@@ -352,8 +307,8 @@ function HomePage() {
               className="home-input-locate"
               onClick={handleUseMyLocation}
               disabled={locating}
-              aria-label="Use my current location"
-              data-tooltip={locating ? 'Finding you…' : 'Use my current location'}
+              aria-label="Score my location"
+              data-tooltip={locating ? 'Locating...' : 'Score my location'}
             >
               {locating ? (
                 <span className="home-locate-spinner" aria-hidden="true" />
@@ -402,6 +357,9 @@ function HomePage() {
             </svg>
           </button>
         </form>
+        <p className="home-location-hint" role="status">
+          {locating ? 'Locating... You can enter an address to cancel.' : 'Use the location button to score where you are standing.'}
+        </p>
         {locateError && (
           <p className="home-locate-error" role="alert">{locateError}</p>
         )}
@@ -412,14 +370,18 @@ function HomePage() {
             </header>
             <ul className="home-saved-list">
               {savedSnippets.map((s) => (
-                <li key={s.address} className="home-saved-item">
+                <li key={locationIdentity(s.address, s.gps)} className="home-saved-item">
                   <button
                     type="button"
                     className="home-saved-go"
                     onPointerEnter={prefetchMapAnalysis}
                     onFocus={prefetchMapAnalysis}
                     onTouchStart={prefetchMapAnalysis}
-                    onClick={() => goToAddress(s.address, 'saved')}
+                    onClick={() => {
+                      cancelLocate()
+                      if (!s.gps && !s.locationError) goToAddress(s.address, 'saved')
+                      else navigate('/map', { state: savedAnalysisState(s) })
+                    }}
                     title={s.address}
                   >
                     <span
@@ -437,7 +399,7 @@ function HomePage() {
                     className="home-recent-remove"
                     onClick={(e) => {
                       e.stopPropagation()
-                      setSavedSnippets(removeSavedAnalysisSnippet(s.address))
+                      setSavedSnippets(removeSavedAnalysisSnippet(s))
                     }}
                     aria-label={`Remove ${s.address} from saved analyses`}
                     title="Remove"

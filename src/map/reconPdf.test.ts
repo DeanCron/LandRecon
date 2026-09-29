@@ -33,6 +33,16 @@ function grade(overrides: Partial<LocationGradeResult> = {}): LocationGradeResul
 }
 
 describe('buildReconPdfDocDefinition', () => {
+  it('includes the measured GPS point, accuracy and capture time without changing scores', () => {
+    const gps = { kind: 'gps' as const, lat: 47.61, lng: -122.33, accuracy: 18, capturedAt: 1790680000000 }
+    const json = JSON.stringify(buildReconPdfDocDefinition({ address: 'Nearby', date: new Date(), grade: grade(), gps }))
+    expect(json).toContain('47.61000, -122.33000')
+    expect(json).toContain('accuracy radius 18 m')
+    expect(json).toContain('Not a verified property boundary')
+    expect(json).toContain(new Date(gps.capturedAt).toISOString())
+    expect(json).toContain('"A"')
+  })
+
   it('includes the address, date, and grade letter', () => {
     const doc = buildReconPdfDocDefinition({ address: '123 Main St', date: new Date('2026-09-15T12:00:00Z'), grade: grade() })
     const json = JSON.stringify(doc)

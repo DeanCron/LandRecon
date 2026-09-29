@@ -1,4 +1,6 @@
 import type { FactorEvidence, ReportQuality } from './evidence'
+import { parseGpsTarget, type GpsTarget } from '../utils/locationTarget'
+import { rememberMapAddress, rememberMapGps, type MapAddressState } from '../utils/mapAddressState'
 import type {
   AnalysisResults,
   LocationGradeBreakdownItem,
@@ -31,6 +33,8 @@ export type SavedEvidenceByFactor = Partial<Record<LocationGradeFactorLabel, Fac
 
 export type SavedAnalysis = {
   address: string
+  gps?: GpsTarget
+  locationError?: string
   date: string
   grade: string
   gradeColor: string
@@ -130,12 +134,24 @@ export function canSaveAnalysis(
 }
 
 function normalizeSavedAnalysis(entry: SavedAnalysis): SavedAnalysis {
+  if (entry.gps !== undefined) {
+    const gps = parseGpsTarget(entry.gps)
+    entry = gps ? { ...entry, gps } : {
+      ...entry, gps: undefined,
+      locationError: 'This saved GPS location is invalid. Enter an address or score your location again.',
+    }
+  }
   return entry.breakdown && entry.evidence
     ? {
         ...entry,
         breakdown: attachEvidenceToSavedBreakdown(entry.breakdown, entry.evidence),
       }
     : entry
+}
+
+export function savedAnalysisState(entry: Pick<SavedAnalysis, 'address' | 'gps' | 'locationError'>): MapAddressState {
+  if (entry.locationError) return { landReconLocationError: entry.locationError }
+  return entry.gps ? rememberMapGps(entry.gps) : rememberMapAddress(entry.address)
 }
 
 export function loadSavedAnalyses(): SavedAnalysis[] {
