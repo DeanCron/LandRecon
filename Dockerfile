@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # Build stage - compile React frontend
-FROM node:20-alpine AS frontend-build
+FROM node:24-alpine AS frontend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -34,7 +34,10 @@ RUN --mount=type=secret,id=VITE_TOMTOM_API_KEY \
 # the Dev Todos JSON endpoint AND the per-URL Open Graph image/HTML
 # rendering (crawler share-link previews).  The Flask + GDAL tile server
 # was retired once airport noise moved to PMTiles served from blob storage.
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.30-alpine AS runtime
+# The sidecars run on Alpine's packaged nodejs (Node 24 on nginx:1.30's
+# Alpine 3.24), matching the Node 24 build stage so better-sqlite3's
+# prebuilt musl binary for that ABI is used.
 # fontconfig + dejavu fonts are required for sharp/librsvg to actually
 # rasterize text in the OG SVG; without them every glyph renders as a
 # missing-glyph tofu box. ttf-dejavu is ~3MB and covers Latin + em-dash

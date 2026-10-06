@@ -106,7 +106,7 @@ providers and browser geolocation (no paid API calls), start the dev server with
 
 ```bash
 node scripts/location-report-check.mjs
-node --test server/og.test.mjs
+npm run test:server
 ```
 
 `LOCATION_TEST_URL` overrides the dev-server URL. `LOCATION_TEST_ARTIFACTS`
