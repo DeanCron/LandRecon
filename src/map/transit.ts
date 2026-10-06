@@ -1,3 +1,5 @@
+import { escapeHtml } from '../utils/html'
+
 export interface TransitStop {
   lat: number
   lon: number
@@ -26,7 +28,7 @@ export function transitPopup(stop: TransitStop): string {
     <div class="transit-popup">
       <div class="popup-header">
         <span class="transit-icon" style="background:${color}"></span>
-        <strong>${stop.name || 'Unnamed Stop'}</strong>
+        <strong>${escapeHtml(stop.name || 'Unnamed Stop')}</strong>
       </div>
       <div class="popup-body">
         <div class="popup-row">

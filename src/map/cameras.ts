@@ -27,10 +27,10 @@ export function cameraPopup(c: CameraRecord): string {
   const rows: string[] = []
   if (c.operator) rows.push(`<div><strong>Operator:</strong> ${escapeHtml(c.operator)}</div>`)
   if (c.direction) rows.push(`<div><strong>Direction:</strong> ${escapeHtml(c.direction)}</div>`)
-  const nodeId = c.id.replace(/^node\//, '')
+  const nodeId = encodeURIComponent(c.id.replace(/^node\//, ''))
   return `
     <div class="transit-popup">
-      <div class="transit-popup-title" style="color:${color}">${label}</div>
+      <div class="transit-popup-title" style="color:${color}">${escapeHtml(label)}</div>
       ${rows.join('')}
       <div class="camera-popup-source">
         Source: <a href="https://www.openstreetmap.org/node/${nodeId}" target="_blank" rel="noopener noreferrer">OSM node ${nodeId}</a>

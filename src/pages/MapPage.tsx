@@ -202,6 +202,7 @@ import {
   computeLocationGrade,
 } from '../map/scoring'
 import { addLoadedRegion, isRegionLoaded, type LoadedRegions } from '../map/loadedRegions'
+import { escapeHtml, safeHttpUrl } from '../utils/html'
 import { fetchStaticMapDataUrl } from '../map/staticMap'
 import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
 import { downloadReconPdf } from '../map/pdfExport'
@@ -391,19 +392,10 @@ function addressNickname(address: string): string | null {
 }
 
 function homeTooltipHtml(address: string): string {
-  const escapeHtml = (s: string) => s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
   const nickname = addressNickname(address)
   const addr = escapeHtml(address)
   if (!nickname) return addr
   return `<strong>${escapeHtml(nickname)}</strong><br/>${addr}`
-}
-
-function escPopupHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 // Detailed click-popup for point facility markers. Mirrors the EPA
@@ -418,18 +410,19 @@ function facilityPopupHtml(opts: {
 }): string {
   const badgeHtml = (opts.badges || [])
     .map((b, i) =>
-      `<span style="display:inline-block;padding:1px 6px;${i ? 'margin-left:4px;' : ''}border-radius:3px;background:${b.color || '#eceff1'};color:${b.color ? '#fff' : '#37474f'};font-size:11px;font-weight:600">${escPopupHtml(b.text)}</span>`,
+      `<span style="display:inline-block;padding:1px 6px;${i ? 'margin-left:4px;' : ''}border-radius:3px;background:${b.color || '#eceff1'};color:${b.color ? '#fff' : '#37474f'};font-size:11px;font-weight:600">${escapeHtml(b.text)}</span>`,
     )
     .join('')
   const rowsHtml = (opts.rows || [])
     .filter((r): r is string => Boolean(r))
-    .map((r) => `<div style="font-size:12px;color:#555;margin-top:4px">${escPopupHtml(r)}</div>`)
+    .map((r) => `<div style="font-size:12px;color:#555;margin-top:4px">${escapeHtml(r)}</div>`)
     .join('')
-  const linkHtml = opts.linkHref
-    ? `<div style="margin-top:6px"><a href="${opts.linkHref}" target="_blank" rel="noopener noreferrer" style="font-size:12px">${escPopupHtml(opts.linkText || 'More info')} ↗</a></div>`
+  const safeHref = safeHttpUrl(opts.linkHref)
+  const linkHtml = safeHref
+    ? `<div style="margin-top:6px"><a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="font-size:12px">${escapeHtml(opts.linkText || 'More info')} ↗</a></div>`
     : ''
   return `<div style="min-width:200px;max-width:280px">
-     <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escPopupHtml(opts.title)}</div>
+     <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escapeHtml(opts.title)}</div>
      ${badgeHtml ? `<div>${badgeHtml}</div>` : ''}
      ${rowsHtml}
      ${linkHtml}
@@ -1535,8 +1528,8 @@ function MapPage() {
         if (tags.icao) airportRows.push(`ICAO: ${tags.icao}`)
         if (tags.operator) airportRows.push(`Operator: ${tags.operator}`)
         L.marker([lat, lon], { icon })
-          .bindTooltip(label, { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindTooltip(escapeHtml(label), { direction: 'top', offset: [0, -16] })
+          .bindPopup(() => facilityPopupHtml({
             title: name || iata,
             badges: iata ? [{ text: iata, color: '#1565c0' }] : [],
             rows: airportRows,
@@ -1584,7 +1577,7 @@ function MapPage() {
         const tooltipParts = ['Costco']
         if (locality) tooltipParts[0] = `Costco — ${locality}`
         if (street) tooltipParts.push(street)
-        const tooltip = tooltipParts.join('<br/>')
+        const tooltip = tooltipParts.map(escapeHtml).join('<br/>')
 
         const icon = L.divIcon({
           className: 'costco-label',
@@ -1594,7 +1587,7 @@ function MapPage() {
         })
         L.marker([p.lat, p.lng], { icon })
           .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: locality ? `Costco — ${locality}` : 'Costco',
             badges: [{ text: 'Warehouse', color: '#0060a9' }],
             rows: [street || null],
@@ -1649,8 +1642,8 @@ function MapPage() {
         const sfUrl = (props.URL_ALIAS_TXT as string | undefined)
           || (props.EPA_ID ? `https://cumulis.epa.gov/supercpad/CurSites/csitinfo.cfm?id=${props.EPA_ID}` : null)
         L.marker([lat, lng], { icon: SUPERFUND_ICON, riseOnHover: true })
-          .bindTooltip(name, { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindTooltip(escapeHtml(name), { direction: 'top', offset: [0, -16] })
+          .bindPopup(() => facilityPopupHtml({
             title: name,
             badges: [{ text: 'EPA Superfund', color: '#b71c1c' }],
             rows: [sfCity || null, props.SITE_FEATURE_TYPE ? String(props.SITE_FEATURE_TYPE) : null],
@@ -1870,26 +1863,27 @@ function MapPage() {
         })
         const marker = L.marker([f.lat, f.lng], { icon })
         const tooltipLines = [
-          `<strong>${f.name}</strong>`,
-          `${f.industry.label} · ${f.distanceMi.toFixed(1)} mi`,
+          `<strong>${escapeHtml(f.name)}</strong>`,
+          `${escapeHtml(f.industry.label)} · ${f.distanceMi.toFixed(1)} mi`,
         ]
         if (f.city || f.state) {
-          tooltipLines.push([f.city, f.state].filter(Boolean).join(', '))
+          tooltipLines.push(escapeHtml([f.city, f.state].filter(Boolean).join(', ')))
         }
         marker.bindTooltip(tooltipLines.join('<br/>'), { direction: 'top', offset: [0, -14] })
-        const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${f.industry.label}</span>`
+        const industryBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${f.industry.color};color:#fff;font-size:11px;font-weight:600">${escapeHtml(f.industry.label)}</span>`
         const distanceBadge = `<span style="display:inline-block;padding:1px 6px;margin-left:4px;border-radius:3px;background:#eceff1;color:#37474f;font-size:11px;font-weight:600">${f.distanceMi.toFixed(1)} mi</span>`
         const addrParts = [f.address, [f.city, f.state].filter(Boolean).join(', ')].filter(Boolean)
-        const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.join('<br/>')}</div>` : ''
+        const addrHtml = addrParts.length ? `<div style="font-size:12px;color:#555;margin-top:4px">${addrParts.map(escapeHtml).join('<br/>')}</div>` : ''
         const releaseHtml = (f.totalReleasesLb != null && f.reportingYear)
           ? `<div style="font-size:11px;color:#666;margin-top:4px">${f.totalReleasesLb.toLocaleString()} lb total TRI releases (${f.reportingYear})</div>`
           : ''
-        const linkHtml = f.facUrl
-          ? `<div style="margin-top:6px"><a href="${f.facUrl}" target="_blank" rel="noopener noreferrer" style="font-size:12px">EPA facility report ↗</a></div>`
+        const facHref = safeHttpUrl(f.facUrl)
+        const linkHtml = facHref
+          ? `<div style="margin-top:6px"><a href="${facHref}" target="_blank" rel="noopener noreferrer" style="font-size:12px">EPA facility report ↗</a></div>`
           : ''
         marker.bindPopup(
-          `<div style="min-width:200px;max-width:280px">
-             <div style="font-weight:700;font-size:13px;margin-bottom:4px">${f.name}</div>
+          () => `<div style="min-width:200px;max-width:280px">
+             <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escapeHtml(f.name)}</div>
              <div>${industryBadge}${distanceBadge}</div>
              ${addrHtml}
              ${releaseHtml}
@@ -2086,8 +2080,8 @@ function MapPage() {
         const color = TRANSIT_COLORS[stop.type]
         const size = stop.type === 'bus' ? 10 : 14
         L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
-          .bindTooltip(stop.name || 'Transit stop', { direction: 'top', offset: [0, -10] })
-          .bindPopup(transitPopup(stop), { maxWidth: 260 })
+          .bindTooltip(escapeHtml(stop.name || 'Transit stop'), { direction: 'top', offset: [0, -10] })
+          .bindPopup(() => transitPopup(stop), { maxWidth: 260 })
           .addTo(subLayers[stop.type])
         added++
       }
@@ -3318,7 +3312,7 @@ function MapPage() {
             const label = floodZoneLabel(props)
             const bfeRaw = (props as Record<string, unknown>).STATIC_BFE
             const bfe = typeof bfeRaw === 'number' && bfeRaw > -9999 ? `<br/>Base flood elev: ${bfeRaw.toFixed(1)} ft` : ''
-            layer.bindTooltip(`<strong>${label}</strong>${bfe}`, { direction: 'top', sticky: true })
+            layer.bindTooltip(`<strong>${escapeHtml(label)}</strong>${bfe}`, { direction: 'top', sticky: true })
           },
         })
 
@@ -3337,7 +3331,7 @@ function MapPage() {
           },
           onEachFeature: (feature, layer) => {
             const props = (feature as GeoJSON.Feature).properties || {}
-            layer.bindTooltip(`<strong>${tornadoFeatureLabel(props)}</strong>`, { direction: 'top', sticky: true })
+            layer.bindTooltip(`<strong>${escapeHtml(tornadoFeatureLabel(props))}</strong>`, { direction: 'top', sticky: true })
           },
         })
 
@@ -3359,7 +3353,7 @@ function MapPage() {
             const owner = String((props as Record<string, unknown>).OWNER || 'Unknown owner').trim()
             const voltage = (props as Record<string, unknown>).VOLTAGE
             const voltageNote = typeof voltage === 'number' && voltage > 0 ? ` · ${voltage} kV` : ''
-            layer.bindTooltip(`<strong>${voltLabel}${voltageNote}</strong><br/>${owner}`, { direction: 'top', sticky: true })
+            layer.bindTooltip(`<strong>${escapeHtml(voltLabel)}${voltageNote}</strong><br/>${escapeHtml(owner)}`, { direction: 'top', sticky: true })
           },
         })
 
@@ -3389,7 +3383,7 @@ function MapPage() {
             const props = (feature as GeoJSON.Feature).properties || {}
             const cat = aqiCategory(props)
             const label = AQI_CATEGORY_LABELS[cat] || `Category ${cat}`
-            layer.bindTooltip(`<strong>${label}</strong>`, { direction: 'top', sticky: true })
+            layer.bindTooltip(`<strong>${escapeHtml(label)}</strong>`, { direction: 'top', sticky: true })
           },
         })
 
@@ -3800,8 +3794,8 @@ function MapPage() {
       if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
       if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
       L.marker([dc.lat, dc.lng], { icon })
-        .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
-        .bindPopup(facilityPopupHtml({
+        .bindTooltip(dcTip.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -14] })
+        .bindPopup(() => facilityPopupHtml({
           title: dcTitle,
           badges: [{ text: `Status: ${dc.status}`, color }],
           rows: dcRows,
@@ -3975,10 +3969,10 @@ function MapPage() {
             iconSize: [28, 28],
             iconAnchor: [14, 14],
           })
-          const tooltip = [name, address].filter(Boolean).join('<br/>')
+          const tooltip = [name, address].filter(Boolean).map(escapeHtml).join('<br/>')
           L.marker([loc.latitude, loc.longitude], { icon })
             .bindTooltip(tooltip, { direction: 'top', offset: [0, -14] })
-            .bindPopup(facilityPopupHtml({
+            .bindPopup(() => facilityPopupHtml({
               title: name || 'Emergency service',
               badges: [{ text: EMS_LABELS[type].replace(/s$/, ''), color }],
               rows: [address || null],
@@ -4128,8 +4122,8 @@ function MapPage() {
           ? 'Flock Safety ALPR'
           : (cam.manufacturer ? `${cam.manufacturer} ALPR` : 'ALPR camera')
         L.marker([cam.lat, cam.lon], { icon: makeCameraIcon(color, cam.direction) })
-          .bindTooltip(camLabel, { direction: 'top', offset: [0, -10] })
-          .bindPopup(cameraPopup(cam), { maxWidth: 280 })
+          .bindTooltip(escapeHtml(camLabel), { direction: 'top', offset: [0, -10] })
+          .bindPopup(() => cameraPopup(cam), { maxWidth: 280 })
           .addTo(cluster)
         added++
         if (cam.isFlock) flockAdded++
@@ -4254,8 +4248,8 @@ function MapPage() {
         const color = CROWD_COLORS[m.type]
         const icon = crowdPinIcon(m.type)
         L.marker([m.lat, m.lng], { icon })
-          .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
-          .bindPopup(facilityPopupHtml({
+          .bindTooltip(escapeHtml(m.name), { direction: 'top', offset: [0, -14] })
+          .bindPopup(() => facilityPopupHtml({
             title: m.name || CROWD_LABEL_SINGULAR[m.type],
             badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color }],
           }), { maxWidth: 320 })
@@ -4508,7 +4502,7 @@ function MapPage() {
           lineCap: 'round',
           lineJoin: 'round',
         })
-          .bindTooltip(`🚂 ${track.name}`, { sticky: true, direction: 'top' })
+          .bindTooltip(`🚂 ${escapeHtml(track.name)}`, { sticky: true, direction: 'top' })
           .addTo(layer)
       }
     }
@@ -5425,8 +5419,8 @@ function MapPage() {
         key: s.epaId || `${s.lat},${s.lng}`,
         build: () =>
           L.marker([s.lat, s.lng], { icon: SUPERFUND_ICON, riseOnHover: true })
-            .bindTooltip(s.name, { direction: 'top', offset: [0, -16] })
-            .bindPopup(facilityPopupHtml({
+            .bindTooltip(escapeHtml(s.name), { direction: 'top', offset: [0, -16] })
+            .bindPopup(() => facilityPopupHtml({
               title: s.name,
               badges: [{ text: s.status || 'EPA Superfund', color: '#b71c1c' }],
               rows: [s.city || null, `${s.distanceMi} mi away`],
@@ -5454,8 +5448,8 @@ function MapPage() {
       const tooltipParts = [er.name]
       if (er.address) tooltipParts.push(er.address)
       const marker = L.marker([er.lat, er.lng], { icon: ER_PIN_ICON })
-        .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
-        .bindPopup(facilityPopupHtml({
+        .bindTooltip(tooltipParts.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -16] })
+        .bindPopup(() => facilityPopupHtml({
           title: er.name,
           badges: [{ text: 'Emergency Room', color: '#0072B2' }],
           rows: [er.address || null, `${er.distanceMi} mi away`],
@@ -5483,8 +5477,8 @@ function MapPage() {
             if (dc.mw) dcRows.push(`Capacity: ${dc.mw} MW`)
             if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
             return L.marker([dc.lat, dc.lng], { icon: dcPinIcon(color) })
-              .bindTooltip(dcTip.join('<br/>'), { direction: 'top', offset: [0, -14] })
-              .bindPopup(facilityPopupHtml({
+              .bindTooltip(dcTip.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -14] })
+              .bindPopup(() => facilityPopupHtml({
                 title: dcTitle,
                 badges: [{ text: `Status: ${dc.status}`, color }],
                 rows: dcRows,
@@ -5501,8 +5495,8 @@ function MapPage() {
         key: m.id,
         build: () =>
           L.marker([m.lat, m.lng], { icon: crowdPinIcon(m.type) })
-            .bindTooltip(m.name, { direction: 'top', offset: [0, -14] })
-            .bindPopup(facilityPopupHtml({
+            .bindTooltip(escapeHtml(m.name), { direction: 'top', offset: [0, -14] })
+            .bindPopup(() => facilityPopupHtml({
               title: m.name || CROWD_LABEL_SINGULAR[m.type],
               badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color: CROWD_COLORS[m.type] }],
               rows: [`${m.distanceMi} mi away`],
@@ -5573,8 +5567,8 @@ function MapPage() {
         const tooltipParts = [c.city ? `Costco — ${c.city}` : 'Costco']
         if (c.address) tooltipParts.push(c.address)
         return L.marker([c.lat, c.lng], { icon: COSTCO_PIN_ICON })
-          .bindTooltip(tooltipParts.join('<br/>'), { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindTooltip(tooltipParts.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -16] })
+          .bindPopup(() => facilityPopupHtml({
             title: c.city ? `Costco — ${c.city}` : 'Costco',
             badges: [{ text: 'Warehouse', color: '#0060a9' }],
             rows: [c.address || null, `${c.distanceMi} mi away`],
