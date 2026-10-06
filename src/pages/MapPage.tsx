@@ -201,6 +201,7 @@ import {
   erSeverity,
   computeLocationGrade,
 } from '../map/scoring'
+import { addLoadedRegion, isRegionLoaded, type LoadedRegions } from '../map/loadedRegions'
 import { fetchStaticMapDataUrl } from '../map/staticMap'
 import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
 import { downloadReconPdf } from '../map/pdfExport'
@@ -704,7 +705,7 @@ function MapPage() {
   const baseLayerRef = useRef<L.TileLayer | null>(null)
   const noiseLayerRef = useRef<L.Layer | null>(null)
   const airportLayerRef = useRef<L.LayerGroup | null>(null)
-  const airportLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const airportLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const airportKnownIdsRef = useRef<Set<string>>(new Set())
   const superfundLayerRef = useRef<L.LayerGroup | null>(null)
   const superfundKnownIdsRef = useRef<Set<string>>(new Set())
@@ -737,25 +738,25 @@ function MapPage() {
   const tornadoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
   const transitLayerRef = useRef<L.LayerGroup | null>(null)
   const transitLineLayersRef = useRef<Record<'rail' | 'subway' | 'tram' | 'bus', L.LayerGroup> | null>(null)
-  const transitLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const transitLinesLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const transitLinesKnownIdsRef = useRef<Set<string>>(new Set())
   const transitLinesLoadingRef = useRef(false)
   const transitLinesRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
   const transitRequestGenerationRef = useRef(0)
-  const busLinesLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const busLinesLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const busLinesKnownIdsRef = useRef<Set<string>>(new Set())
   const busLinesLoadingRef = useRef(false)
   const busLinesRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
   const transitSubLayersRef = useRef<Record<TransitStop['type'], L.LayerGroup> | null>(null)
-  const transitLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const transitLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const costcoLayerRef = useRef<L.LayerGroup | null>(null)
-  const costcoLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const costcoLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const costcoKnownIdsRef = useRef<Set<string>>(new Set())
   const trafficLayerRef = useRef<L.TileLayer | null>(null)
   const dataCenterLayerRef = useRef<L.LayerGroup | null>(null)
   const dataCenterSubLayersRef = useRef<Record<string, L.LayerGroup> | null>(null)
   const dataCenterDataRef = useRef<DataCenter[] | null>(null)
-  const dataCenterLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const dataCenterLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const dataCenterKnownIdsRef = useRef<Set<string>>(new Set())
   const [dcSubVisible, setDcSubVisible] = useState<Record<string, boolean>>(
     Object.fromEntries(DC_STATUSES.map((s) => [s, true]))
@@ -763,7 +764,7 @@ function MapPage() {
   const dcSubVisibleRef = useRef(dcSubVisible)
   const emsLayerRef = useRef<L.LayerGroup | null>(null)
   const emsSubLayersRef = useRef<Record<EmsType, L.LayerGroup> | null>(null)
-  const emsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const emsLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const emsKnownIdsRef = useRef<Set<string>>(new Set())
   const [emsSubVisible, setEmsSubVisible] = useState<Record<EmsType, boolean>>({
     fire_station: true, hospital: true, police: true,
@@ -771,7 +772,7 @@ function MapPage() {
   const emsSubVisibleRef = useRef(emsSubVisible)
   const crowdLayerRef = useRef<L.LayerGroup | null>(null)
   const crowdSubLayersRef = useRef<Record<CrowdType, L.LayerGroup> | null>(null)
-  const crowdLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const crowdLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const crowdKnownIdsRef = useRef<Set<string>>(new Set())
   const [crowdSubVisible, setCrowdSubVisible] = useState<Record<CrowdType, boolean>>({
     stadium: true, concert: true, park: true, raceway: true, themepark: true,
@@ -792,11 +793,11 @@ function MapPage() {
   const transitStopsKnownIdsRef = useRef<Set<string>>(new Set())
   const transitStopsLoadingRef = useRef(false)
   const transitStopsRequestRef = useRef<{ key: string; controller: AbortController; promise: Promise<boolean> } | null>(null)
-  const transitBusStopsLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const transitBusStopsLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   // ALPR camera layer (Flock + other manufacturers) — sourced from OSM via
   // the DeFlock crowdsourcing project. Single cluster, no sub-types.
   const camerasLayerRef = useRef<L.LayerGroup | null>(null)
-  const camerasLoadedBoundsRef = useRef<L.LatLngBounds | null>(null)
+  const camerasLoadedBoundsRef = useRef<LoadedRegions | null>(null)
   const camerasKnownIdsRef = useRef<Set<string>>(new Set())
   const camerasLoadingRef = useRef(false)
   const camerasRequestRef = useRef<{ key: string; controller: AbortController } | null>(null)
@@ -1488,7 +1489,7 @@ function MapPage() {
   const loadAirportLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = airportLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('airports', 'Skipping — bounds already loaded'); return }
+    if (isRegionLoaded(loaded, bounds)) { dbg('airports', 'Skipping — bounds already loaded'); return }
     dbg('airports', 'Loading airport labels…')
 
     try {
@@ -1544,7 +1545,7 @@ function MapPage() {
         known.add(id)
       }
 
-      airportLoadedBoundsRef.current= loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
+      airportLoadedBoundsRef.current= addLoadedRegion(loaded, padded)
     } catch (err) {
       console.warn('Airport label fetch failed:', err)
     }
@@ -1554,7 +1555,7 @@ function MapPage() {
   const loadCostcoLabels = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = costcoLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('costco', 'Skipping — bounds already loaded'); return }
+    if (isRegionLoaded(loaded, bounds)) { dbg('costco', 'Skipping — bounds already loaded'); return }
     dbg('costco', 'Loading Costco locations…')
 
     try {
@@ -1571,7 +1572,7 @@ function MapPage() {
       })
       dbg('costco', `Got ${places.length} warehouse(s) in current bounds`)
       if (places.length === 0) {
-        costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
+        costcoLoadedBoundsRef.current = addLoadedRegion(loaded, padded)
         return
       }
 
@@ -1602,7 +1603,7 @@ function MapPage() {
         known.add(p.id)
       }
 
-      costcoLoadedBoundsRef.current = loaded ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast()) : padded
+      costcoLoadedBoundsRef.current = addLoadedRegion(loaded, padded)
     } catch (err) {
       console.warn('Costco label fetch failed:', err)
       notifyLayerErrorRef.current('Costco locations')
@@ -1988,13 +1989,13 @@ function MapPage() {
       transitSubVisibleRef.current.rail ||
       transitSubVisibleRef.current.subway ||
       transitSubVisibleRef.current.tram
-    const needRail = railVisible && (!railLoaded || !railLoaded.contains(bounds))
+    const needRail = railVisible && !isRegionLoaded(railLoaded, bounds)
     // Bus stops are very dense; only include them once the user has zoomed in
     // enough that the dots aren't a wall. The line layer uses the same gate.
     const needBus =
       transitSubVisibleRef.current.bus &&
       map.getZoom() >= 13 &&
-      (!busLoaded || !busLoaded.contains(bounds))
+      !isRegionLoaded(busLoaded, bounds)
 
     if (!needRail && !needBus) {
       if (transitStopsRequestRef.current) {
@@ -2092,14 +2093,10 @@ function MapPage() {
       }
 
       if (needRail) {
-        transitLoadedBoundsRef.current = railLoaded
-          ? railLoaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
-          : bounds
+        transitLoadedBoundsRef.current = addLoadedRegion(railLoaded, bounds)
       }
       if (needBus) {
-        transitBusStopsLoadedBoundsRef.current = busLoaded
-          ? busLoaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
-          : bounds
+        transitBusStopsLoadedBoundsRef.current = addLoadedRegion(busLoaded, bounds)
       }
       dbg('transit', `Added ${added} new stops (rail=${railSource}; total known: ${known.size})`)
     } catch (err) {
@@ -3831,7 +3828,7 @@ function MapPage() {
     // the data centers we haven't drawn yet, never clearing what's on screen.
     const bounds = map.getBounds()
     const loaded = dataCenterLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('datacenters', 'Skipping — bounds already loaded'); return }
+    if (isRegionLoaded(loaded, bounds)) { dbg('datacenters', 'Skipping — bounds already loaded'); return }
     const padded = bounds.pad(0.3)
     const known = dataCenterKnownIdsRef.current
     let added = 0
@@ -3843,9 +3840,7 @@ function MapPage() {
       known.add(id)
       added++
     }
-    dataCenterLoadedBoundsRef.current = loaded
-      ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
-      : padded
+    dataCenterLoadedBoundsRef.current = addLoadedRegion(loaded, padded)
     dbg('datacenters', `Added ${added} new (total known: ${known.size})`)
   }, [])
 
@@ -3898,7 +3893,7 @@ function MapPage() {
   const loadEmsData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = emsLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('ems', 'Skipping — bounds already loaded'); return }
+    if (isRegionLoaded(loaded, bounds)) { dbg('ems', 'Skipping — bounds already loaded'); return }
     dbg('ems', 'Loading EMS data…')
 
     setEmsLoading(true)
@@ -3993,9 +3988,7 @@ function MapPage() {
         }
       }
 
-      emsLoadedBoundsRef.current = loaded
-        ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
-        : padded
+      emsLoadedBoundsRef.current = addLoadedRegion(loaded, padded)
       dbg('ems', `Total known EMS places: ${known.size}`)
     } catch (err) {
       console.warn('EMS data fetch failed:', err)
@@ -4058,7 +4051,7 @@ function MapPage() {
     }
 
     const loaded = camerasLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) {
+    if (isRegionLoaded(loaded, bounds)) {
       camerasRequestRef.current?.controller.abort()
       dbg('cameras', 'Skipping — bounds already loaded')
       setCamerasStatus(camerasKnownIdsRef.current.size === 0
@@ -4143,9 +4136,7 @@ function MapPage() {
         if (cam.direction && /^-?\d+(\.\d+)?$/.test(cam.direction)) withDirection++
       }
 
-      camerasLoadedBoundsRef.current = loaded
-        ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
-        : bounds
+      camerasLoadedBoundsRef.current = addLoadedRegion(loaded, bounds)
       dbg('cameras', `[${source}] Added ${added} new (${flockAdded} Flock, ${added - flockAdded} other, ${withDirection} with direction); total known: ${known.size}`)
       if (known.size === 0) {
         setCamerasStatus({ kind: 'empty', text: 'No mapped surveillance cameras in this area' })
@@ -4219,7 +4210,7 @@ function MapPage() {
   const loadCrowdData = useCallback(async (map: L.Map, layer: L.LayerGroup) => {
     const bounds = map.getBounds()
     const loaded = crowdLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) { dbg('crowd', 'Skipping — bounds already loaded'); return }
+    if (isRegionLoaded(loaded, bounds)) { dbg('crowd', 'Skipping — bounds already loaded'); return }
     dbg('crowd', 'Loading crowd magnet data…')
 
     setCrowdLoading(true)
@@ -4273,9 +4264,7 @@ function MapPage() {
         added++
       }
 
-      crowdLoadedBoundsRef.current = loaded
-        ? loaded.extend(padded.getSouthWest()).extend(padded.getNorthEast())
-        : padded
+      crowdLoadedBoundsRef.current = addLoadedRegion(loaded, padded)
       dbg('crowd', `[${source}] Added ${added} new (total known: ${known.size})`)
     } catch (err) {
       console.warn('Crowd magnet fetch failed:', err)
@@ -5011,7 +5000,7 @@ function MapPage() {
     }
 
     const loaded = transitLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) {
+    if (isRegionLoaded(loaded, bounds)) {
       if (transitLinesRequestRef.current) {
         transitLinesRequestRef.current.controller.abort()
         transitRequestGenerationRef.current++
@@ -5097,9 +5086,7 @@ function MapPage() {
         added++
       }
       dbg('transit', `[${source}] Rendered ${added} new line segments (total known: ${known.size})`)
-      transitLinesLoadedBoundsRef.current = loaded
-        ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
-        : bounds
+      transitLinesLoadedBoundsRef.current = addLoadedRegion(loaded, bounds)
     } catch (err) {
       if (!signal.aborted) {
         console.warn('Transit line fetch failed:', err)
@@ -5141,7 +5128,7 @@ function MapPage() {
     }
 
     const loaded = busLinesLoadedBoundsRef.current
-    if (loaded && loaded.contains(bounds)) {
+    if (isRegionLoaded(loaded, bounds)) {
       if (busLinesRequestRef.current) {
         busLinesRequestRef.current.controller.abort()
         transitRequestGenerationRef.current++
@@ -5186,9 +5173,7 @@ function MapPage() {
         added++
       }
       dbg('transit', `Rendered ${added} new bus segments (total known: ${known.size})`)
-      busLinesLoadedBoundsRef.current = loaded
-        ? loaded.extend(bounds.getSouthWest()).extend(bounds.getNorthEast())
-        : bounds
+      busLinesLoadedBoundsRef.current = addLoadedRegion(loaded, bounds)
     } catch (err) {
       if (!signal.aborted) {
         console.warn('Bus line fetch failed:', err)
