@@ -3,6 +3,7 @@ name: Deploy to Azure Container Apps
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 env:
@@ -10,7 +11,38 @@ env:
   IMAGE_NAME: deancron/landrecon
 
 jobs:
+  # Runs on every PR and before every deploy; build-and-deploy is gated on it.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Server tests
+        run: npm run test:server
+
+      # Typecheck + production bundle + bundle budget. API keys are omitted;
+      # the build doesn't need them to succeed.
+      - name: Build
+        run: npm run build
+
   build-and-deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

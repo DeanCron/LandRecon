@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
 
       # Login once, up front, so each dataset can upload itself immediately
       # after it's built rather than waiting for every script to finish.
