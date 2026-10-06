@@ -1529,7 +1529,7 @@ function MapPage() {
         if (tags.operator) airportRows.push(`Operator: ${tags.operator}`)
         L.marker([lat, lon], { icon })
           .bindTooltip(escapeHtml(label), { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: name || iata,
             badges: iata ? [{ text: iata, color: '#1565c0' }] : [],
             rows: airportRows,
@@ -1587,7 +1587,7 @@ function MapPage() {
         })
         L.marker([p.lat, p.lng], { icon })
           .bindTooltip(tooltip, { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: locality ? `Costco — ${locality}` : 'Costco',
             badges: [{ text: 'Warehouse', color: '#0060a9' }],
             rows: [street || null],
@@ -1643,7 +1643,7 @@ function MapPage() {
           || (props.EPA_ID ? `https://cumulis.epa.gov/supercpad/CurSites/csitinfo.cfm?id=${props.EPA_ID}` : null)
         L.marker([lat, lng], { icon: SUPERFUND_ICON, riseOnHover: true })
           .bindTooltip(escapeHtml(name), { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: name,
             badges: [{ text: 'EPA Superfund', color: '#b71c1c' }],
             rows: [sfCity || null, props.SITE_FEATURE_TYPE ? String(props.SITE_FEATURE_TYPE) : null],
@@ -1882,7 +1882,7 @@ function MapPage() {
           ? `<div style="margin-top:6px"><a href="${facHref}" target="_blank" rel="noopener noreferrer" style="font-size:12px">EPA facility report ↗</a></div>`
           : ''
         marker.bindPopup(
-          `<div style="min-width:200px;max-width:280px">
+          () => `<div style="min-width:200px;max-width:280px">
              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escapeHtml(f.name)}</div>
              <div>${industryBadge}${distanceBadge}</div>
              ${addrHtml}
@@ -2081,7 +2081,7 @@ function MapPage() {
         const size = stop.type === 'bus' ? 10 : 14
         L.marker([stop.lat, stop.lon], { icon: makeDotIcon(color, size) })
           .bindTooltip(escapeHtml(stop.name || 'Transit stop'), { direction: 'top', offset: [0, -10] })
-          .bindPopup(transitPopup(stop), { maxWidth: 260 })
+          .bindPopup(() => transitPopup(stop), { maxWidth: 260 })
           .addTo(subLayers[stop.type])
         added++
       }
@@ -3795,7 +3795,7 @@ function MapPage() {
       if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
       L.marker([dc.lat, dc.lng], { icon })
         .bindTooltip(dcTip.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -14] })
-        .bindPopup(facilityPopupHtml({
+        .bindPopup(() => facilityPopupHtml({
           title: dcTitle,
           badges: [{ text: `Status: ${dc.status}`, color }],
           rows: dcRows,
@@ -3972,7 +3972,7 @@ function MapPage() {
           const tooltip = [name, address].filter(Boolean).map(escapeHtml).join('<br/>')
           L.marker([loc.latitude, loc.longitude], { icon })
             .bindTooltip(tooltip, { direction: 'top', offset: [0, -14] })
-            .bindPopup(facilityPopupHtml({
+            .bindPopup(() => facilityPopupHtml({
               title: name || 'Emergency service',
               badges: [{ text: EMS_LABELS[type].replace(/s$/, ''), color }],
               rows: [address || null],
@@ -4123,7 +4123,7 @@ function MapPage() {
           : (cam.manufacturer ? `${cam.manufacturer} ALPR` : 'ALPR camera')
         L.marker([cam.lat, cam.lon], { icon: makeCameraIcon(color, cam.direction) })
           .bindTooltip(escapeHtml(camLabel), { direction: 'top', offset: [0, -10] })
-          .bindPopup(cameraPopup(cam), { maxWidth: 280 })
+          .bindPopup(() => cameraPopup(cam), { maxWidth: 280 })
           .addTo(cluster)
         added++
         if (cam.isFlock) flockAdded++
@@ -4249,7 +4249,7 @@ function MapPage() {
         const icon = crowdPinIcon(m.type)
         L.marker([m.lat, m.lng], { icon })
           .bindTooltip(escapeHtml(m.name), { direction: 'top', offset: [0, -14] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: m.name || CROWD_LABEL_SINGULAR[m.type],
             badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color }],
           }), { maxWidth: 320 })
@@ -5420,7 +5420,7 @@ function MapPage() {
         build: () =>
           L.marker([s.lat, s.lng], { icon: SUPERFUND_ICON, riseOnHover: true })
             .bindTooltip(escapeHtml(s.name), { direction: 'top', offset: [0, -16] })
-            .bindPopup(facilityPopupHtml({
+            .bindPopup(() => facilityPopupHtml({
               title: s.name,
               badges: [{ text: s.status || 'EPA Superfund', color: '#b71c1c' }],
               rows: [s.city || null, `${s.distanceMi} mi away`],
@@ -5449,7 +5449,7 @@ function MapPage() {
       if (er.address) tooltipParts.push(er.address)
       const marker = L.marker([er.lat, er.lng], { icon: ER_PIN_ICON })
         .bindTooltip(tooltipParts.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -16] })
-        .bindPopup(facilityPopupHtml({
+        .bindPopup(() => facilityPopupHtml({
           title: er.name,
           badges: [{ text: 'Emergency Room', color: '#0072B2' }],
           rows: [er.address || null, `${er.distanceMi} mi away`],
@@ -5478,7 +5478,7 @@ function MapPage() {
             if (dc.sizerank && dc.sizerank !== 'Unknown') dcRows.push(dc.sizerank)
             return L.marker([dc.lat, dc.lng], { icon: dcPinIcon(color) })
               .bindTooltip(dcTip.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -14] })
-              .bindPopup(facilityPopupHtml({
+              .bindPopup(() => facilityPopupHtml({
                 title: dcTitle,
                 badges: [{ text: `Status: ${dc.status}`, color }],
                 rows: dcRows,
@@ -5496,7 +5496,7 @@ function MapPage() {
         build: () =>
           L.marker([m.lat, m.lng], { icon: crowdPinIcon(m.type) })
             .bindTooltip(escapeHtml(m.name), { direction: 'top', offset: [0, -14] })
-            .bindPopup(facilityPopupHtml({
+            .bindPopup(() => facilityPopupHtml({
               title: m.name || CROWD_LABEL_SINGULAR[m.type],
               badges: [{ text: CROWD_LABEL_SINGULAR[m.type], color: CROWD_COLORS[m.type] }],
               rows: [`${m.distanceMi} mi away`],
@@ -5568,7 +5568,7 @@ function MapPage() {
         if (c.address) tooltipParts.push(c.address)
         return L.marker([c.lat, c.lng], { icon: COSTCO_PIN_ICON })
           .bindTooltip(tooltipParts.map(escapeHtml).join('<br/>'), { direction: 'top', offset: [0, -16] })
-          .bindPopup(facilityPopupHtml({
+          .bindPopup(() => facilityPopupHtml({
             title: c.city ? `Costco — ${c.city}` : 'Costco',
             badges: [{ text: 'Warehouse', color: '#0060a9' }],
             rows: [c.address || null, `${c.distanceMi} mi away`],
