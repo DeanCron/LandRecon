@@ -3,10 +3,15 @@
  * Build voting-district boundary files for the LandRecon "Voting districts"
  * layer.
  *
- * Source: U.S. Census Bureau Cartographic Boundary Files (2023 vintage).
- * Public domain.
+ * Source: U.S. Census Bureau Cartographic Boundary Files (2025 vintage,
+ * 119th Congress). Public domain.
  *
- * Output: public/data/districts/{cd118,sldu,sldl}.geojson
+ * Congressional boundaries must be the same Congress as the election results
+ * joined to them: the 2024 House results are on the 119th Congress lines
+ * (AL, GA, LA, NY and NC were redrawn after the 118th).
+ *
+ * Output: public/data/districts/{cd119,sldu,sldl}.geojson
+ *         public/data/districts/cd119-results.json
  *
  * Run with:  npm run build:districts
  */
@@ -17,28 +22,29 @@ import { join } from 'node:path'
 import AdmZip from 'adm-zip'
 import mapshaper from 'mapshaper'
 
-const CENSUS_BASE = 'https://www2.census.gov/geo/tiger/GENZ2023/shp'
+const VINTAGE = 2025
+const CENSUS_BASE = `https://www2.census.gov/geo/tiger/GENZ${VINTAGE}/shp`
 
 const LAYERS = [
   {
-    id: 'cd118',
-    label: 'Congressional districts (118th)',
-    zip: 'cb_2023_us_cd118_500k.zip',
-    shp: 'cb_2023_us_cd118_500k.shp',
-    keepFields: ['STATEFP', 'CD118FP', 'NAMELSAD', 'GEOID'],
+    id: 'cd119',
+    label: 'Congressional districts (119th)',
+    zip: `cb_${VINTAGE}_us_cd119_500k.zip`,
+    shp: `cb_${VINTAGE}_us_cd119_500k.shp`,
+    keepFields: ['STATEFP', 'CD119FP', 'NAMELSAD', 'GEOID'],
   },
   {
     id: 'sldu',
     label: 'State Senate districts',
-    zip: 'cb_2023_us_sldu_500k.zip',
-    shp: 'cb_2023_us_sldu_500k.shp',
+    zip: `cb_${VINTAGE}_us_sldu_500k.zip`,
+    shp: `cb_${VINTAGE}_us_sldu_500k.shp`,
     keepFields: ['STATEFP', 'SLDUST', 'NAMELSAD', 'GEOID'],
   },
   {
     id: 'sldl',
     label: 'State House districts',
-    zip: 'cb_2023_us_sldl_500k.zip',
-    shp: 'cb_2023_us_sldl_500k.shp',
+    zip: `cb_${VINTAGE}_us_sldl_500k.zip`,
+    shp: `cb_${VINTAGE}_us_sldl_500k.shp`,
     keepFields: ['STATEFP', 'SLDLST', 'NAMELSAD', 'GEOID'],
   },
 ]
@@ -94,8 +100,46 @@ async function buildLayer(layer) {
   console.log(`  wrote ${outPath} (${(size / 1024 / 1024).toFixed(2)} MB)`)
 }
 
+// Ballot-accounting rows in the MIT export, not votes for anyone. MIT counts
+// them in some states' totals and not others', so they are dropped to keep
+// vote shares comparable (and the popup's rows summing to its total).
+const NON_VOTE_ROWS = new Set([
+  'BLANK', 'BLANKS', 'BLANK VOTES', 'VOID', 'OVER VOTES', 'UNDER VOTES', 'EXHAUSTED BALLOTS',
+])
+
+// MIT party labels are "DEMOCRAT" / "REPUBLICAN" except where a state's party
+// has its own name: Minnesota's is "DEMOCRATIC-FARMER-LABOR", Vermont's
+// Republican line is "REPUBLICAN, LIBERTARIAN".
+function majorSide(party) {
+  if (party.startsWith('DEMOCRAT')) return 'd'
+  if (party.startsWith('REPUBLICAN')) return 'r'
+  return null
+}
+
+// Tally one contest's rows into { d, r, other } candidate votes. New York-style
+// fusion voting lists a candidate's minor-party lines (Working Families,
+// Conservative, ...) as separate rows flagged fusion_ticket; they belong to
+// the major party the same candidate also ran under. Fusion lines MIT records
+// without a candidate name (CT Working Families) stay in "other".
+function tallyContest(candidates) {
+  const side = new Map()
+  for (const c of candidates) {
+    const s = majorSide(c.party)
+    if (s && !c.fusion && !side.has(c.candidate)) side.set(c.candidate, s)
+  }
+  const tally = { d: 0, r: 0, other: 0 }
+  for (const c of candidates) {
+    if (NON_VOTE_ROWS.has(c.candidate)) continue
+    const s = majorSide(c.party) ?? (c.fusion ? side.get(c.candidate) : undefined)
+    if (s === 'd') tally.d += c.votes
+    else if (s === 'r') tally.r += c.votes
+    else tally.other += c.votes
+  }
+  return tally
+}
+
 async function buildCongressResults() {
-  console.log('\n[cd118-results] U.S. House 2024 (MIT Election Lab)')
+  console.log('\n[cd119-results] U.S. House 2024 (MIT Election Lab)')
   const guestbookBody = JSON.stringify({
     guestbookResponse: {
       name: 'LandRecon Build Pipeline',
@@ -145,9 +189,11 @@ async function buildCongressResults() {
 
   const rows = parseCsvAll(body)
 
-  // Aggregate { GEOID -> { d, r, other, total } } from year=2024 general
-  // contests. MIT codes at-large districts as "0"; Census uses CD118FP "00".
-  const agg = new Map()
+  // Group candidate rows by GEOID from year=2024 general contests. MIT codes
+  // at-large districts as "0"; Census uses CD119FP "00". DC's delegate race is
+  // also "0" at MIT, but Census numbers non-voting delegate districts "98"
+  // (DC would otherwise never join to its boundary).
+  const contests = new Map()
   for (const row of rows) {
     if (row.length < header.length) continue
     if (row[idx.year] !== '2024') continue
@@ -156,24 +202,25 @@ async function buildCongressResults() {
     if (row[idx.special] === 'TRUE') continue
     const fips = (row[idx.state_fips] || '').padStart(2, '0')
     let dist = String(row[idx.district] || '0')
-    if (dist === '0') dist = '00'
+    if (dist === '0') dist = fips === '11' ? '98' : '00'
     else dist = dist.padStart(2, '0')
     const geoid = fips + dist
-    const party = (row[idx.party] || '').toUpperCase()
-    const votes = Number(row[idx.candidatevotes]) || 0
-    const total = Number(row[idx.totalvotes]) || 0
-    if (!agg.has(geoid)) agg.set(geoid, { d: 0, r: 0, other: 0, total: 0 })
-    const a = agg.get(geoid)
-    if (party === 'DEMOCRAT') a.d += votes
-    else if (party === 'REPUBLICAN') a.r += votes
-    else a.other += votes
-    a.total = Math.max(a.total, total)
+    if (!contests.has(geoid)) contests.set(geoid, [])
+    contests.get(geoid).push({
+      candidate: row[idx.candidate] || '',
+      party: (row[idx.party] || '').toUpperCase(),
+      fusion: row[idx.fusion_ticket] === 'TRUE',
+      votes: Number(row[idx.candidatevotes]) || 0,
+    })
   }
 
-  // Roll up into compact { geoid: { d_pct, r_pct, margin_pct, winner, total } }
+  // Roll up into compact { geoid: { d_pct, r_pct, margin_pct, winner, total } }.
+  // total is the votes cast for candidates, so d + r + o === total.
   const out = {}
-  for (const [geoid, a] of agg) {
-    const denom = a.d + a.r + a.other || 1
+  for (const [geoid, candidates] of contests) {
+    const a = tallyContest(candidates)
+    const total = a.d + a.r + a.other
+    const denom = total || 1
     const d_pct = +((a.d / denom) * 100).toFixed(2)
     const r_pct = +((a.r / denom) * 100).toFixed(2)
     const margin_pct = +(d_pct - r_pct).toFixed(2)
@@ -185,7 +232,7 @@ async function buildCongressResults() {
       d: a.d,
       r: a.r,
       o: a.other,
-      total: a.total || denom,
+      total,
       d_pct,
       r_pct,
       margin_pct,
@@ -193,7 +240,7 @@ async function buildCongressResults() {
     }
   }
 
-  const outPath = join(OUT_DIR, 'cd118-results.json')
+  const outPath = join(OUT_DIR, 'cd119-results.json')
   const meta = {
     source: 'MIT Election Data and Science Lab — U.S. House 1976-2024 (CC0)',
     cycle: 2024,

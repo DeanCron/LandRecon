@@ -1,10 +1,11 @@
 import L from 'leaflet'
+import { escapeHtml } from './html'
 
 // District layers we ship boundary + (optional) results for.
-export type DistrictLayerId = 'cd118'
+export type DistrictLayerId = 'cd119'
 
 export const DISTRICT_LAYER_LABELS: Record<DistrictLayerId, string> = {
-  cd118: 'Congressional districts',
+  cd119: 'Congressional districts',
 }
 
 const DATA_BASE = '/data/districts'
@@ -123,7 +124,7 @@ export function loadDistrictLayer(id: DistrictLayerId): Promise<LoadedLayer> {
           NAMELSAD?: string
           STATEFP?: string
         }
-        const name = props.NAMELSAD ?? 'District'
+        const name = escapeHtml(props.NAMELSAD ?? 'District')
         const r = props.GEOID ? resultsMap[props.GEOID] : undefined
         const tooltipHtml = r
           ? `<strong>${name}</strong><br/>${formatMargin(r)}`
