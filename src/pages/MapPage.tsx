@@ -880,16 +880,16 @@ function MapPage() {
   // Voting districts — experimental layer set; each chamber loads lazily on
   // first toggle and is cached on the L.Map afterward.
   const districtLayerRefs = useRef<Record<DistrictLayerId, L.GeoJSON | null>>({
-    cd118: null,
+    cd119: null,
   })
   const [districtVisible, setDistrictVisible] = useState<Record<DistrictLayerId, boolean>>({
-    cd118: false,
+    cd119: false,
   })
   const [districtLoading, setDistrictLoading] = useState<Record<DistrictLayerId, boolean>>({
-    cd118: false,
+    cd119: false,
   })
   const [districtAvailable, setDistrictAvailable] = useState<Record<DistrictLayerId, boolean | null>>({
-    cd118: null,
+    cd119: null,
   })
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
   const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
@@ -6584,19 +6584,19 @@ function MapPage() {
             <label className="layer-toggle">
               <input
                 type="checkbox"
-                checked={districtVisible.cd118}
-                onChange={() => toggleDistrict('cd118')}
-                disabled={status !== 'ready' || districtLoading.cd118}
+                checked={districtVisible.cd119}
+                onChange={() => toggleDistrict('cd119')}
+                disabled={status !== 'ready' || districtLoading.cd119}
               />
               <span className="layer-label">
-                {DISTRICT_LAYER_LABELS.cd118}
-                {districtLoading.cd118 && <span className="layer-loading"> ⏳</span>}
-                {districtAvailable.cd118 === false && (
+                {DISTRICT_LAYER_LABELS.cd119}
+                {districtLoading.cd119 && <span className="layer-loading"> ⏳</span>}
+                {districtAvailable.cd119 === false && (
                   <span className="layer-loading" title="Boundary loaded but no result data on file"> · outline only</span>
                 )}
               </span>
             </label>
-            {districtVisible.cd118 && (
+            {districtVisible.cd119 && (
               <div className="district-legend">
                 <div className="district-legend-bar">
                   {[-40, -25, -15, -5, 0, 5, 15, 25, 40].map((m) => (
@@ -6612,7 +6612,7 @@ function MapPage() {
                   <span>D +40</span>
                 </div>
                 <div className="district-attribution">
-                  Data: MIT Election Lab · U.S. Census
+                  Data: MIT Election Lab (2024 results) · U.S. Census (119th Congress)
                 </div>
               </div>
             )}
