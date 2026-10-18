@@ -9,8 +9,9 @@
   read-write for output.
 
 .PARAMETER SrcDir
-  Directory containing per-state GeoTIFFs. Defaults to the COG output for the
-  2020 CONUS aviation noise dataset.
+  Directory holding the BTS aviation noise rasters: the extracted
+  CONUS_aviation_noise_<year> folder (it contains the .gdb), or a folder of
+  per-state GeoTIFFs. Defaults to the 2022 CONUS aviation noise download.
 
 .PARAMETER OutFile
   Final PMTiles path on the host. Defaults to ./build/airport-noise.pmtiles.
@@ -26,7 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SrcDir = "C:\Temp\CONUS_aviation_noise_2020\COG",
+    [string]$SrcDir = "C:\Temp\CONUS_aviation_noise_2022",
     [string]$OutFile = "",
     [switch]$Rebuild,
     [switch]$KeepIntermediates
