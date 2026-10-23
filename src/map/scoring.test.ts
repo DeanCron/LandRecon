@@ -246,3 +246,21 @@ describe('computeLocationGrade (tier-normalized)', () => {
     expect(near.pct).toBeLessThan(clear.pct)
   })
 })
+
+describe('airport noise labelling', () => {
+  // BTS publishes a 24-hr LAeq level. DNL adds a night penalty, so labelling
+  // these values DNL would misstate them against the FAA's DNL thresholds.
+  it.each([
+    [55, '~55 dB LAeq (moderate)'],
+    [65, '~65 dB LAeq (high)'],
+  ])('labels a %i dB reading as LAeq', (noiseLevel, detail) => {
+    const result = computeLocationGrade({ ...clearResults(), noiseLevel })
+    expect(result.breakdown.find((b) => b.label === 'Airport Noise')!.detail).toBe(detail)
+  })
+
+  it('states the scoring rule as a 24-hr average without naming DNL', () => {
+    const { rule } = computeLocationGrade({ ...clearResults(), noiseLevel: 65 }).evidence['Airport Noise']
+    expect(rule).toContain('24-hr average')
+    expect(rule).not.toMatch(/DNL/)
+  })
+})
