@@ -1,17 +1,36 @@
-// Smoke test: replays the production point-query logic against the live
-// PMTiles archive (served by the dev server or any HTTP host) for a set of
-// known sites. No browser, no protomaps-leaflet — just `pmtiles` +
-// `@mapbox/vector-tile`, the same modules MapPage uses for analysis.
+// Smoke test: replays the production point-query logic against the PMTiles
+// archive (served by the dev server or any HTTP host, or a local file such as
+// a fresh build/airport-noise.pmtiles) for a set of known sites. No browser,
+// no protomaps-leaflet — just `pmtiles` + `@mapbox/vector-tile`, the same
+// modules MapPage uses for analysis.
 //
-// Usage:  node scripts/smoke-noise.mjs [url]
+// Usage:  node scripts/smoke-noise.mjs [url-or-file]
 
+import fs from 'node:fs'
 import { PMTiles } from 'pmtiles'
 import { VectorTile, classifyRings } from '@mapbox/vector-tile'
 import Pbf from 'pbf'
 
-const URL = process.argv[2] || 'http://localhost:5173/data/airport-noise.pmtiles'
+const TARGET = process.argv[2] || 'http://localhost:5173/data/airport-noise.pmtiles'
 const NOISE_LAYER_NAME = 'airport_noise'
 const NOISE_MAX_ZOOM = 12
+
+// Byte-range reads from a local archive, so a build can be checked before it
+// is uploaded.
+class FileSource {
+  constructor(path) { this.path = path }
+  getKey() { return this.path }
+  async getBytes(offset, length) {
+    const fh = await fs.promises.open(this.path, 'r')
+    try {
+      const buf = Buffer.alloc(length)
+      const { bytesRead } = await fh.read(buf, 0, length, offset)
+      return { data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead) }
+    } finally {
+      await fh.close()
+    }
+  }
+}
 
 // Known reference points. Each major airport site should land in a noise
 // band; the rural Kansas point should not.
@@ -75,8 +94,8 @@ async function query(pmt, lat, lng) {
   return best
 }
 
-console.log(`Smoke-testing PMTiles archive at ${URL}\n`)
-const pmt = new PMTiles(URL)
+console.log(`Smoke-testing PMTiles archive at ${TARGET}\n`)
+const pmt = new PMTiles(/^https?:\/\//i.test(TARGET) ? TARGET : new FileSource(TARGET))
 const header = await pmt.getHeader()
 console.log(`  PMTiles v${header.specVersion} | tile type ${header.tileType} | zoom ${header.minZoom}-${header.maxZoom}`)
 console.log(`  Bounds: [${header.minLon.toFixed(2)}, ${header.minLat.toFixed(2)}] -> [${header.maxLon.toFixed(2)}, ${header.maxLat.toFixed(2)}]\n`)

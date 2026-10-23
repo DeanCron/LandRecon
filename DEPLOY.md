@@ -198,7 +198,8 @@ GET / HEAD / OPTIONS with `Range` request and `Content-Range` /
 `Accept-Ranges` exposed, and uploads with `Content-Type:
 application/vnd.pmtiles` plus a 1-day Cache-Control. It prints the URL.
 
-Rerun whenever the source dataset is refreshed (annual).
+Rerun whenever the source dataset is refreshed (BTS publishes a new vintage
+about every two years).
 
 ---
 

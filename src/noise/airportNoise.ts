@@ -51,7 +51,7 @@ export function createNoiseLayer(url: string, opts: NoiseLayerOptions = {}): L.L
   const opacity = opts.opacity ?? 0.7
   const layer = leafletLayer({
     url,
-    attribution: opts.attribution ?? 'Noise: FAA/BTS Aviation Noise 2020',
+    attribution: opts.attribution ?? 'Noise: FAA/BTS Aviation Noise 2022',
     bounds: opts.bounds,
     paintRules: [
       {

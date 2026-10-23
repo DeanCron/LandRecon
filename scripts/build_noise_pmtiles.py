@@ -2,6 +2,10 @@
 """
 Build airport-noise.pmtiles from CONUS aviation noise state rasters.
 
+The source is either a directory of per-state GeoTIFFs or the BTS file
+geodatabase (CONUS_aviation_noise.gdb, as shipped for 2022), whose per-state
+rasters GDAL reads in place - nothing needs to be exported first.
+
 Pipeline:
   1. gdal_contour -p per state raster  -> polygon FlatGeobuf of dB bands
   2. ogr2ogr filter + reproject + tag  -> per-state FlatGeobuf in EPSG:4326
@@ -9,21 +13,23 @@ Pipeline:
   4. tippecanoe                        -> airport-noise.pmtiles
 
 Each output polygon carries:
-  db_min  (int)  lower edge of the dB band  (e.g. 45, 50, 55, 60, 65, 70)
+  db_min  (int)  lower edge of the dB band  (50, 55, 60, 65, 70)
   db_max  (int)  upper edge of the dB band
   state   (str)  two-letter state code
 
-The (-inf, 45) "background" band is filtered out so the PMTiles only contains
-significant noise contours. Adjust DB_BREAKS below to add/remove bands.
+The (-inf, 50) "background" band is filtered out so the PMTiles only contains
+significant noise contours. DB_BREAKS must stay in sync with
+NOISE_BAND_BREAKS in src/noise/legend.ts: the app styles and queries bands by
+db_min and treats anything below the first break as "outside mapped contours".
 
 Requires on PATH:
-  gdal_contour, ogr2ogr  (GDAL >= 3.6)
-  tippecanoe             (>= 2.40)
+  gdal_contour, gdalinfo, ogr2ogr  (GDAL >= 3.7, for raster reads from a .gdb)
+  tippecanoe                       (>= 2.40)
 
 Run on host (if tools installed) or via the companion Docker image:
   docker build -f scripts/build-noise.Dockerfile -t landrecon-noise-builder scripts
   docker run --rm \
-    -v C:/Temp/CONUS_aviation_noise_2020/COG:/src:ro \
+    -v C:/Temp/CONUS_aviation_noise_2022:/src:ro \
     -v ${PWD}/build:/work \
     landrecon-noise-builder \
       --src-dir /src --work-dir /work --out /work/airport-noise.pmtiles
@@ -31,6 +37,7 @@ Run on host (if tools installed) or via the companion Docker image:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -42,25 +49,70 @@ from pathlib import Path
 
 # dB band breakpoints. Carried forward from the retired raster tile
 # server's COLOR_STOPS table so the vector contour bands snap to the same
-# dB cutoffs the app's color ramp expects.
-DB_BREAKS: list[int] = [45, 50, 55, 60, 65, 70]
+# dB cutoffs the app's color ramp expects (NOISE_BAND_BREAKS in
+# src/noise/legend.ts). The source rasters hold values from 45 dB up, but the
+# app's floor is 50 dB, so 45-50 is deliberately not emitted.
+DB_BREAKS: list[int] = [50, 55, 60, 65, 70]
 
 # Sentinel passed to gdal_contour above the highest real band so the (70, inf)
 # polygon closes at a finite value and `db_max` casts cleanly to int32.
-# 200 dB is well above any plausible aviation noise DNL.
+# 200 dB is well above any plausible aviation noise level.
 DB_UPPER_SENTINEL: int = 200
 
-# Matches both legacy "AL_CNE_*.tif" and current "AL_aviation_noise_2020.tif".
+# Matches both legacy "AL_CNE_*.tif" and BTS "AL_aviation_noise_<year>.tif".
 STATE_RE = re.compile(r"^([A-Z]{2})_(?:CNE_|aviation_noise_).*\.tif$", re.IGNORECASE)
 
+# Raster names inside the BTS geodatabase: "AL_aviation_noise". The mosaic's
+# support tables (AMD_*, fras_*) never match the two-letter prefix.
+GDB_RASTER_RE = re.compile(r"^([A-Z]{2})_(?:CNE_|aviation_noise)\w*$", re.IGNORECASE)
 
-def find_state_files(src_dir: Path) -> list[tuple[str, Path]]:
-    out: list[tuple[str, Path]] = []
-    for p in sorted(src_dir.iterdir()):
+
+def _gdb_state_rasters(gdb: Path) -> list[tuple[str, str]]:
+    """List per-state raster subdatasets of a file geodatabase (GDAL >= 3.7)."""
+    res = subprocess.run(
+        ["gdalinfo", "-json", str(gdb)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subdatasets = json.loads(res.stdout).get("metadata", {}).get("SUBDATASETS", {})
+    out: list[tuple[str, str]] = []
+    for key, name in subdatasets.items():
+        if not key.endswith("_NAME"):
+            continue
+        # Connection string: OpenFileGDB:"<path to .gdb>":<raster name>
+        m = GDB_RASTER_RE.match(name.rsplit(":", 1)[-1])
+        if m:
+            out.append((m.group(1).upper(), name))
+    return sorted(out)
+
+
+def find_state_files(src: Path) -> tuple[list[tuple[str, str]], str]:
+    """Locate per-state rasters under `src`.
+
+    Returns ([(state, GDAL dataset name)], description of where they came from).
+    Per-state GeoTIFFs sitting directly in `src` win; otherwise `src` may be a
+    .gdb, or a folder holding exactly one (the BTS 2022 download extracts to
+    CONUS_aviation_noise_2022/CONUS_aviation_noise.gdb).
+    """
+    tifs: list[tuple[str, str]] = []
+    for p in sorted(src.iterdir()):
         m = STATE_RE.match(p.name)
         if m:
-            out.append((m.group(1).upper(), p))
-    return out
+            tifs.append((m.group(1).upper(), str(p)))
+    if tifs:
+        return tifs, f"GeoTIFF(s) in {src}"
+
+    gdb: Path | None = None
+    if src.suffix.lower() == ".gdb":
+        gdb = src
+    else:
+        gdbs = [p for p in sorted(src.glob("*.gdb")) if p.is_dir()]
+        if len(gdbs) == 1:
+            gdb = gdbs[0]
+    if gdb is None:
+        return [], str(src)
+    return _gdb_state_rasters(gdb), f"raster(s) in geodatabase {gdb}"
 
 
 def _run(cmd: list[str], *, capture: bool = False) -> subprocess.CompletedProcess:
@@ -92,8 +144,12 @@ def _get_layer_name(path: Path) -> str:
     raise RuntimeError(f"no layer found in {path}:\n{res.stdout}")
 
 
-def contour_one(state: str, src: Path, state_dir: Path) -> tuple[str, bool, str]:
-    """Contour one state raster and produce a tagged, reprojected FlatGeobuf."""
+def contour_one(state: str, src: str, state_dir: Path) -> tuple[str, bool, str]:
+    """Contour one state raster and produce a tagged, reprojected FlatGeobuf.
+
+    `src` is any GDAL dataset name: a GeoTIFF path or a geodatabase raster
+    connection string.
+    """
     raw = state_dir / f"{state}_raw.fgb"
     final = state_dir / f"{state}.fgb"
     try:
@@ -122,7 +178,7 @@ def contour_one(state: str, src: Path, state_dir: Path) -> tuple[str, bool, str]
         # query it instead of guessing.
         layer = _get_layer_name(raw)
 
-        # 2. ogr2ogr: drop the (-inf, 45) background band and any (sentinel, +inf)
+        # 2. ogr2ogr: drop the (-inf, 50) background band and any (sentinel, +inf)
         #    band, tag with state code, reproject to EPSG:4326, rename layer.
         sql = (
             f"SELECT CAST(db_min AS integer) AS db_min, "
@@ -205,7 +261,8 @@ def main() -> int:
         description="Build airport-noise.pmtiles from CONUS aviation noise rasters.",
     )
     ap.add_argument("--src-dir", required=True, type=Path,
-                    help="Directory containing per-state GeoTIFFs (COG recommended).")
+                    help="Directory of per-state GeoTIFFs, or the BTS .gdb "
+                         "geodatabase (or the folder that contains it).")
     ap.add_argument("--out", default=Path("airport-noise.pmtiles"), type=Path,
                     help="Output PMTiles file. Default: ./airport-noise.pmtiles")
     ap.add_argument("--work-dir", default=Path("build/noise"), type=Path,
@@ -226,7 +283,7 @@ def main() -> int:
     out = args.out.resolve()
     state_dir = work / "states"
 
-    for tool in ("gdal_contour", "ogr2ogr", "tippecanoe"):
+    for tool in ("gdal_contour", "gdalinfo", "ogr2ogr", "tippecanoe"):
         if shutil.which(tool) is None:
             print(f"ERROR: required tool '{tool}' not found on PATH", file=sys.stderr)
             return 1
@@ -235,11 +292,17 @@ def main() -> int:
         print(f"ERROR: --src-dir not a directory: {src}", file=sys.stderr)
         return 1
 
-    state_files = find_state_files(src)
+    state_files, found_in = find_state_files(src)
     if not state_files:
-        print(f"ERROR: no per-state rasters matched in {src}", file=sys.stderr)
+        print(
+            f"ERROR: no per-state rasters found in {src}. Expected "
+            "<ST>_aviation_noise_<year>.tif files, a .gdb geodatabase, or a "
+            "folder containing exactly one .gdb (keep the .gdb folder's name "
+            "if you bind-mount it).",
+            file=sys.stderr,
+        )
         return 1
-    print(f"Found {len(state_files)} state raster(s) in {src}")
+    print(f"Found {len(state_files)} state {found_in}")
 
     state_dir.mkdir(parents=True, exist_ok=True)
     out.parent.mkdir(parents=True, exist_ok=True)

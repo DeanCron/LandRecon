@@ -1,14 +1,14 @@
 # Builder image for airport-noise.pmtiles.
 #
-# Bundles GDAL (gdal_contour, ogr2ogr) and tippecanoe so the build script in
-# scripts/build_noise_pmtiles.py can run on any host that has Docker.
+# Bundles GDAL (gdal_contour, gdalinfo, ogr2ogr) and tippecanoe so the build
+# script in scripts/build_noise_pmtiles.py can run on any host that has Docker.
 #
 # Build:
 #   docker build -f scripts/build-noise.Dockerfile -t landrecon-noise-builder scripts
 #
 # Run (Windows PowerShell example):
 #   docker run --rm `
-#     -v C:/Temp/CONUS_aviation_noise_2020/COG:/src:ro `
+#     -v C:/Temp/CONUS_aviation_noise_2022:/src:ro `
 #     -v ${PWD}/build:/work `
 #     landrecon-noise-builder `
 #       --src-dir /src --work-dir /work --out /work/airport-noise.pmtiles

@@ -118,7 +118,7 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
   const noiseCaution = !!results.noiseLevel && results.noiseLevel < 65
   const noiseEvidence = buildEvidence(
     evidenceState(!!results.noiseLoading || !!results.noiseError, noiseCaution),
-    'FAA/BTS Aviation Noise 2020',
+    'FAA/BTS Aviation Noise 2022',
     'Outside mapped contours is clear; under 65 dB DNL is moderate; 65+ dB DNL is high.',
     'Aircraft noise affects sleep, outdoor comfort, and long-term livability.',
   )
