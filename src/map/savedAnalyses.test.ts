@@ -340,4 +340,46 @@ describe('corrupted saved analyses', () => {
     localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([null, 5, 'x', { address: 1 }, { address: 'ok', grade: 'B' }]))
     expect(loadSavedAnalyses().map((e) => e.address)).toEqual(['ok'])
   })
+
+  it('keeps entries with malformed breakdowns loadable', () => {
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([
+      { address: 'a', breakdown: 'oops' },
+      { address: 'b', breakdown: [null, 3, { label: 'Airport Noise', detail: 5 }] },
+    ]))
+    expect(loadSavedAnalyses().map((e) => e.address)).toEqual(['a', 'b'])
+  })
+})
+
+describe('legacy DNL noise copy', () => {
+  const legacyRule = 'Outside mapped contours is clear; under 65 dB DNL is moderate; 65+ dB DNL is high.'
+  const relabeledRule = 'Outside mapped contours is clear; under 65 dB LAeq is moderate; 65+ dB LAeq is high.'
+
+  it('relabels saved noise detail and evidence as LAeq on load', () => {
+    const noiseEvidence = { ...sampleEvidence('caution'), rule: legacyRule }
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([{
+      address: '1 Main St',
+      breakdown: [
+        { label: 'Airport Noise', icon: '✈️', score: 3, max: 3, detail: '~65 dB DNL (high)', tier: 'safety', evidence: noiseEvidence },
+        { label: 'Flood Zone', icon: '🌊', score: 0, max: 3, detail: 'Minimal flood hazard', tier: 'safety' },
+      ],
+      evidence: { 'Airport Noise': noiseEvidence },
+    }]))
+
+    const [loaded] = loadSavedAnalyses()
+    const [noise, flood] = loaded.breakdown!
+
+    expect(noise.detail).toBe('~65 dB LAeq (high)')
+    expect(noise.evidence?.rule).toBe(relabeledRule)
+    expect(loaded.evidence?.['Airport Noise']?.rule).toBe(relabeledRule)
+    expect(flood.detail).toBe('Minimal flood hazard')
+  })
+
+  it('relabels a breakdown that has no separate evidence map', () => {
+    localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify([{
+      address: '1 Main St',
+      breakdown: [{ label: 'Airport Noise', icon: '✈️', score: 2, max: 3, detail: '~60 dB DNL (moderate)', tier: 'safety' }],
+    }]))
+
+    expect(loadSavedAnalyses()[0].breakdown![0].detail).toBe('~60 dB LAeq (moderate)')
+  })
 })

@@ -114,20 +114,21 @@ export function computeLocationGrade(results: LocationGradeInput): LocationGrade
 
   // --- SAFETY (max 3) ---
 
-  // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+)
+  // Noise: 0 = none, 2 = moderate (<65), 3 = high (65+). Levels are BTS's
+  // 24-hr LAeq, not DNL, so user-facing labels must not call them DNL.
   const noiseCaution = !!results.noiseLevel && results.noiseLevel < 65
   const noiseEvidence = buildEvidence(
     evidenceState(!!results.noiseLoading || !!results.noiseError, noiseCaution),
     'FAA/BTS Aviation Noise 2022',
-    'Outside mapped contours is clear; under 65 dB DNL is moderate; 65+ dB DNL is high.',
+    'Outside mapped contours is clear; under 65 dB (24-hr average) is moderate; 65+ dB is high.',
     'Aircraft noise affects sleep, outdoor comfort, and long-term livability.',
   )
   if (!results.noiseLoading && !results.noiseError) {
     let noiseScore = 0
     let noiseDetail = 'No airport noise detected'
     if (results.noiseLevel) {
-      if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB DNL (moderate)` }
-      else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB DNL (high)` }
+      if (results.noiseLevel < 65) { noiseScore = 2; noiseDetail = `~${results.noiseLevel} dB LAeq (moderate)` }
+      else { noiseScore = 3; noiseDetail = `~${results.noiseLevel} dB LAeq (high)` }
     }
     breakdown.push({ label: 'Airport Noise', icon: '✈️', score: noiseScore, max: 3, detail: noiseDetail, tier: 'safety' })
   }

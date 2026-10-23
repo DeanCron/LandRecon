@@ -7082,7 +7082,7 @@ function AnalysisReportCardsInner({
                 : analysisResults.noiseError
                   ? 'Airport noise data unavailable'
                   : analysisResults.noiseLevel
-                    ? `~${analysisResults.noiseLevel} dB DNL`
+                    ? `~${analysisResults.noiseLevel} dB LAeq`
                     : 'No airport noise detected'
               cards.push({ key: 'noise', severity, node: (
                 <div className={`analysis-card ${severity}`} key="noise">

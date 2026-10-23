@@ -27,7 +27,7 @@ const SCORE_EXPLANATIONS: Record<string, Record<'clear' | 'warning' | 'danger', 
   'Airport Noise': {
     clear: 'This location is outside all mapped airport noise contours, meaning aircraft noise is unlikely to be a concern.',
     warning: 'This location falls within a moderate airport noise contour. You may notice aircraft during peak hours, but it is generally manageable for most residents.',
-    danger: 'This location is within a high noise zone (65+ dB DNL). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.',
+    danger: 'This location is within a high noise zone (65+ dB, 24-hour average). Expect frequent, noticeable aircraft noise that may affect outdoor activities and sleep quality.',
   },
   'Superfund Sites': {
     clear: `No EPA Superfund sites were found within ${SUPERFUND_ANALYSIS_RADIUS_MI} miles. This area is clear of known hazardous waste cleanup activity.`,
@@ -222,13 +222,13 @@ export default function AnalysisDetailPanel({
                         {analysisResults.noiseAirport}{analysisResults.noiseAirportCode ? ` (${analysisResults.noiseAirportCode})` : ''}
                       </p>
                     )}
-                    <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB DNL</p>
+                    <p className="analysis-expand-level">Estimated: ~{analysisResults.noiseLevel} dB LAeq</p>
                     <div className="analysis-expand-rec">
                       <strong>Why this matters</strong>
                       <p>
-                        Aircraft noise is measured in DNL (Day-Night Average Sound Level) and affects sleep quality, outdoor enjoyment, and long-term health.
+                        LAeq is the average aircraft sound level over a 24-hour day. Aircraft noise affects sleep quality, outdoor enjoyment, and long-term health.
                         {analysisResults.noiseLevel >= 65
-                          ? ' At this level, the FAA considers the area "significantly impacted." Expect frequent and noticeable aircraft noise throughout the day.'
+                          ? ' At this level the area is at or above the 65 dB threshold the FAA uses for significant aircraft noise exposure. Expect frequent and noticeable aircraft noise throughout the day.'
                           : analysisResults.noiseLevel >= 55
                           ? ' This area falls within the moderate impact zone. Noise may be noticeable during peak flight hours and could affect outdoor conversations.'
                           : ' This area is within a mapped noise contour but at a relatively low level. Occasional aircraft noise may be audible.'}
@@ -237,7 +237,8 @@ export default function AnalysisDetailPanel({
                     <div className="analysis-expand-rec">
                       <strong>Recommendation</strong>
                       <p>
-                        Locations at 55 dB DNL or higher are considered significantly impacted by aircraft noise.
+                        The FAA measures noise as DNL, which counts night flights more heavily than a plain 24-hour average,
+                        so places under late-night flight paths can be noisier than this number suggests.
                         We recommend repeat visits at different times of day — including early morning,
                         evening, and weekends — to assess whether the noise level is acceptable.
                       </p>

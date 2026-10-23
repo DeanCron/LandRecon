@@ -133,7 +133,39 @@ export function canSaveAnalysis(
   )
 }
 
+// Entries saved before the wording fix label BTS's 24-hr LAeq noise level as
+// "dB DNL" in their stored detail/evidence text. Relabel on load so Compare and
+// PDF export match new reports. Guards keep malformed entries loadable.
+const LEGACY_NOISE_UNIT = /\bdB DNL\b/g
+
+function relabelNoiseText<T>(text: T): T {
+  return (typeof text === 'string' ? text.replace(LEGACY_NOISE_UNIT, 'dB LAeq') : text) as T
+}
+
+function relabelNoiseEvidence(evidence: FactorEvidence): FactorEvidence {
+  return { ...evidence, rule: relabelNoiseText(evidence.rule) }
+}
+
+function relabelLegacyNoiseCopy(entry: SavedAnalysis): SavedAnalysis {
+  const relabeled = { ...entry }
+  if (Array.isArray(entry.breakdown)) {
+    relabeled.breakdown = entry.breakdown.map((factor) => (
+      factor?.label !== 'Airport Noise' ? factor : {
+        ...factor,
+        detail: relabelNoiseText(factor.detail),
+        ...(factor.evidence ? { evidence: relabelNoiseEvidence(factor.evidence) } : {}),
+      }
+    ))
+  }
+  const noiseEvidence = entry.evidence?.['Airport Noise']
+  if (noiseEvidence) {
+    relabeled.evidence = { ...entry.evidence, 'Airport Noise': relabelNoiseEvidence(noiseEvidence) }
+  }
+  return relabeled
+}
+
 function normalizeSavedAnalysis(entry: SavedAnalysis): SavedAnalysis {
+  entry = relabelLegacyNoiseCopy(entry)
   if (entry.gps !== undefined) {
     const gps = parseGpsTarget(entry.gps)
     entry = gps ? { ...entry, gps } : {
