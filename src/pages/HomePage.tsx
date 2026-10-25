@@ -1,3 +1,4 @@
+import { AccountMenu } from '../auth/AccountMenu'
 import { useState, useEffect, useRef, useMemo, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.webp'
@@ -277,6 +278,9 @@ function HomePage() {
 
   return (
     <div className="home">
+      <div className="home-account">
+        <AccountMenu />
+      </div>
       <div className="home-content">
         <div className="home-icon">
           <img src={logo} alt="Land Recon" width="480" height="102" decoding="async" />

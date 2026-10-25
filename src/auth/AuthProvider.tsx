@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { authConfigured, getSupabase } from './supabaseClient'
+import { AuthModal } from './AuthModal'
 import { AuthContext, callbackUrl, type AuthApi } from './authContext'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(authConfigured)
+  const [modalOpen, setModalOpen] = useState(false)
+  const openSignIn = useCallback(() => setModalOpen(true), [])
 
   useEffect(() => {
     if (!authConfigured) return
@@ -75,9 +78,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       verifyEmailCode,
       signOut,
       deleteAccount,
+      openSignIn,
     }),
-    [loading, session, signInWithGoogle, signInWithEmail, verifyEmailCode, signOut, deleteAccount],
+    [loading, session, signInWithGoogle, signInWithEmail, verifyEmailCode, signOut, deleteAccount, openSignIn],
   )
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {modalOpen && !session && authConfigured && <AuthModal onClose={() => setModalOpen(false)} />}
+    </AuthContext.Provider>
+  )
 }
