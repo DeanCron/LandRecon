@@ -7,6 +7,7 @@ import { trackPageView } from './utils/analytics'
 import { loadMapPage } from './pages/mapPageLoader'
 
 const MapPage = lazy(loadMapPage)
+const AuthCallback = lazy(() => import('./auth/AuthCallback'))
 
 // Fires a GA4 page_view on every React Router navigation. We strip query
 // params because address strings can be PII; the path alone (e.g. `/map`)
@@ -34,6 +35,14 @@ function App() {
                 <MapPage />
               </Suspense>
             </LazyLoadErrorBoundary>
+          }
+        />
+        <Route
+          path="/auth/callback"
+          element={
+            <Suspense fallback={null}>
+              <AuthCallback />
+            </Suspense>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
