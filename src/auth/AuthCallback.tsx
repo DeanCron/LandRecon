@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { getSupabase } from './supabaseClient'
 import { takeReturnPath } from './authContext'
@@ -10,12 +10,16 @@ export default function AuthCallback() {
   const [error, setError] = useState<string | null>(null)
   const [configured, setConfigured] = useState(true)
 
+  const started = useRef(false)
+
   useEffect(() => {
-    let cancelled = false
+    // The auth code is single-use; StrictMode's double effect must not run it twice.
+    if (started.current) return
+    started.current = true
     void (async () => {
       const sb = await getSupabase()
       if (!sb) {
-        if (!cancelled) setConfigured(false)
+        setConfigured(false)
         return
       }
       const params = new URLSearchParams(window.location.search)
@@ -23,21 +27,18 @@ export default function AuthCallback() {
       const code = params.get('code')
       window.history.replaceState(null, '', window.location.pathname)
       if (providerError) {
-        if (!cancelled) setError(providerError)
+        setError(providerError)
         return
       }
       if (code) {
         const { error: exErr } = await sb.auth.exchangeCodeForSession(code)
         if (exErr) {
-          if (!cancelled) setError(exErr.message)
+          setError(exErr.message)
           return
         }
       }
-      if (!cancelled) navigate(takeReturnPath(), { replace: true })
+      navigate(takeReturnPath(), { replace: true })
     })()
-    return () => {
-      cancelled = true
-    }
   }, [navigate])
 
   if (!configured) return <Navigate to="/" replace />

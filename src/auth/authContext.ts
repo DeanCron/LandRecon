@@ -11,6 +11,7 @@ export interface AuthApi {
   verifyEmailCode: (email: string, code: string) => Promise<string | null>
   signOut: () => Promise<void>
   deleteAccount: () => Promise<string | null>
+  openSignIn: () => void
 }
 
 const RETURN_KEY = 'lr_auth_return_to'
@@ -32,10 +33,19 @@ export function takeReturnPath(): string {
   return p
 }
 
-export const AuthContext = createContext<AuthApi | null>(null)
+const disabledAuth: AuthApi = {
+  status: 'disabled',
+  user: null,
+  signInWithGoogle: async () => 'Sign-in is not available.',
+  signInWithEmail: async () => 'Sign-in is not available.',
+  verifyEmailCode: async () => 'Sign-in is not available.',
+  signOut: async () => {},
+  deleteAccount: async () => 'Sign-in is not available.',
+  openSignIn: () => {},
+}
+
+export const AuthContext = createContext<AuthApi>(disabledAuth)
 
 export function useAuth(): AuthApi {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
+  return useContext(AuthContext)
 }
