@@ -206,7 +206,7 @@ import { escapeHtml, safeHttpUrl } from '../utils/html'
 import { fetchStaticMapDataUrl } from '../map/staticMap'
 import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
 import { downloadReconPdf } from '../map/pdfExport'
-import { addBaseLayer } from '../map/baseLayer'
+import { addBaseLayer, parseBaseMapId, type BaseMapId } from '../map/baseLayer'
 import { patchTooltipClickBehavior } from '../map/tooltipFix'
 import { loadAirportNoiseModule } from '../noise/loadAirportNoise'
 import {
@@ -246,8 +246,6 @@ if (LR_DEBUG) console.info(`%c[LandRecon] Debug mode ON — build ${__BUILD_VERS
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
-
-type BaseMapId = 'street' | 'satellite'
 
 type GoogleSessionEntry = { token: string; expiry: number }
 const SESSION_STORAGE_PREFIX = 'lr_gtile_session:'
@@ -892,7 +890,9 @@ function MapPage() {
   const [districtAvailable, setDistrictAvailable] = useState<Record<DistrictLayerId, boolean | null>>({
     cd119: null,
   })
-  const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
+  const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>(
+    () => parseBaseMapId(searchParams.get('base')) ?? 'street',
+  )
   const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const analysisDoneCount = ANALYSIS_CHECKS.reduce(
@@ -3255,7 +3255,10 @@ function MapPage() {
           preferCanvas: true,
         })
 
-        createBaseLayer('street').then((baseLayer) => {
+        // Start on the base map a share link asked for (`?base=satellite`).
+        // Switching after the fact doesn't work: the base layer is still being
+        // created when the URL state is applied, so the switch is dropped.
+        createBaseLayer(activeBaseMap).then((baseLayer) => {
           if (mapRef.current !== map) return
           dbg('init', 'Base layer created (Google Tiles)')
           addBaseLayer(map, baseLayer)
@@ -5366,16 +5369,12 @@ function MapPage() {
     setTrafficVisible(!trafficVisible)
   }
 
-  // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
+  // Restore layer state from URL params (one-shot, when map becomes ready).
+  // The base map is not handled here: it is chosen when the map is created.
   useEffect(() => {
     if (status !== 'ready') return
     if (initialUrlStateAppliedRef.current) return
     initialUrlStateAppliedRef.current = true
-
-    const baseParam = searchParams.get('base') as BaseMapId | null
-    if (baseParam && baseParam !== activeBaseMap && BASE_MAPS[baseParam]) {
-      switchBaseMap(baseParam)
-    }
 
     const layersParam = searchParams.get('layers')
     if (!layersParam) return

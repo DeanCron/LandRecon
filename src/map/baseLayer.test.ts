@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import L from 'leaflet'
-import { addBaseLayer } from './baseLayer'
+import { addBaseLayer, parseBaseMapId } from './baseLayer'
 
 const maps: L.Map[] = []
 
@@ -85,5 +85,34 @@ describe('addBaseLayer', () => {
 
     expect(paintOrder(map)[0]).toBe(base.getContainer())
     expect(paintOrder(map).slice(1)).toEqual([first.getContainer(), second.getContainer()])
+  })
+})
+
+describe('parseBaseMapId', () => {
+  it('accepts the known base map ids', () => {
+    expect(parseBaseMapId('street')).toBe('street')
+    expect(parseBaseMapId('satellite')).toBe('satellite')
+  })
+
+  it('reads the id out of a share-link query string', () => {
+    const params = new URLSearchParams('address=Atlanta&base=satellite&layers=noise')
+    expect(parseBaseMapId(params.get('base'))).toBe('satellite')
+  })
+
+  it('returns null when the param is absent or empty', () => {
+    expect(parseBaseMapId(null)).toBeNull()
+    expect(parseBaseMapId(undefined)).toBeNull()
+    expect(parseBaseMapId('')).toBeNull()
+  })
+
+  it('rejects unknown base maps', () => {
+    expect(parseBaseMapId('terrain')).toBeNull()
+    expect(parseBaseMapId('satellite,street')).toBeNull()
+  })
+
+  it('rejects inherited object keys', () => {
+    for (const key of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      expect(parseBaseMapId(key)).toBeNull()
+    }
   })
 })
