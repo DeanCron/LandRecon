@@ -206,6 +206,7 @@ import { escapeHtml, safeHttpUrl } from '../utils/html'
 import { fetchStaticMapDataUrl } from '../map/staticMap'
 import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
 import { downloadReconPdf } from '../map/pdfExport'
+import { addBaseLayer } from '../map/baseLayer'
 import { patchTooltipClickBehavior } from '../map/tooltipFix'
 import { loadAirportNoiseModule } from '../noise/loadAirportNoise'
 import {
@@ -3257,7 +3258,7 @@ function MapPage() {
         createBaseLayer('street').then((baseLayer) => {
           if (mapRef.current !== map) return
           dbg('init', 'Base layer created (Google Tiles)')
-          baseLayer.addTo(map)
+          addBaseLayer(map, baseLayer)
           baseLayerRef.current = baseLayer
         }).catch((err) => {
           // No fallback: the legacy mt.google.com endpoint doesn't honor style
@@ -3599,8 +3600,7 @@ function MapPage() {
     try {
       const newLayer = await createBaseLayer(id)
       map.removeLayer(current)
-      newLayer.addTo(map)
-      newLayer.bringToBack()
+      addBaseLayer(map, newLayer)
       baseLayerRef.current = newLayer
       setActiveBaseMap(id)
       trackEvent('basemap_switch', { base: id })
