@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
+import { AuthProvider } from './auth/AuthProvider'
 import App from './App.tsx'
 import { initAnalytics } from './utils/analytics'
 import { scrubMapAddressBeforeAnalytics } from './utils/mapAddressState'
@@ -20,7 +21,9 @@ if (import.meta.env.PROD) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
 )
