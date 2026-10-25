@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { Session } from '@supabase/supabase-js'
 import { authConfigured, getSupabase } from './supabaseClient'
 import { AuthModal } from './AuthModal'
+import { SavedSync } from './SavedSync'
 import { AuthContext, callbackUrl, type AuthApi } from './authContext'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {children}
+      <SavedSync />
       {modalOpen && !session && authConfigured && <AuthModal onClose={() => setModalOpen(false)} />}
     </AuthContext.Provider>
   )

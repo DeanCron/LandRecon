@@ -75,10 +75,12 @@ import {
   type SavedAnalysis,
   MAX_SAVED_ANALYSES,
   loadSavedAnalyses,
+  SAVED_ANALYSES_CHANGED_EVENT,
   writeSavedAnalyses,
   savedAnalysisState,
 } from '../map/savedAnalyses'
 import { useAddressSuggestions, formatTomTomAddress, type TomTomSuggestion } from '../hooks/useAddressSuggestions'
+import { useAuth } from '../auth/authContext'
 import { ShareModal } from '../components/ShareModal'
 import { useDevTodos } from '../hooks/useDevTodos'
 import { DevTodosModal } from '../components/DevTodosModal'
@@ -928,6 +930,13 @@ function MapPage() {
   // Saved analyses for comparison (shared store, surfaced in the Compare panel)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => loadSavedAnalyses())
   const [compareOpen, setCompareOpen] = useState(false)
+  const { status: authStatus, openSignIn } = useAuth()
+
+  useEffect(() => {
+    const reload = () => setSavedAnalyses(loadSavedAnalyses())
+    window.addEventListener(SAVED_ANALYSES_CHANGED_EVENT, reload)
+    return () => window.removeEventListener(SAVED_ANALYSES_CHANGED_EVENT, reload)
+  }, [])
 
   const removeSavedAt = useCallback((idx: number) => {
     setSavedAnalyses((prev) => {
@@ -959,6 +968,10 @@ function MapPage() {
   const [showClearLayers, setShowClearLayers] = useState(false)
 
   const saveCurrentAnalysis = useCallback(() => {
+    if (authStatus === 'signedOut') {
+      openSignIn()
+      return
+    }
     if (!reportReady || !canSaveAnalysis(analysisResults, analysisComplete)) {
       dbg('compare', 'Save skipped — analysis still loading')
       return
@@ -985,7 +998,7 @@ function MapPage() {
     dbg('compare', `Saved "${entry.address}" (grade ${entry.grade}); ${next.length} saved`)
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
-  }, [address, gpsTarget, reportReady, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
+  }, [address, gpsTarget, reportReady, analysisComplete, analysisProgress, analysisResults, savedAnalyses, authStatus, openSignIn])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')

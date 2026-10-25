@@ -200,6 +200,23 @@ export function loadSavedAnalyses(): SavedAnalysis[] {
   }
 }
 
+// Fired after every write so a cloud-sync layer (src/auth/SavedSync) can
+// mirror the list without this module depending on auth code.
+export const SAVED_ANALYSES_CHANGED_EVENT = 'lr-saved-analyses-changed'
+
+let writeListener: ((list: SavedAnalysis[]) => void) | null = null
+
+export function setSavedAnalysesWriteListener(fn: ((list: SavedAnalysis[]) => void) | null): void {
+  writeListener = fn
+}
+
 export function writeSavedAnalyses(list: SavedAnalysis[]): void {
   localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify(list))
+  writeListener?.(list)
+}
+
+// Replace the local cache from the account and tell mounted views to reload.
+export function replaceSavedAnalysesFromAccount(list: SavedAnalysis[]): void {
+  localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify(list))
+  window.dispatchEvent(new Event(SAVED_ANALYSES_CHANGED_EVENT))
 }

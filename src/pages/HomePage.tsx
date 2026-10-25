@@ -16,7 +16,7 @@ import { trackEvent } from '../utils/analytics'
 import { rememberMapAddress, rememberMapGps } from '../utils/mapAddressState'
 import { useCurrentLocation } from '../hooks/useCurrentLocation'
 import { locationIdentity } from '../utils/locationTarget'
-import { savedAnalysisState } from '../map/savedAnalyses'
+import { SAVED_ANALYSES_CHANGED_EVENT, savedAnalysisState } from '../map/savedAnalyses'
 import { prefetchMapAnalysis, prefetchMapPage } from './mapPageLoader'
 import './HomePage.css'
 
@@ -127,6 +127,11 @@ function HomePage() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [recent, setRecent] = useState<RecentSearch[]>(() => loadRecentSearches())
   const [savedSnippets, setSavedSnippets] = useState<SavedAnalysisSnippet[]>(() => loadSavedAnalysisSnippets())
+  useEffect(() => {
+    const reload = () => setSavedSnippets(loadSavedAnalysisSnippets())
+    window.addEventListener(SAVED_ANALYSES_CHANGED_EVENT, reload)
+    return () => window.removeEventListener(SAVED_ANALYSES_CHANGED_EVENT, reload)
+  }, [])
   const { locating, error: locateError, locate, cancel: cancelLocate } = useCurrentLocation(TOMTOM_API_KEY)
   const [recentOpen, setRecentOpen] = useState(false)
   const navigate = useNavigate()
