@@ -53,6 +53,10 @@ export function createNoiseLayer(url: string, opts: NoiseLayerOptions = {}): L.L
     url,
     attribution: opts.attribution ?? 'Noise: FAA/BTS Aviation Noise 2022',
     bounds: opts.bounds,
+    // The archive stops at z12, but protomaps-leaflet assumes 15 and would ask
+    // for data tiles that don't exist from z14 up, leaving the overlay blank.
+    // Capping it makes deeper zooms scale the z12 tiles up instead.
+    maxDataZoom: NOISE_MAX_ZOOM,
     paintRules: [
       {
         dataLayer: NOISE_LAYER_NAME,
