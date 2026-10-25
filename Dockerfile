@@ -18,6 +18,12 @@ ENV BUILD_GIT_HASH=$BUILD_GIT_HASH
 # disable analytics entirely.
 ARG VITE_GA_MEASUREMENT_ID
 ENV VITE_GA_MEASUREMENT_ID=$VITE_GA_MEASUREMENT_ID
+# Supabase URL and publishable (anon) key are public by design; RLS is the
+# protection. Leave unset to build with sign-in disabled.
+ARG VITE_SUPABASE_URL
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 # Vite needs these as env vars at build time, but we don't want them
 # in image layers or `docker history`. BuildKit secrets are mounted
