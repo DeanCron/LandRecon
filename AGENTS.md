@@ -14,3 +14,19 @@ Applies to all AI agents working on this repository.
 - Keep PRs small and focused; describe what changed and how to verify it on
   the staging site.
 - Never commit secrets or API keys.
+
+## Git setup in agent runs
+
+Agent runs may not read the shared global git config. In each fresh clone,
+before committing:
+
+```sh
+git config user.name "lr-bot-dc"
+git config user.email "348483493+lr-bot-dc@users.noreply.github.com"
+```
+
+Push with the `gh` credential helper (never put a token in a remote URL):
+
+```sh
+git -c credential.helper='!gh auth git-credential' push -u origin <branch>
+```
