@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:server": "node --test server/og.test.mjs",
+    "test:server": "node --test server/og.test.mjs server/api.test.mjs",
     "preview": "vite preview",
     "build:districts": "node scripts/build-districts.mjs",
     "build:broadband": "node scripts/build-broadband-index.mjs",
