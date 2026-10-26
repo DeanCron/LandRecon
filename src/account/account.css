@@ -1,0 +1,31 @@
+.account-menu {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  z-index: 5;
+}
+.account-menu-label { color: #4b5563; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-link { color: var(--color-primary, #1d4ed8); text-decoration: none; font-weight: 600; }
+.account-menu-link:hover { text-decoration: underline; }
+
+.account-page { max-width: 720px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.account-page h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+.account-page-sub { color: #4b5563; margin: 0 0 1.25rem; }
+.account-page-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+.account-btn { padding: 0.45rem 0.9rem; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font: inherit; }
+.account-btn:hover:not(:disabled) { background: #f3f4f6; }
+.account-btn:disabled { opacity: 0.55; cursor: default; }
+.account-btn-danger { color: #b91c1c; border-color: #fca5a5; }
+.account-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.account-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.account-item-main { flex: 1; min-width: 0; text-align: left; background: none; border: 0; cursor: pointer; font: inherit; padding: 0; }
+.account-item-label { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-item-meta { display: block; color: #6b7280; font-size: 0.8rem; }
+.account-grade { font-weight: 700; min-width: 2rem; text-align: center; }
+.account-status { margin: 0.5rem 0; color: #374151; }
+.account-error { margin: 0.5rem 0; color: #b91c1c; }
+.account-hint { margin: 1.5rem 0 0; color: #6b7280; font-size: 0.8rem; }

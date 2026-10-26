@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import AccountPage from './pages/AccountPage'
 import MapPageSkeleton from './components/MapPageSkeleton'
 import LazyLoadErrorBoundary from './components/LazyLoadErrorBoundary'
 import { trackPageView } from './utils/analytics'
@@ -36,6 +37,7 @@ function App() {
             </LazyLoadErrorBoundary>
           }
         />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

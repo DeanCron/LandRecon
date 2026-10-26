@@ -15,6 +15,7 @@ import { trackEvent } from '../utils/analytics'
 import { rememberMapAddress, rememberMapGps } from '../utils/mapAddressState'
 import { useCurrentLocation } from '../hooks/useCurrentLocation'
 import { locationIdentity } from '../utils/locationTarget'
+import AccountMenu from '../account/AccountMenu'
 import { savedAnalysisState } from '../map/savedAnalyses'
 import { prefetchMapAnalysis, prefetchMapPage } from './mapPageLoader'
 import './HomePage.css'
@@ -277,6 +278,7 @@ function HomePage() {
 
   return (
     <div className="home">
+      <AccountMenu />
       <div className="home-content">
         <div className="home-icon">
           <img src={logo} alt="Land Recon" width="480" height="102" decoding="async" />
