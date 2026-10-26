@@ -587,9 +587,16 @@ function HomePage() {
             </div>
             <div className="about-body">
               <p>
-                LandRecon is a free tool with no accounts, no ads, and no sign-up. We don't sell your
-                data or set our own tracking cookies.
+                LandRecon is free and works without an account. Signing in is optional and only needed
+                to save addresses to your account. We have no ads, don't sell your data, and don't set
+                our own tracking cookies.
               </p>
+              <h3>If you sign in</h3>
+              <ul>
+                <li>🔐 <strong>Social sign-in only</strong> — you sign in with Google or Microsoft; we never see or store a password</li>
+                <li>📍 <strong>Saved addresses</strong> — the addresses you choose to save (and any notes) are stored on our server against your account so they follow you across devices; you can remove them anytime from My addresses</li>
+                <li>🔔 <strong>Change alerts</strong> — if you watch a saved address, we use your sign-in email only to send you alerts about it, and nothing else</li>
+              </ul>
               <h3>What stays on your device</h3>
               <ul>
                 <li>🔎 <strong>Recent searches &amp; saved reports</strong> — kept in your browser's local storage, clearable anytime</li>
@@ -609,12 +616,14 @@ function HomePage() {
               <h3>Your controls</h3>
               <ul>
                 <li>Clear recent searches from the home page or your browser's site settings</li>
+                <li>Remove saved addresses and watches from My addresses; signing out stops all account use</li>
                 <li>Deny or revoke the location prompt at any time</li>
                 <li>Enable Do Not Track to skip analytics entirely</li>
               </ul>
               <p className="about-disclaimer">
                 Addresses you search are stripped from our server logs and never sent to analytics.
-                Last updated June 2, 2026.
+                Saved addresses are kept only in your account storage, not in logs.
+                Last updated October 26, 2026.
               </p>
             </div>
           </div>
