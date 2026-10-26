@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { createMemoryStore } from './store.mjs'
 import { createApiServer, createRateLimiter, parsePrincipal, validateObject } from './api.mjs'
 
 function principalHeaders(idp = 'google', id = 'abc123', authTyp = idp) {
@@ -103,4 +104,60 @@ test('validateObject enforces types, limits and unknown fields', () => {
   assert.ok(validateObject(schema, { label: 'ok', lat: 91 }).length)
   assert.ok(validateObject(schema, { label: 'ok', extra: 1 }).length)
   assert.ok(validateObject(schema, []).length)
+})
+
+// ---- saved addresses ----
+
+const addr = { label: 'Home', address: '1 Main St', lat: 30.1, lng: -97.2, snapshot: { grade: 'B' } }
+const json = (headers, method, body) => ({
+  method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body),
+})
+
+test('saved addresses: auth required', async () => {
+  const s = await listen({ easyAuthEnabled: true, store: createMemoryStore() })
+  try {
+    const h = { 'x-real-client-ip': '5.5.5.5' }
+    assert.equal((await fetch(`${s.origin}/api/me/addresses`, { headers: h })).status, 401)
+    assert.equal((await fetch(`${s.origin}/api/me/addresses`, json(h, 'POST', addr))).status, 401)
+  } finally { s.server.close() }
+})
+
+test('saved addresses: CRUD, validation, isolation and cap', async () => {
+  const s = await listen({ easyAuthEnabled: true, store: createMemoryStore(), maxPerUser: 2, userLimit: 100 })
+  try {
+    const alice = principalHeaders('google', 'alice')
+    const bob = principalHeaders('google', 'bob')
+    const base = `${s.origin}/api/me/addresses`
+
+    const created = await fetch(base, json(alice, 'POST', addr))
+    assert.equal(created.status, 201)
+    const rec = await created.json()
+    assert.equal(rec.label, 'Home')
+
+    const list = await (await fetch(base, { headers: alice })).json()
+    assert.equal(list.addresses.length, 1)
+    assert.equal((await (await fetch(base, { headers: bob })).json()).addresses.length, 0)
+    assert.equal((await fetch(`${base}/${rec.id}`, { headers: bob })).status, 404)
+
+    const put = await fetch(`${base}/${rec.id}`, json(alice, 'PUT', { ...addr, label: 'Cabin' }))
+    assert.equal((await put.json()).label, 'Cabin')
+    assert.equal((await fetch(`${base}/${rec.id}`, json(bob, 'PUT', addr))).status, 404)
+    assert.equal((await fetch(`${base}/${rec.id}`, json(bob, 'DELETE'))).status, 404)
+
+    assert.equal((await fetch(base, json(alice, 'POST', { ...addr, lat: 100 }))).status, 400)
+    assert.equal((await fetch(base, json(alice, 'POST', { ...addr, userId: 'x' }))).status, 400)
+    assert.equal((await fetch(base, json(alice, 'POST', { label: 'only' }))).status, 400)
+    assert.equal((await fetch(base, { method: 'POST', headers: { ...alice, 'content-type': 'text/plain' }, body: 'x' })).status, 415)
+    assert.equal((await fetch(base, json(alice, 'POST', { ...addr, snapshot: { blob: 'x'.repeat(40_000) } }))).status, 400)
+    assert.equal((await fetch(`${base}/not-a-uuid`, { headers: alice })).status, 404)
+
+    assert.equal((await fetch(base, json(alice, 'POST', addr))).status, 201)
+    const over = await fetch(base, json(alice, 'POST', addr))
+    assert.equal(over.status, 409)
+    assert.equal((await over.json()).limit, 2)
+
+    assert.equal((await fetch(`${base}/${rec.id}`, json(alice, 'DELETE'))).status, 204)
+    assert.equal((await fetch(`${base}/${rec.id}`, { headers: alice })).status, 404)
+    assert.equal((await fetch(base, json(alice, 'DELETE'))).status, 405)
+  } finally { s.server.close() }
 })
