@@ -2,7 +2,7 @@ name: Deploy to Azure Container Apps
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
   workflow_dispatch:
 
@@ -42,7 +42,7 @@ jobs:
 
   build-and-deploy:
     needs: test
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -95,3 +95,57 @@ jobs:
             --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:r${{ github.run_id }}" \
             --min-replicas 1 \
             --max-replicas 3
+
+  # Non-production copy for reviewing agent work before it reaches main.
+  # Skipped until the STAGING_AZURE_CONTAINER_APP_NAME repo variable is set.
+  # Never tags :latest, so it can't be mistaken for the production image.
+  deploy-staging:
+    needs: test
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/staging' &&
+      vars.STAGING_AZURE_CONTAINER_APP_NAME != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:s${{ github.run_id }}
+          build-args: |
+            VITE_NOISE_PMTILES_URL=${{ vars.NOISE_PMTILES_URL }}
+            BUILD_GIT_HASH=${{ github.sha }}
+          secrets: |
+            VITE_TOMTOM_API_KEY=${{ secrets.STAGING_TOMTOM_API_KEY || secrets.TOMTOM_API_KEY }}
+            VITE_GOOGLE_MAPS_KEY=${{ secrets.STAGING_GOOGLE_MAPS_KEY || secrets.GOOGLE_MAPS_KEY }}
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to staging Container App
+        run: |
+          az containerapp update \
+            --name "${{ vars.STAGING_AZURE_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:s${{ github.run_id }}" \
+            --min-replicas 0 \
+            --max-replicas 1
