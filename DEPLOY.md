@@ -233,6 +233,35 @@ Push to `main` — GitHub Actions will:
 
 ---
 
+## Staging (non-production copy)
+
+Pushes to the `staging` branch deploy to a separate Container App so changes
+(including agent-authored ones) can be reviewed before they reach `main`.
+The default `*.azurecontainerapps.io` URL is enough; no custom domain needed.
+
+```bash
+az containerapp create \
+  --name landrecon-staging \
+  --resource-group LandRecon-RG \
+  --environment landrecon-env \
+  --image ghcr.io/deancron/landrecon:staging \
+  --target-port 8000 \
+  --ingress external \
+  --cpu 0.5 --memory 1Gi \
+  --min-replicas 0 \
+  --max-replicas 1
+```
+
+Then set the repo variable `STAGING_AZURE_CONTAINER_APP_NAME` (the staging job
+is skipped until it exists). Optionally add `STAGING_TOMTOM_API_KEY` and
+`STAGING_GOOGLE_MAPS_KEY` secrets (capped keys; they fall back to the
+production keys) and add the staging URL to the keys' allowed referrers.
+
+Flow: agents open PRs into `staging` → merge → review the staging URL → a
+human opens a `staging` → `main` PR to ship.
+
+---
+
 ## Scaling
 
 Container Apps auto-scales based on HTTP traffic:
