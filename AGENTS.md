@@ -1,5 +1,7 @@
 # Agent guidelines
 
+<!-- Smoke-test comment added by LAN-36. -->
+
 Applies to all AI agents working on this repository.
 
 - **Never push to or open PRs against `main`.** `main` deploys to production.
