@@ -96,6 +96,23 @@ only protection is a provider-side referrer/domain restriction:
 
 Set per-key quotas + billing alerts as a backstop.
 
+#### Abuse controls and quotas
+
+- **Client:** uncached analyses are throttled per browser session
+  (`src/map/analysisThrottle.ts`: 12 per 10 minutes; cache hits are free).
+  This is a courtesy brake, not a security boundary.
+- **nginx:** every `/api/*` route is limited per client IP (`api_zone`,
+  5 r/s, burst 10, HTTP 429), keyed on the non-spoofable `$real_client_ip`.
+  Unknown `/api/*` paths return 404 after the limit check.
+- **Provider quotas (required, set in the portals):**
+  - Google Places: per-day request quota and a project budget alert at
+    50% / 90% / 100% of the monthly budget.
+  - TomTom: daily request cap on the key and a usage alert at 80%.
+- **Alerts to wire up:** budget alerts to the on-call mailbox; an Azure Monitor
+  alert on a spike of HTTP 429s from nginx (sustained 429s = scraping).
+- If abuse persists, add a WAF/bot challenge (Cloudflare / Front Door) or move
+  paid lookups behind an `/api` proxy with per-IP limits.
+
 ### Dev Todos store token (`DEV_TODOS_TOKEN`)
 
 The Dev Todos endpoint (`/api/dev-todos`) is gated by a bearer token:

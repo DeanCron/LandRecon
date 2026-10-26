@@ -1,3 +1,4 @@
+import { consumeAnalysisSlot } from '../map/analysisThrottle'
 import { lazy, Suspense, useEffect, useRef, useState, useCallback, useMemo, memo } from 'react'
 import { useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
@@ -2242,6 +2243,17 @@ function MapPage() {
         const failedChecks = timing.failedChecks.size
         timing.end(failedChecks > 0 ? 'partial' : 'success', { failed_checks: failedChecks })
         analysisPerformanceRef.current = null
+      }
+    }
+    if (!cached) {
+      const slot = consumeAnalysisSlot()
+      if (!slot.allowed) {
+        dbg('analysis', 'Throttled: per-session analysis limit reached')
+        analysisPerformanceRef.current?.end('cancelled')
+        analysisPerformanceRef.current = null
+        setAnalysisResults((prev) => ({ ...prev, loading: false }))
+        setLayerNotice(`You've run a lot of analyses in a short time. Please wait about ${Math.max(1, Math.ceil(slot.retryAfterMs / 60000))} minute(s) and try again.`)
+        return
       }
     }
     if (cached) {
