@@ -1,4 +1,4 @@
-import L from 'leaflet'
+import type L from 'leaflet'
 import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 // ── USFS Wildfire Hazard Potential (Classified) ─────────────────────────
