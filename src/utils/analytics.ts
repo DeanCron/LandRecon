@@ -23,7 +23,7 @@ declare global {
   }
 }
 
-const MEASUREMENT_ID = (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || ''
+const MEASUREMENT_ID = (import.meta.env?.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || ''
 
 // Debug toggle: append `?ga_debug` (or `?ga_debug=0` to clear) to any URL, or
 // set `localStorage.LR_GA_DEBUG = '1'` in the console. When on we (a) bypass

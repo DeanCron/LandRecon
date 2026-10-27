@@ -113,6 +113,15 @@ export default defineConfig({
   ],
   build: {
     manifest: true,
+    rolldownOptions: {
+      output: {
+        // Keep Leaflet in its own chunk so it is not inlined into MapPage
+        // now that the scoring modules no longer import it at runtime.
+        codeSplitting: {
+          groups: [{ name: 'leaflet', test: /node_modules[\\/]leaflet[\\/]/ }],
+        },
+      },
+    },
   },
   server: {
     proxy: {

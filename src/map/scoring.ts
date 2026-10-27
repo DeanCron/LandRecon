@@ -34,6 +34,7 @@ import { RAILROAD_ANALYSIS_RADIUS_MI, railroadSeverity } from '../map/railroad'
 const COSTCO_GREEN_RADIUS_MI = 30
 
 export function getExpFlag(key: string, fallback: boolean): boolean {
+  if (typeof localStorage === 'undefined') return fallback
   const v = localStorage.getItem(key)
   return v === null ? fallback : v === '1'
 }

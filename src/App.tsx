@@ -8,6 +8,7 @@ import { trackPageView } from './utils/analytics'
 import { loadMapPage } from './pages/mapPageLoader'
 
 const MapPage = lazy(loadMapPage)
+const ReportPage = lazy(() => import('./pages/ReportPage'))
 
 // Fires a GA4 page_view on every React Router navigation. We strip query
 // params because address strings can be PII; the path alone (e.g. `/map`)
@@ -38,6 +39,16 @@ function App() {
           }
         />
         <Route path="/account" element={<AccountPage />} />
+        <Route
+          path="/report"
+          element={
+            <LazyLoadErrorBoundary fallback={<MapPageSkeleton failed />}>
+              <Suspense fallback={<MapPageSkeleton />}>
+                <ReportPage />
+              </Suspense>
+            </LazyLoadErrorBoundary>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

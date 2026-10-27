@@ -606,6 +606,11 @@
   transition: all 0.2s ease;
 }
 
+.home-about-link:is(a) {
+  display: inline-block;
+  text-decoration: none;
+}
+
 .home-about-link:hover {
   background: #3a3a30;
   border-color: #3a3a30;
