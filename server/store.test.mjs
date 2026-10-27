@@ -74,3 +74,10 @@ for (const [name, make] of [
 test('table store requires an account URL without a client', async () => {
   await assert.rejects(() => createTableStore({}), /TABLE_STORAGE_URL/)
 })
+
+test('createStoreFromEnv fails closed without TABLE_STORAGE_URL unless ALLOW_MEMORY_STORE=1', async () => {
+  const { createStoreFromEnv } = await import('./store.mjs')
+  await assert.rejects(createStoreFromEnv({}), { code: 'unavailable' })
+  const store = await createStoreFromEnv({ ALLOW_MEMORY_STORE: '1' })
+  assert.equal(await store.count('u'), 0)
+})

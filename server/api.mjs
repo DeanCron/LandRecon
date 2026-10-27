@@ -228,7 +228,17 @@ export function createApiServer(opts = {}) {
       }
       const m = ADDRESS_PATH.exec(url.pathname)
       if (m) {
-        return await handleAddresses(req, res, { principal, store: principal ? await getStore() : null, maxPerUser, id: m[1] })
+        let store = null
+        if (principal) {
+          try {
+            store = await getStore()
+          } catch (err) {
+            if (!(err instanceof StoreError && err.code === 'unavailable')) throw err
+            console.error('[api] storage unavailable:', err.message)
+            return send(res, 503, { error: 'storage unavailable' })
+          }
+        }
+        return await handleAddresses(req, res, { principal, store, maxPerUser, id: m[1] })
       }
       return send(res, 404, { error: 'not found' })
     } catch (err) {

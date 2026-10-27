@@ -118,8 +118,11 @@ export async function createTableStore({ accountUrl, tableName = TABLE_NAME, cli
     try {
       await table.createTable()
     } catch (err) {
-      // 409 = already exists; anything else (e.g. 403) surfaces on first use.
-      if (err?.statusCode !== 409) console.warn('[api] table create skipped:', err?.statusCode || err?.code)
+      // 409 = already exists. Anything else (e.g. 403: identity lacks the
+      // Storage Table Data Contributor role) must not be silently ignored.
+      if (err?.statusCode !== 409) {
+        throw new StoreError('unavailable', `table storage unavailable (${err?.statusCode || err?.code || 'unknown'}): check TABLE_STORAGE_URL and the identity's "Storage Table Data Contributor" role`)
+      }
     }
   }
 
@@ -182,6 +185,11 @@ export async function createTableStore({ accountUrl, tableName = TABLE_NAME, cli
 
 export async function createStoreFromEnv(env = process.env) {
   if (env.TABLE_STORAGE_URL) return createTableStore({ accountUrl: env.TABLE_STORAGE_URL })
-  console.warn('[api] TABLE_STORAGE_URL not set: saved addresses use a non-persistent in-memory store')
-  return createMemoryStore()
+  // Fail closed: an in-memory store would accept saves (201) and silently lose
+  // them on restart or across replicas.
+  if (env.ALLOW_MEMORY_STORE === '1') {
+    console.warn('[api] ALLOW_MEMORY_STORE=1: saved addresses use a non-persistent in-memory store (dev only)')
+    return createMemoryStore()
+  }
+  throw new StoreError('unavailable', 'TABLE_STORAGE_URL is not set; saved addresses storage is not configured')
 }
