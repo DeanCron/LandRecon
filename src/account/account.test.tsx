@@ -4,10 +4,11 @@ import { afterEach, expect, it, vi } from 'vitest'
 import AccountMenu from './AccountMenu'
 import AccountPage from '../pages/AccountPage'
 import { fitSnapshot, loginUrl } from './accountApi'
+import { resetAccountCache } from './useAccount'
 import { importLocalSaves } from './importLocal'
 import type { SavedAnalysis } from '../map/savedAnalyses'
 
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear() })
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); resetAccountCache() })
 
 const entry = (address: string, extra: Partial<SavedAnalysis> = {}): SavedAnalysis => ({
   address, date: '1/1/2026', grade: 'B', gradeColor: '#0a0', pct: 80, noiseLevel: null,
@@ -38,6 +39,7 @@ it('shows sign-in links to anonymous users and the account links when signed in'
   const { unmount } = render(<MemoryRouter><AccountMenu /></MemoryRouter>)
   expect(await screen.findByRole('link', { name: 'Google' })).toHaveAttribute('href', expect.stringContaining('/.auth/login/google'))
   unmount()
+  resetAccountCache()
   stubFetch(() => ({ authenticated: true, user: { id: 'google:1', provider: 'google', name: 'Ada' } }))
   render(<MemoryRouter><AccountMenu /></MemoryRouter>)
   expect(await screen.findByRole('link', { name: 'My addresses' })).toBeInTheDocument()
