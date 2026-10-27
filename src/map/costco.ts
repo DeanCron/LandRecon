@@ -1,6 +1,7 @@
+import { getGoogleMapsKey } from './runtimeConfig'
 import { cachedPlacesSearchText, type PlacesSearchTextBody } from '../utils/placesCache'
 
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || ''
+const GOOGLE_MAPS_KEY = getGoogleMapsKey()
 
 // Fetch nearby Costco Wholesale warehouses via Google Places Text Search.
 // We previously queried Overpass/OSM but OSM coverage of Costco brand tags

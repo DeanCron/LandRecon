@@ -1,6 +1,6 @@
-import L from 'leaflet'
+import { pointInConus } from './geo'
 import { fetchOverpass, type OverpassElement } from './overpass'
-import { CONUS_BOUNDS, loadRailroadSnapshot, type RailroadSnapshotLine } from './snapshots'
+import { loadRailroadSnapshot, type RailroadSnapshotLine } from './snapshots'
 
 // ── Railroad proximity ──────────────────────────────────────────────────
 // A railroad track within a quarter mile of a home is a meaningful nuisance:
@@ -185,10 +185,10 @@ export function nearestRailroadFromSnapshot(
 // rail, light rail, and narrow-gauge lines count; subways (underground),
 // trams, and abandoned/disused alignments are excluded.
 export async function fetchNearestRailroad(
-  center: L.LatLng,
+  center: { lat: number; lng: number },
   signal?: AbortSignal,
 ): Promise<NearestRailroad | null> {
-  if (L.latLngBounds(CONUS_BOUNDS).contains(center)) {
+  if (pointInConus(center)) {
     const snap = await loadRailroadSnapshot(signal)
     if (snap) return nearestRailroadFromSnapshot({ lat: center.lat, lng: center.lng }, snap.lines)
   }

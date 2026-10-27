@@ -1,6 +1,7 @@
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces'
 import type { LocationGradeResult } from './analysisTypes'
 import { qualitySummaryText, qualitySummaryTone } from './evidence'
+import { MAP_UNAVAILABLE_NOTE, REPORT_DISCLAIMER, dataVintages } from './reportCopy'
 import { gpsAccuracyText, gpsTargetLabel, type GpsTarget } from '../utils/locationTarget'
 
 export type ReconPdfInput = {
@@ -110,6 +111,8 @@ export function buildReconPdfDocDefinition(input: ReconPdfInput): TDocumentDefin
 
   if (mapDataUrl) {
     content.push({ image: mapDataUrl, width: 515, margin: [0, 0, 0, 14] })
+  } else {
+    content.push({ text: MAP_UNAVAILABLE_NOTE, style: 'evidence', italics: true, margin: [0, 0, 0, 14] })
   }
 
   content.push({
@@ -130,8 +133,16 @@ export function buildReconPdfDocDefinition(input: ReconPdfInput): TDocumentDefin
 
   content.push({ text: 'Factor breakdown', style: 'sectionHeading' })
   content.push(...factorBlocks(grade))
+  const vintages = dataVintages(grade)
+  if (vintages.length > 0) {
+    content.push({ text: 'Data vintages', style: 'sectionHeading', margin: [0, 6, 0, 8] })
+    content.push({
+      ul: vintages.map((v) => `${v.label}: ${v.source} — ${v.freshness}`),
+      style: 'evidence',
+    })
+  }
   content.push({
-    text: 'LandRecon is provided for informational purposes only. Data may not be complete or current. Always verify important findings through official sources before making decisions.',
+    text: REPORT_DISCLAIMER,
     style: 'disclaimer',
     margin: [0, 14, 0, 0],
   })

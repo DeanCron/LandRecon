@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReconPdfDocDefinition, reconPdfFilename } from './reconPdf'
+import { MAP_UNAVAILABLE_NOTE, REPORT_DISCLAIMER, dataVintages } from './reportCopy'
 import type { LocationGradeResult } from './analysisTypes'
 import type { FactorEvidence } from './evidence'
 
@@ -94,6 +95,35 @@ describe('buildReconPdfDocDefinition', () => {
     expect(withMap).toContain('data:image/png;base64,AAAA')
     const withoutMap = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade(), mapDataUrl: null }))
     expect(withoutMap).not.toContain('data:image/png;base64')
+  })
+})
+
+describe('print/PDF parity', () => {
+  it('uses the shared disclaimer', () => {
+    const json = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade() }))
+    expect(json).toContain(JSON.stringify(REPORT_DISCLAIMER).slice(1, -1))
+  })
+
+  it('notes when the map image is unavailable', () => {
+    const without = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade(), mapDataUrl: null }))
+    expect(without).toContain(MAP_UNAVAILABLE_NOTE)
+    const withMap = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade(), mapDataUrl: 'data:image/png;base64,AAAA' }))
+    expect(withMap).not.toContain(MAP_UNAVAILABLE_NOTE)
+  })
+
+  it('lists data vintages only for factors that report one', () => {
+    const g = grade({
+      evidence: {
+        'Flood Zone': ev('verified', { freshness: 'Updated 2024' }),
+        'Nearest Costco': ev('verified'),
+      } as LocationGradeResult['evidence'],
+    })
+    expect(dataVintages(g)).toEqual([{ label: 'Flood Zone', source: 'FEMA', freshness: 'Updated 2024' }])
+    const json = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: g }))
+    expect(json).toContain('Data vintages')
+    expect(json).toContain('Flood Zone: FEMA — Updated 2024')
+    const none = JSON.stringify(buildReconPdfDocDefinition({ address: 'x', date: new Date(), grade: grade() }))
+    expect(none).not.toContain('Data vintages')
   })
 })
 

@@ -132,6 +132,33 @@ az containerapp update \
   --set-env-vars DEV_TODOS_TOKEN=secretref:dev-todos-token
 ```
 
+### Saved addresses storage (Azure Table Storage)
+
+The API sidecar (`server/api.mjs`) serves `/api/me/addresses` (signed-in users
+only: `GET`/`POST` on the collection, `GET`/`PUT`/`DELETE` on `/<id>`). Data
+lives in the `savedaddresses` table (PartitionKey = user id, RowKey = address
+id), capped at `SAVED_ADDRESS_MAX` (default 50) per user. No keys are used: the
+sidecar authenticates with the app's **managed identity**.
+
+```bash
+# Grant the app's system-assigned identity table access on the storage account
+az role assignment create \
+  --assignee <app-principal-id> --role "Storage Table Data Contributor" \
+  --scope $(az storage account show -n <storage-account> -g LandRecon-RG --query id -o tsv)
+
+az containerapp update --name landrecon --resource-group LandRecon-RG \
+  --set-env-vars TABLE_STORAGE_URL=https://<storage-account>.table.core.windows.net
+```
+
+Without `TABLE_STORAGE_URL` the saved-addresses endpoints **fail closed**: they
+return `503 storage unavailable` rather than accepting saves that would be lost
+on restart or across replicas. For local dev only, set `ALLOW_MEMORY_STORE=1` to
+use a non-persistent in-memory store. The table is created on first use; if the
+identity lacks the role above (or `TABLE_STORAGE_URL` is wrong) the same 503 is
+returned and the cause is logged as `[api] storage unavailable: ...`. Provision
+the Storage account and role assignment yourself (a new paid Azure resource);
+the code never creates Azure resources other than the table itself.
+
 ### Dev Todos store persistence (`/var/lib/landrecon`)
 
 The Dev Todos sidecar persists a single JSON document to local disk at
@@ -247,6 +274,35 @@ Push to `main` — GitHub Actions will:
 1. Build the Docker image (Node build stage → nginx runtime stage)
 2. Push to GitHub Container Registry (ghcr.io)
 3. Deploy new revision to Azure Container Apps
+
+---
+
+## Staging (non-production copy)
+
+Pushes to the `staging` branch deploy to a separate Container App so changes
+(including agent-authored ones) can be reviewed before they reach `main`.
+The default `*.azurecontainerapps.io` URL is enough; no custom domain needed.
+
+```bash
+az containerapp create \
+  --name landrecon-staging \
+  --resource-group LandRecon-RG \
+  --environment landrecon-env \
+  --image ghcr.io/deancron/landrecon:staging \
+  --target-port 8000 \
+  --ingress external \
+  --cpu 0.5 --memory 1Gi \
+  --min-replicas 0 \
+  --max-replicas 1
+```
+
+Then set the repo variable `STAGING_AZURE_CONTAINER_APP_NAME` (the staging job
+is skipped until it exists). Optionally add `STAGING_TOMTOM_API_KEY` and
+`STAGING_GOOGLE_MAPS_KEY` secrets (capped keys; they fall back to the
+production keys) and add the staging URL to the keys' allowed referrers.
+
+Flow: agents open PRs into `staging` → merge → review the staging URL → a
+human opens a `staging` → `main` PR to ship.
 
 ---
 

@@ -1,6 +1,6 @@
 import { consumeAnalysisSlot } from '../map/analysisThrottle'
 import { lazy, Suspense, useEffect, useRef, useState, useCallback, useMemo, memo } from 'react'
-import { useLocation, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
@@ -20,6 +20,7 @@ import { startPerformanceSpan } from '../utils/performanceTelemetry'
 import { rememberMapAddress, rememberMapGps, resolveMapAddress, resolveMapGps, resolveMapLocationError } from '../utils/mapAddressState'
 import { gpsAccuracyText, locationIdentity, setGpsTargetParams } from '../utils/locationTarget'
 import { resolveLocation } from '../utils/resolveLocation'
+import { rememberGeocode } from '../utils/geocodeCache'
 import { useCurrentLocation } from '../hooks/useCurrentLocation'
 import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
@@ -207,6 +208,7 @@ import { escapeHtml, safeHttpUrl } from '../utils/html'
 import { fetchStaticMapDataUrl } from '../map/staticMap'
 import { buildReconPdfDocDefinition, reconPdfFilename } from '../map/reconPdf'
 import { downloadReconPdf } from '../map/pdfExport'
+import { addBaseLayer, parseBaseMapId, type BaseMapId } from '../map/baseLayer'
 import { patchTooltipClickBehavior } from '../map/tooltipFix'
 import { loadAirportNoiseModule } from '../noise/loadAirportNoise'
 import {
@@ -246,8 +248,6 @@ if (LR_DEBUG) console.info(`%c[LandRecon] Debug mode ON — build ${__BUILD_VERS
 const GOOGLE_NO_POI = [
   { featureType: 'poi', elementType: 'all', stylers: [{ visibility: 'off' }] },
 ]
-
-type BaseMapId = 'street' | 'satellite'
 
 type GoogleSessionEntry = { token: string; expiry: number }
 const SESSION_STORAGE_PREFIX = 'lr_gtile_session:'
@@ -892,7 +892,9 @@ function MapPage() {
   const [districtAvailable, setDistrictAvailable] = useState<Record<DistrictLayerId, boolean | null>>({
     cd119: null,
   })
-  const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>('street')
+  const [activeBaseMap, setActiveBaseMap] = useState<BaseMapId>(
+    () => parseBaseMapId(searchParams.get('base')) ?? 'street',
+  )
   const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({ loading: true, noiseLevel: null, noiseAirport: null, noiseAirportCode: null, noiseLoading: true, noiseError: false, superfunds: [], costco: null, costcoNearby: [], costcoNearestBeyond: null, costcoError: false, costcoLoading: true, dataCenters: [], nearestER: null, erError: false, crowdMagnets: [], crowdError: false, nearestRailroad: null, railroadError: false, broadband: null, broadbandLoading: true, floodZone: null, floodError: false, floodLoading: true, wildfireHazard: null, wildfireError: false, wildfireLoading: true, seismicHazard: null, seismicError: false, seismicLoading: true, tornadoHazard: null, tornadoError: false, tornadoLoading: true })
   const [analysisProgress, setAnalysisProgress] = useState<Record<string, 'pending' | 'done'>>({})
   const analysisDoneCount = ANALYSIS_CHECKS.reduce(
@@ -3166,8 +3168,10 @@ function MapPage() {
         if (abortController.signal.aborted) return
         setResolvedLocationKey(locationKey)
         finishGeocode('success', { matched: true })
-        if (!gpsTarget) pushRecentSearch(address)
-        else {
+        if (!gpsTarget) {
+          pushRecentSearch(address)
+          rememberGeocode(address, lat, lng)
+        } else {
           setAnalysisPanelOpen(true)
           setLayerPanelOpen(false)
           setSheetHeight(null)
@@ -3266,10 +3270,13 @@ function MapPage() {
           preferCanvas: true,
         })
 
-        createBaseLayer('street').then((baseLayer) => {
+        // Start on the base map a share link asked for (`?base=satellite`).
+        // Switching after the fact doesn't work: the base layer is still being
+        // created when the URL state is applied, so the switch is dropped.
+        createBaseLayer(activeBaseMap).then((baseLayer) => {
           if (mapRef.current !== map) return
           dbg('init', 'Base layer created (Google Tiles)')
-          baseLayer.addTo(map)
+          addBaseLayer(map, baseLayer)
           baseLayerRef.current = baseLayer
         }).catch((err) => {
           // No fallback: the legacy mt.google.com endpoint doesn't honor style
@@ -3611,8 +3618,7 @@ function MapPage() {
     try {
       const newLayer = await createBaseLayer(id)
       map.removeLayer(current)
-      newLayer.addTo(map)
-      newLayer.bringToBack()
+      addBaseLayer(map, newLayer)
       baseLayerRef.current = newLayer
       setActiveBaseMap(id)
       trackEvent('basemap_switch', { base: id })
@@ -5378,16 +5384,12 @@ function MapPage() {
     setTrafficVisible(!trafficVisible)
   }
 
-  // Restore layer + base-map state from URL params (one-shot, when map becomes ready)
+  // Restore layer state from URL params (one-shot, when map becomes ready).
+  // The base map is not handled here: it is chosen when the map is created.
   useEffect(() => {
     if (status !== 'ready') return
     if (initialUrlStateAppliedRef.current) return
     initialUrlStateAppliedRef.current = true
-
-    const baseParam = searchParams.get('base') as BaseMapId | null
-    if (baseParam && baseParam !== activeBaseMap && BASE_MAPS[baseParam]) {
-      switchBaseMap(baseParam)
-    }
 
     const layersParam = searchParams.get('layers')
     if (!layersParam) return
@@ -6692,6 +6694,20 @@ function MapPage() {
                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
             </button>
+            <Link
+              className="analysis-action-btn"
+              to="/report"
+              state={gpsTarget ? rememberMapGps(gpsTarget) : rememberMapAddress(address)}
+              title="Open printable report"
+              aria-label="Printable report"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="8" y1="13" x2="16" y2="13" />
+                <line x1="8" y1="17" x2="16" y2="17" />
+              </svg>
+            </Link>
             <button
               className="analysis-action-btn"
               onClick={() => window.print()}

@@ -58,6 +58,8 @@ if command -v node >/dev/null 2>&1; then
   echo "[entrypoint] dev-todos sidecar started as nginx (pid $!)"
   su-exec nginx node /app/server/og.mjs &
   echo "[entrypoint] og sidecar started as nginx (pid $!)"
+  su-exec nginx node /app/server/api.mjs &
+  echo "[entrypoint] api sidecar started as nginx (pid $!)"
 else
   echo "[entrypoint] node not found, skipping sidecars"
 fi

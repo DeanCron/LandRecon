@@ -10,10 +10,7 @@ import type { CrowdMagnet } from './crowd'
 // one CDN-cached fetch held in module-scope memory for the page session.
 const SNAPSHOT_BASE =
   'https://landreconstorage.blob.core.windows.net/snapshots'
-export const CONUS_BOUNDS: [[number, number], [number, number]] = [
-  [24.5, -125.0],
-  [49.4, -66.9],
-]
+export { CONUS_BOUNDS } from './geo'
 
 export interface SnapshotEnvelope {
   version: number
