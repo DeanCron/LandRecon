@@ -1,4 +1,5 @@
 import { dbg } from '../utils/debug'
+import { getOverpassEndpoints } from './runtimeConfig'
 import { startPerformanceSpan, toTelemetryDuration } from '../utils/performanceTelemetry'
 
 // Overpass requests are routed through a same-origin nginx proxy (see
@@ -6,7 +7,7 @@ import { startPerformanceSpan, toTelemetryDuration } from '../utils/performanceT
 // overpass-api.de returns 406 to generic browser UAs, and the browser's
 // CORS preflight UA cannot be overridden from JavaScript, so the proxy
 // is required.
-const OVERPASS_ENDPOINTS = ['/overpass', '/overpass2']
+const OVERPASS_ENDPOINTS = getOverpassEndpoints()
 
 // Public Overpass instances rate-limit by the number of *concurrent* requests
 // from one client (overpass-api.de typically allows ~2 slots). The Recon Report

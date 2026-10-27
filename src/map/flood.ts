@@ -1,4 +1,4 @@
-import L from 'leaflet'
+import type L from 'leaflet'
 import { assertNoApiErrorPayload, fetchJsonWithRetry } from './fetchRetry'
 
 // ── FEMA National Flood Hazard Layer (NFHL) ─────────────────────────────

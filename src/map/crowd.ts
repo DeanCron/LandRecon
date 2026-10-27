@@ -1,6 +1,6 @@
-import L from 'leaflet'
+import { type BoundsLike, boundsContains, haversineMeters, pointInConus } from './geo'
 import { fetchOverpass } from '../map/overpass'
-import { CONUS_BOUNDS, loadCrowdSnapshot } from './snapshots'
+import { loadCrowdSnapshot } from './snapshots'
 
 export const CROWD_TYPES = ['stadium', 'concert', 'park', 'raceway', 'themepark'] as const
 export type CrowdType = typeof CROWD_TYPES[number]
@@ -100,16 +100,16 @@ export function shouldIncludeCrowdMagnet(type: CrowdType, tags: Record<string, s
   return true
 }
 
-export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSignal): Promise<CrowdMagnet[]> {
+export async function fetchCrowdMagnets(bounds: BoundsLike, signal?: AbortSignal): Promise<CrowdMagnet[]> {
   // Prefer the daily CONUS snapshot over a live Overpass call whenever the
   // bbox center falls inside CONUS. Previously only the toggleable map layer
   // did this — the Recon Report's crowd-magnet check called straight through
   // to live Overpass every run, making it one of the more common sources of
   // 429s from the shared public mirrors. Falls back to live Overpass outside
   // CONUS or when the snapshot fails to load.
-  if (L.latLngBounds(CONUS_BOUNDS).contains(bounds.getCenter())) {
+  if (pointInConus(bounds.getCenter())) {
     const snap = await loadCrowdSnapshot(signal)
-    if (snap) return snap.magnets.filter((m) => bounds.contains([m.lat, m.lng] as L.LatLngTuple))
+    if (snap) return snap.magnets.filter((m) => boundsContains(bounds, m))
   }
   const s = bounds.getSouth(), w = bounds.getWest()
   const n = bounds.getNorth(), e = bounds.getEast()
@@ -156,7 +156,7 @@ export async function fetchCrowdMagnets(bounds: L.LatLngBounds, signal?: AbortSi
   for (const m of out) {
     const dup = merged.find((x) => x.type === m.type
       && x.name.toLowerCase() === m.name.toLowerCase()
-      && L.latLng(x.lat, x.lng).distanceTo(L.latLng(m.lat, m.lng)) / 1609.34 < 1.5)
+      && haversineMeters(x, m) / 1609.34 < 1.5)
     if (!dup) merged.push(m)
   }
   return merged
