@@ -161,3 +161,19 @@ test('saved addresses: CRUD, validation, isolation and cap', async () => {
     assert.equal((await fetch(base, json(alice, 'DELETE'))).status, 405)
   } finally { s.server.close() }
 })
+
+test('saved addresses fail closed (503) when no storage is configured', async () => {
+  const prev = { url: process.env.TABLE_STORAGE_URL, mem: process.env.ALLOW_MEMORY_STORE }
+  delete process.env.TABLE_STORAGE_URL
+  delete process.env.ALLOW_MEMORY_STORE
+  const s = await listen({ easyAuthEnabled: true })
+  try {
+    const res = await fetch(`${s.origin}/api/me/addresses`, { headers: principalHeaders() })
+    assert.equal(res.status, 503)
+    assert.deepEqual(await res.json(), { error: 'storage unavailable' })
+  } finally {
+    s.server.close()
+    if (prev.url !== undefined) process.env.TABLE_STORAGE_URL = prev.url
+    if (prev.mem !== undefined) process.env.ALLOW_MEMORY_STORE = prev.mem
+  }
+})

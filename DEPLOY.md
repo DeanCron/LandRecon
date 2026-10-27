@@ -133,10 +133,14 @@ az containerapp update --name landrecon --resource-group LandRecon-RG \
   --set-env-vars TABLE_STORAGE_URL=https://<storage-account>.table.core.windows.net
 ```
 
-Without `TABLE_STORAGE_URL` the sidecar falls back to a non-persistent
-in-memory store (fine for local dev, data is lost on restart). The table is
-created on first use if the identity may create tables; otherwise create it once
-with `az storage table create --name savedaddresses --auth-mode login`.
+Without `TABLE_STORAGE_URL` the saved-addresses endpoints **fail closed**: they
+return `503 storage unavailable` rather than accepting saves that would be lost
+on restart or across replicas. For local dev only, set `ALLOW_MEMORY_STORE=1` to
+use a non-persistent in-memory store. The table is created on first use; if the
+identity lacks the role above (or `TABLE_STORAGE_URL` is wrong) the same 503 is
+returned and the cause is logged as `[api] storage unavailable: ...`. Provision
+the Storage account and role assignment yourself (a new paid Azure resource);
+the code never creates Azure resources other than the table itself.
 
 ### Dev Todos store persistence (`/var/lib/landrecon`)
 
