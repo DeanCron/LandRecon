@@ -19,6 +19,7 @@ import { startPerformanceSpan } from '../utils/performanceTelemetry'
 import { rememberMapAddress, rememberMapGps, resolveMapAddress, resolveMapGps, resolveMapLocationError } from '../utils/mapAddressState'
 import { gpsAccuracyText, locationIdentity, setGpsTargetParams } from '../utils/locationTarget'
 import { resolveLocation } from '../utils/resolveLocation'
+import { rememberGeocode } from '../utils/geocodeCache'
 import { useCurrentLocation } from '../hooks/useCurrentLocation'
 import { cachedPlacesSearchText } from '../utils/placesCache'
 import { LEGEND_BANDS } from '../noise/legend'
@@ -3155,8 +3156,10 @@ function MapPage() {
         if (abortController.signal.aborted) return
         setResolvedLocationKey(locationKey)
         finishGeocode('success', { matched: true })
-        if (!gpsTarget) pushRecentSearch(address)
-        else {
+        if (!gpsTarget) {
+          pushRecentSearch(address)
+          rememberGeocode(address, lat, lng)
+        } else {
           setAnalysisPanelOpen(true)
           setLayerPanelOpen(false)
           setSheetHeight(null)

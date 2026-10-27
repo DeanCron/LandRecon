@@ -77,16 +77,8 @@
 }
 
 @media print {
-  /* MapPage.css hides everything but the map panel when printing; the report page opts back in. */
-  .report-page,
-  .report-page * {
-    visibility: visible;
-  }
-
   .report-page {
-    position: absolute;
-    top: 0;
-    left: 0;
+    position: static;
     max-width: none;
     width: 100%;
     padding: 0;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Component, useEffect, useMemo, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import ReportView from '../components/ReportView'
 import { readAnalysisCache } from '../map/analysisCache'
@@ -7,14 +7,23 @@ import { REPORT_SECTIONS, analysisResultsFromCache } from '../map/reportFromCach
 import { loadSavedAnalyses, savedAnalysisState } from '../map/savedAnalyses'
 import { gpsTargetFromParams, gpsTargetLabel, locationIdentity } from '../utils/locationTarget'
 import { rememberMapAddress, rememberMapGps, resolveMapAddress, resolveMapGps } from '../utils/mapAddressState'
-import { resolveLocation } from '../utils/resolveLocation'
+import { lookupGeocode } from '../utils/geocodeCache'
 import './MapPage.css'
 import './ReportPage.css'
 
-const TOMTOM_API_KEY = import.meta.env.VITE_TOMTOM_API_KEY || ''
 const noop = () => {}
 
-type Resolution = { key: string; coords: { lat: number; lng: number } | null; error: string }
+class SectionBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed
+      ? <p className="report-page-empty" role="alert">This section could not be displayed from the cached data. Re-run the analysis on the map.</p>
+      : this.props.children
+  }
+}
 
 export default function ReportPage() {
   const routeLocation = useLocation()
@@ -27,31 +36,31 @@ export default function ReportPage() {
     ? gpsTargetLabel(gpsTarget)
     : resolveMapAddress(routeLocation.state) || searchParams.get('address')?.trim() || ''
   const locationKey = address || gpsTarget ? locationIdentity(address, gpsTarget) : ''
-  const [resolution, setResolution] = useState<Resolution | null>(null)
-
-  useEffect(() => {
-    if (!locationKey || gpsTarget) return
-    const controller = new AbortController()
-    resolveLocation(address, null, TOMTOM_API_KEY, controller.signal)
-      .then((coords) => setResolution({ key: locationKey, coords, error: '' }))
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return
-        setResolution({ key: locationKey, coords: null, error: err instanceof Error ? err.message : 'Address lookup failed.' })
-      })
-    return () => controller.abort()
-  }, [address, gpsTarget, locationKey])
-
-  const resolvedCoords = resolution?.key === locationKey ? resolution.coords : null
+  // Never geocode here: an anonymous /report?address=... link must not drive
+  // paid TomTom usage. Coordinates come from GPS params or from a geocode the
+  // map page already performed for this address.
   const coords = useMemo(
-    () => (gpsTarget ? { lat: gpsTarget.lat, lng: gpsTarget.lng } : resolvedCoords),
-    [gpsTarget, resolvedCoords],
+    () => (gpsTarget ? { lat: gpsTarget.lat, lng: gpsTarget.lng } : address ? lookupGeocode(address) : null),
+    [gpsTarget, address],
   )
-  const lookupError = !gpsTarget && resolution?.key === locationKey ? resolution.error : ''
-  const lookingUp = !!locationKey && !coords && !lookupError
-  const cached = useMemo(() => (coords ? readAnalysisCache(coords.lat, coords.lng) : null), [coords])
-  const analysisResults = useMemo(() => (cached ? analysisResultsFromCache(cached) : null), [cached])
+  const analysisResults = useMemo(() => {
+    const cached = coords ? readAnalysisCache(coords.lat, coords.lng) : null
+    if (!cached) return null
+    try {
+      const results = analysisResultsFromCache(cached)
+      computeLocationGrade(results)
+      return results
+    } catch {
+      return null
+    }
+  }, [coords])
   const grade = useMemo(() => (analysisResults ? computeLocationGrade(analysisResults) : null), [analysisResults])
   const mapState = gpsTarget ? rememberMapGps(gpsTarget) : rememberMapAddress(address)
+
+  useEffect(() => {
+    document.body.classList.add('report-print')
+    return () => document.body.classList.remove('report-print')
+  }, [])
 
   useEffect(() => {
     const previous = document.title
@@ -77,14 +86,10 @@ export default function ReportPage() {
         <p><Link to="/">Search for an address</Link></p>
       </div>
     )
-  } else if (lookingUp) {
-    body = <p className="report-page-empty" role="status">Looking up address…</p>
-  } else if (lookupError) {
-    body = <p className="report-page-empty" role="alert">{lookupError}</p>
   } else if (!analysisResults || !grade) {
     body = (
       <div className="report-page-empty">
-        <p>No recent analysis found for this location. Run the analysis on the map first, then return here to print the report.</p>
+        <p>No recent analysis found for this location. Run this address on the map first, then return here to print the report.</p>
         <p><Link to="/map" state={mapState}>Analyze this location on the map</Link></p>
       </div>
     )
@@ -94,6 +99,7 @@ export default function ReportPage() {
         {REPORT_SECTIONS.map(({ detail, title }) => (
           <section key={detail} className="report-page-section">
             <h2>{title}</h2>
+            <SectionBoundary>
             <ReportView
               analysisDetail={detail}
               analysisResults={analysisResults}
@@ -112,6 +118,7 @@ export default function ReportPage() {
               removeWorkAddress={noop}
               retryCostco={noop}
             />
+            </SectionBoundary>
           </section>
         ))}
         <p className="report-page-disclaimer">
