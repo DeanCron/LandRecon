@@ -2,6 +2,7 @@ import { Component, useEffect, useMemo, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import ReportView from '../components/ReportView'
 import { readAnalysisCache } from '../map/analysisCache'
+import { REPORT_DISCLAIMER, dataVintages } from '../map/reportCopy'
 import { computeLocationGrade } from '../map/scoring'
 import { REPORT_SECTIONS, analysisResultsFromCache } from '../map/reportFromCache'
 import { loadSavedAnalyses, savedAnalysisState } from '../map/savedAnalyses'
@@ -55,6 +56,7 @@ export default function ReportPage() {
     }
   }, [coords])
   const grade = useMemo(() => (analysisResults ? computeLocationGrade(analysisResults) : null), [analysisResults])
+  const vintages = useMemo(() => (grade ? dataVintages(grade) : []), [grade])
   const mapState = gpsTarget ? rememberMapGps(gpsTarget) : rememberMapAddress(address)
 
   useEffect(() => {
@@ -121,11 +123,17 @@ export default function ReportPage() {
             </SectionBoundary>
           </section>
         ))}
-        <p className="report-page-disclaimer">
-          Informational only. This report is not a verified property boundary and is not a substitute for a
-          professional inspection, survey, or an official FEMA flood determination. Data is drawn from public
-          sources and may be out of date.
-        </p>
+        {vintages.length > 0 && (
+          <section className="report-page-section report-page-vintages">
+            <h2>Data vintages</h2>
+            <ul>
+              {vintages.map((v) => (
+                <li key={v.label}>{v.label}: {v.source} — {v.freshness}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <p className="report-page-disclaimer">{REPORT_DISCLAIMER}</p>
       </>
     )
   }
