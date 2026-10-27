@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:server": "node --test server/og.test.mjs server/api.test.mjs server/store.test.mjs",
+    "test:server": "node --test server/og.test.mjs server/api.test.mjs",
     "preview": "vite preview",
     "build:districts": "node scripts/build-districts.mjs",
     "build:broadband": "node scripts/build-broadband-index.mjs",
@@ -18,8 +18,6 @@
     "perf:capture": "node scripts/perf-capture.mjs"
   },
   "dependencies": {
-    "@azure/data-tables": "^13.3.2",
-    "@azure/identity": "^4.14.0",
     "@mapbox/vector-tile": "^2.0.4",
     "@types/leaflet.markercluster": "^1.5.6",
     "better-sqlite3": "^12.11.1",
