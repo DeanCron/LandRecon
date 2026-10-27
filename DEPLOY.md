@@ -115,6 +115,33 @@ az containerapp update \
   --set-env-vars DEV_TODOS_TOKEN=secretref:dev-todos-token
 ```
 
+### Saved addresses storage (Azure Table Storage)
+
+The API sidecar (`server/api.mjs`) serves `/api/me/addresses` (signed-in users
+only: `GET`/`POST` on the collection, `GET`/`PUT`/`DELETE` on `/<id>`). Data
+lives in the `savedaddresses` table (PartitionKey = user id, RowKey = address
+id), capped at `SAVED_ADDRESS_MAX` (default 50) per user. No keys are used: the
+sidecar authenticates with the app's **managed identity**.
+
+```bash
+# Grant the app's system-assigned identity table access on the storage account
+az role assignment create \
+  --assignee <app-principal-id> --role "Storage Table Data Contributor" \
+  --scope $(az storage account show -n <storage-account> -g LandRecon-RG --query id -o tsv)
+
+az containerapp update --name landrecon --resource-group LandRecon-RG \
+  --set-env-vars TABLE_STORAGE_URL=https://<storage-account>.table.core.windows.net
+```
+
+Without `TABLE_STORAGE_URL` the saved-addresses endpoints **fail closed**: they
+return `503 storage unavailable` rather than accepting saves that would be lost
+on restart or across replicas. For local dev only, set `ALLOW_MEMORY_STORE=1` to
+use a non-persistent in-memory store. The table is created on first use; if the
+identity lacks the role above (or `TABLE_STORAGE_URL` is wrong) the same 503 is
+returned and the cause is logged as `[api] storage unavailable: ...`. Provision
+the Storage account and role assignment yourself (a new paid Azure resource);
+the code never creates Azure resources other than the table itself.
+
 ### Dev Todos store persistence (`/var/lib/landrecon`)
 
 The Dev Todos sidecar persists a single JSON document to local disk at

@@ -1,5 +1,5 @@
 // Authenticated API sidecar (listens on 127.0.0.1:3003, proxied by nginx at
-// /api/me).
+// /api/me and /api/me/addresses).
 //
 // Identity comes from Azure Container Apps built-in auth ("Easy Auth") with
 // AllowAnonymous: signed-in requests carry X-MS-CLIENT-PRINCIPAL* headers,
@@ -14,6 +14,7 @@
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { StoreError, createStoreFromEnv } from './store.mjs'
 
 const PORT = Number(process.env.API_PORT || 3003)
 const MAX_BODY = 64 * 1024
@@ -128,9 +129,62 @@ export function validateObject(schema, value) {
   return errors
 }
 
+// ---- saved addresses -------------------------------------------------------
+
+const ADDRESS_SCHEMA = {
+  label: { type: 'string', required: true, max: 100 },
+  address: { type: 'string', required: true, max: 300 },
+  lat: { type: 'number', required: true, min: -90, maxValue: 90 },
+  lng: { type: 'number', required: true, min: -180, maxValue: 180 },
+  gps_accuracy_m: { type: 'number', min: 0, maxValue: 100_000 },
+  snapshot: { type: 'object', maxBytes: 30_000 },
+}
+const ADDRESS_PATH = /^\/api\/me\/addresses(?:\/([0-9a-f-]{36}))?\/?$/i
+
+async function handleAddresses(req, res, { principal, store, maxPerUser, id }) {
+  if (!principal) return send(res, 401, { error: 'sign in required' })
+  const userId = principal.id
+
+  if (!id) {
+    if (req.method === 'GET') return send(res, 200, { addresses: await store.list(userId) })
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const errors = validateObject(ADDRESS_SCHEMA, body)
+      if (errors.length) return send(res, 400, { error: 'invalid body', details: errors })
+      try {
+        return send(res, 201, await store.create(userId, body, { maxPerUser }))
+      } catch (err) {
+        if (err instanceof StoreError && err.code === 'limit') return send(res, 409, { error: err.message, limit: maxPerUser })
+        throw err
+      }
+    }
+    return send(res, 405, { error: 'method not allowed' }, { Allow: 'GET, POST' })
+  }
+
+  if (req.method === 'GET') {
+    const rec = await store.get(userId, id)
+    return rec ? send(res, 200, rec) : send(res, 404, { error: 'not found' })
+  }
+  if (req.method === 'PUT') {
+    const body = await readJsonBody(req)
+    const errors = validateObject(ADDRESS_SCHEMA, body)
+    if (errors.length) return send(res, 400, { error: 'invalid body', details: errors })
+    const rec = await store.update(userId, id, body)
+    return rec ? send(res, 200, rec) : send(res, 404, { error: 'not found' })
+  }
+  if (req.method === 'DELETE') {
+    return (await store.remove(userId, id)) ? send(res, 204, null) : send(res, 404, { error: 'not found' })
+  }
+  return send(res, 405, { error: 'method not allowed' }, { Allow: 'GET, PUT, DELETE' })
+}
+
 // ---- server ----------------------------------------------------------------
 
 function send(res, status, payload, extra = {}) {
+  if (status === 204) {
+    res.writeHead(204, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra })
+    return res.end()
+  }
   const body = JSON.stringify(payload)
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -146,6 +200,16 @@ export function createApiServer(opts = {}) {
   const userLimit = opts.userLimit ?? num(process.env.API_USER_RATE_PER_MIN, 60)
   const anonLimit = opts.anonLimit ?? num(process.env.API_ANON_RATE_PER_MIN, 20)
   const limiter = opts.limiter ?? createRateLimiter()
+  const maxPerUser = opts.maxPerUser ?? num(process.env.SAVED_ADDRESS_MAX, 50)
+  // Created on first use so /api/me never depends on storage being reachable.
+  let storePromise = opts.store ? Promise.resolve(opts.store) : null
+  const getStore = () => {
+    storePromise ??= createStoreFromEnv().catch((err) => {
+      storePromise = null
+      throw err
+    })
+    return storePromise
+  }
 
   return createServer(async (req, res) => {
     try {
@@ -162,10 +226,24 @@ export function createApiServer(opts = {}) {
           ? { authenticated: true, user: { id: principal.id, provider: principal.provider, name: principal.name } }
           : { authenticated: false })
       }
+      const m = ADDRESS_PATH.exec(url.pathname)
+      if (m) {
+        let store = null
+        if (principal) {
+          try {
+            store = await getStore()
+          } catch (err) {
+            if (!(err instanceof StoreError && err.code === 'unavailable')) throw err
+            console.error('[api] storage unavailable:', err.message)
+            return send(res, 503, { error: 'storage unavailable' })
+          }
+        }
+        return await handleAddresses(req, res, { principal, store, maxPerUser, id: m[1] })
+      }
       return send(res, 404, { error: 'not found' })
     } catch (err) {
       if (err instanceof HttpError) return send(res, err.status, { error: err.message })
-      console.error('[api] unhandled error:', err?.message)
+      console.error('[api] unhandled error:', err?.code || err?.statusCode || err?.message)
       return send(res, 500, { error: 'internal error' })
     }
   })
