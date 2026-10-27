@@ -3688,7 +3688,8 @@
 
 /* Print styles */
 @media print {
-  body * {
+  /* The report page sets body.report-print and lays itself out in normal flow. */
+  body:not(.report-print) * {
     visibility: hidden;
   }
 

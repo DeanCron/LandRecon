@@ -44,7 +44,7 @@ export function resolveMapAddress(routeState: unknown): string {
 }
 
 export function scrubMapAddressBeforeAnalytics(): void {
-  if (typeof window === 'undefined' || window.location.pathname !== '/map') return
+  if (typeof window === 'undefined' || window.location.pathname !== '/map' && window.location.pathname !== '/report') return
 
   const url = new URL(window.location.href)
   const hasGps = GPS_QUERY_KEYS.some((key) => url.searchParams.has(key))

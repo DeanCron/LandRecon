@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import logo from '../assets/landrecon-logo.webp'
 import {
   clearRecentSearches,
@@ -523,6 +523,8 @@ function HomePage() {
           <button className="home-about-link" onClick={() => setShowAbout(true)}>What is LandRecon?</button>
           <span aria-hidden="true" style={{ margin: '0 8px', opacity: 0.4 }}>·</span>
           <button className="home-about-link" onClick={() => setShowPrivacy(true)}>Privacy</button>
+          <span aria-hidden="true" style={{ margin: '0 8px', opacity: 0.4 }}>·</span>
+          <Link className="home-about-link" to="/report">Printable report</Link>
         </footer>
       </div>
 
