@@ -80,6 +80,8 @@ import {
   writeSavedAnalyses,
   savedAnalysisState,
 } from '../map/savedAnalyses'
+import { addressLabel, AccountApiError, createAddress } from '../account/accountApi'
+import { useAccount } from '../account/useAccount'
 import { useAddressSuggestions, formatTomTomAddress, type TomTomSuggestion } from '../hooks/useAddressSuggestions'
 import { ShareModal } from '../components/ShareModal'
 import { useDevTodos } from '../hooks/useDevTodos'
@@ -989,6 +991,48 @@ function MapPage() {
     setSavedAnalyses(next)
     writeSavedAnalyses(next)
   }, [address, gpsTarget, reportReady, analysisComplete, analysisProgress, analysisResults, savedAnalyses])
+
+  const account = useAccount()
+  const [accountSaveState, setAccountSaveState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'limit'>('idle')
+  useEffect(() => { setAccountSaveState('idle') }, [locationKey])
+  const saveToAccount = useCallback(async () => {
+    if (account.status !== 'signed-in') {
+      navigate('/account')
+      return
+    }
+    const coords = gpsTarget ?? propertyCoords
+    if (!reportReady || !coords || !canSaveAnalysis(analysisResults, analysisComplete)) return
+    const grade = computeLocationGrade(analysisResults)
+    const snapshot: SavedAnalysis = {
+      address: address || 'Unknown',
+      ...(gpsTarget ? { gps: gpsTarget } : {}),
+      date: new Date().toLocaleDateString(),
+      grade: grade.letter,
+      gradeColor: grade.color,
+      pct: grade.pct,
+      noiseLevel: analysisResults.noiseLevel,
+      noiseAirport: analysisResults.noiseAirport,
+      superfundCount: analysisResults.superfunds.length,
+      superfundActive: analysisResults.superfunds.filter(s => s.status !== 'Deleted').length,
+      costcoMi: analysisResults.costco?.distanceMi ?? null,
+      dataCenterCount: analysisResults.dataCenters.length,
+      ...buildSavedAnalysisExplainability(grade.breakdown, grade.evidence, grade.quality, getPendingSavedAnalysisFactors(analysisResults, analysisProgress)),
+    }
+    setAccountSaveState('saving')
+    try {
+      await createAddress({
+        label: addressLabel(snapshot.address),
+        address: snapshot.address.slice(0, 300),
+        lat: coords.lat,
+        lng: coords.lng,
+        ...(gpsTarget ? { gps_accuracy_m: gpsTarget.accuracy } : {}),
+        snapshot,
+      })
+      setAccountSaveState('saved')
+    } catch (err) {
+      setAccountSaveState(err instanceof AccountApiError && err.status === 409 ? 'limit' : 'error')
+    }
+  }, [account.status, navigate, address, gpsTarget, propertyCoords, reportReady, analysisComplete, analysisProgress, analysisResults])
 
   const [editingAddress, setEditingAddress] = useState(false)
   const [addressInputValue, setAddressInputValue] = useState('')
@@ -6750,6 +6794,18 @@ function MapPage() {
                 <polyline points="17 21 17 13 7 13 7 21" />
                 <polyline points="7 3 7 8 15 8" />
               </svg>
+            </button>
+            <button
+              className="analysis-action-btn analysis-save-btn"
+              onClick={() => void saveToAccount()}
+              disabled={accountSaveState === 'saving' || accountSaveState === 'saved' || !canSaveAnalysis(analysisResults, analysisComplete)}
+              title={accountSaveState === 'saved' ? 'Saved to your account'
+                : accountSaveState === 'limit' ? 'Account address limit reached — remove one in My addresses'
+                : accountSaveState === 'error' ? 'Could not save — try again'
+                : account.status === 'signed-in' ? 'Save to account' : 'Sign in to save to account'}
+              aria-label="Save to account"
+            >
+              <span aria-hidden="true">{accountSaveState === 'saved' ? '✓' : accountSaveState === 'limit' || accountSaveState === 'error' ? '!' : '☁'}</span>
             </button>
             <button
               className="analysis-close"

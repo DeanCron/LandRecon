@@ -44,7 +44,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // Don't intercept API calls or the noise pmtiles — they have their
         // own caching strategies below.
-        navigateFallbackDenylist: [/^\/(overpass|overpass2|data|api)\//],
+        navigateFallbackDenylist: [/^\/(overpass|overpass2|data|api)\//, /^\/\.auth\//],
         runtimeCaching: [
           {
             // Map tiles — Google, TomTom, ESRI, OSM. Network-first so users
@@ -70,6 +70,12 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
               networkTimeoutSeconds: 5,
             },
+          },
+          {
+            // Identity and saved addresses must never be cached: they would
+            // outlive sign-out or "Delete all my data" on a shared browser.
+            urlPattern: ({ url }) => /^\/(api\/me(\/|$)|\.auth\/)/.test(url.pathname),
+            handler: 'NetworkOnly',
           },
           {
             // Overpass / GIS responses (same-origin via nginx proxy).
